@@ -1,6 +1,6 @@
 # Exhaust 0.0.0
 
-A robust and personable notepad that doesn't get in the way.
+A robust and personable notepad that doesn't get in your way.
 
 ## Values:
 
