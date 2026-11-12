@@ -12,6 +12,15 @@ Types: `bool`, `int`, `percent`, `string`, `path` (relative to the vault), `colo
 
 A plain text INI file in the vault's `.exhaust` folder (and a global copy in the OS config folder). Sections in square brackets, `key = value` lines, `#` comments. Keys are lowercase with underscores.
 
+**How the file is used (sub-slice 2d).**
+- *Layers.* A key is read from the vault's `<vault>/.exhaust/settings.ini`; if that file does not set it, from the global `settings.ini` in the OS config folder; if that does not either, the default in the tables below. With no vault open, changes go to the global file.
+- *Generated table.* The table of known keys in the code is generated from the tables in this section at build time (`tools/gen_tables.c`), so a key exists in the code only if it is here. A key's type decides what is accepted: `bool` is `true` or `false` (`yes`, `no`, `on`, `off`, `1` and `0` are read too, and written back as `true` or `false` when Exhaust changes the key), `int` and `percent` are whole numbers, `color` is empty or `#rrggbb` or `#rrggbbaa`, an `enum` is one of its listed values (an enum whose list says `...` is read as free text until its values are decided). A stub (`false (stub)`, for Sync and Publish) cannot be turned on.
+- *Write-through.* Every change is written at once (on a worker thread, as an atomic replace), not when Exhaust exits.
+- *Nothing the user wrote is lost.* A change edits the text of the file in place: comments, blank lines, the order of sections and keys, keys and sections Exhaust does not know, line endings (LF or CRLF), a byte-order mark and a trailing `# comment` after a value all stay exactly as they were; a new key goes at the end of its section and a new section at the end of the file. When a key appears twice the last line counts (as when reading) and is the one changed. A value that does not fit its type is ignored when reading (the next layer applies) and is left in the file untouched.
+- *Reading never writes.* The `.exhaust` folder is created by the first change, not when a vault is opened.
+- *Unknown keys* can be read through the settings API and are never created by it; plugins and later versions own them.
+- Since: 0.1.0.
+
 ### [general]
 
 | Name | Type | Default | Since |
@@ -270,6 +279,8 @@ other.command =
 ## Commands
 
 Every command in the command registry, read from the nine hotkeys screenshots (`screenshots/settings/hotkeys-1.png` to `hotkeys-9.png`). **Id** is Exhaust's id (`area.action`, lowercase, hyphens; commands with no area are `app.` or, for text-editing commands, `editor.`). **Default** is the shortcut shown in the screenshots for Windows and Linux; a blank means no default shortcut. **Editor** is *yes* for commands that act on the text at the cursor: those are exactly the commands the slash menu lists. The Editor column is Exhaust's own classification, not read from any screenshot. Since: 0.1.0 for every command.
+
+The code's table of commands (`ex_command_table`) is generated from this table at build time (`tools/gen_tables.c`), so a command exists in the code only if it is listed here. A command is *declared* by this table and *bound* when the code that runs it exists; an unbound command, a command whose feature is switched off in `[features]`, and a command of a stub feature are not available (they are shown disabled, never hidden from the hotkeys screen). A command's feature is its area with hyphens turned into underscores (`daily-notes.` belongs to `daily_notes`), except `graph-view.` (`graph`) and `unique-note-creator.` (`unique_note`); `app.`, `editor.`, `table.` and `format-converter.` commands have no feature switch.
 
 203 commands. Left out on purpose: *Configure mobile Quick Action* (mobile is a non-goal), *Open sandbox vault* and *Show release notes* (Obsidian-specific), and *Copy Obsidian URL for current file*, which is renamed *Copy URL for current file*. Commands for stubbed features (Sync) are present and disabled; *Download attachments for current file* needs the network and is *(optional)*. *TODO-verify*: the screenshots are cropped at page edges, so a command may be missing at a boundary between two pages; the macOS defaults are not shown; and the shortcuts shown may be one person's settings rather than defaults.
 

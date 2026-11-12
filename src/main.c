@@ -7,6 +7,7 @@
 #include <SDL3/SDL.h>
 
 #include "exhaust.h"
+#include "exhaust_commands.h"
 #include "exhaust_fontdb.h"
 #include "exhaust_input.h"
 #include "exhaust_notes.h"
@@ -14,6 +15,7 @@
 #include "exhaust_platform.h"
 #include "exhaust_render.h"
 #include "exhaust_session.h"
+#include "exhaust_settings.h"
 #include "exhaust_theme.h"
 #include "exhaust_ui.h"
 #include "exhaust_vault.h"
@@ -63,6 +65,11 @@ typedef struct App {
     ExWorkspace *ws;
     ExPanes *panes;
     ExSession *session;
+    ExSettings *settings;
+    ExFeatures *features;
+    ExCommands *commands;
+    ExWidget *left_content;
+    float zoom_now;
     TabNote *tabnotes; size_t ntabnotes, captabnotes;
     ExId focus_tab;            /* the tab whose editor should get the focus when it exists */
     Banner banner_kind;
@@ -292,19 +299,97 @@ static void on_new_note(ExWidget *w, const char *parent_rel, void *user) {
 static void on_toggle_theme(ExWidget *w, void *user) {
     App *a = user;
     ExTheme next;
+    int to_dark = !a->theme.is_dark;
     (void)w;
-    if (ex_theme_init_builtin(&next, a->theme.is_dark ? EX_THEME_LIGHT : EX_THEME_DARK) == 0) {
+    if (ex_theme_init_builtin(&next, to_dark ? EX_THEME_DARK : EX_THEME_LIGHT) == 0) {
         ex_theme_free(&a->theme);
         a->theme = next;
         ex_ui_set_theme(a->ui, &a->theme);
+        ex_settings_set(a->settings, "appearance", "color_scheme", to_dark ? "dark" : "light");   /* written at once */
     }
 }
 
 static void toggle_side(App *a, ExSide side) {
     ex_ws_set_sidebar(a->ws, side, !ex_ws_sidebar_visible(a->ws, side), ex_ws_sidebar_width(a->ws, side));
 }
-static void on_toggle_left(ExWidget *w, void *user) { (void)w; toggle_side(user, EX_SIDE_LEFT); }
-static void on_toggle_right(ExWidget *w, void *user) { (void)w; toggle_side(user, EX_SIDE_RIGHT); }
+static void on_toggle_left(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "app.toggle-left-sidebar"); }
+static void on_toggle_right(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "app.toggle-right-sidebar"); }
+
+/* ---- commands ---- */
+
+static void cmd_toggle_left(void *u) { toggle_side(u, EX_SIDE_LEFT); }
+static void cmd_toggle_right(void *u) { toggle_side(u, EX_SIDE_RIGHT); }
+static void cmd_change_theme(void *u) { on_toggle_theme(NULL, u); }   /* until the picker exists: switches light and dark */
+static void cmd_new_note(void *u) { on_new_note(NULL, "", u); }
+static int has_notes(void *u) { return ((App *)u)->notes != NULL && ((App *)u)->vault != NULL; }
+static void cmd_close_tab(void *u) {
+    App *a = u;
+    ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+    if (t) ex_ws_close_tab(a->ws, t);
+}
+static int has_tab(void *u) { App *a = u; return ex_ws_group_active(a->ws, ex_ws_active_group(a->ws)) != 0; }
+
+static void on_files_feature(const char *id, int enabled, void *user) {
+    App *a = user;
+    (void)id;
+    if (a->left_content) a->left_content->hidden = !enabled;
+}
+
+static void register_features_and_commands(App *a) {
+    a->features = ex_features_create(a->settings);
+    ex_features_register(a->features, "files", "Files", on_files_feature, a);
+    on_files_feature("files", ex_features_enabled(a->features, "files"), a);
+    a->commands = ex_commands_create(a->features);
+    ex_commands_bind(a->commands, "app.toggle-left-sidebar", cmd_toggle_left, NULL, a);
+    ex_commands_bind(a->commands, "app.toggle-right-sidebar", cmd_toggle_right, NULL, a);
+    ex_commands_bind(a->commands, "app.change-theme", cmd_change_theme, NULL, a);
+    ex_commands_bind(a->commands, "app.create-new-note", cmd_new_note, has_notes, a);
+    ex_commands_bind(a->commands, "app.close-current-tab", cmd_close_tab, has_tab, a);
+}
+
+/* Does a key press match a shortcut text from the command table ("Ctrl+N", "Ctrl+Shift+T")? Only
+ * letters, digits and single punctuation marks for now; the hotkeys screen (sub-slice 7c) replaces this. */
+static int shortcut_matches(const char *keys, const SDL_KeyboardEvent *k) {
+    int ctrl = 0, shift = 0, alt = 0;
+    const char *p = keys, *last;
+    SDL_Keymod m = k->mod;
+    for (;;) {
+        const char *plus = strchr(p, '+');
+        size_t n = plus && plus[1] ? (size_t)(plus - p) : 0;
+        if (!n) break;
+        if (n == 4 && !strncmp(p, "Ctrl", 4)) ctrl = 1;
+        else if (n == 3 && !strncmp(p, "Mod", 3)) ctrl = 1;
+        else if (n == 5 && !strncmp(p, "Shift", 5)) shift = 1;
+        else if (n == 3 && !strncmp(p, "Alt", 3)) alt = 1;
+        else return 0;
+        p = plus + 1;
+    }
+    last = p;
+    if (strlen(last) != 1) return 0;
+#ifdef __APPLE__
+    if (((m & SDL_KMOD_GUI) != 0) != ctrl) return 0;
+#else
+    if (((m & SDL_KMOD_CTRL) != 0) != ctrl) return 0;
+#endif
+    if (((m & SDL_KMOD_SHIFT) != 0) != shift || ((m & SDL_KMOD_ALT) != 0) != alt) return 0;
+    {
+        int c = (unsigned char)last[0];
+        if (c >= 'A' && c <= 'Z') c = c - 'A' + 'a';
+        return (int)k->key == c;
+    }
+}
+
+static int run_shortcut(App *a, const SDL_KeyboardEvent *k) {
+    size_t i;
+    for (i = 0; i < ex_commands_count(a->commands); i++) {
+        const ExCommandDef *d = ex_commands_at(a->commands, i);
+        if (d->default_keys[0] && ex_commands_available(a->commands, d->id) && shortcut_matches(d->default_keys, k)) {
+            ex_commands_run(a->commands, d->id);
+            return 1;
+        }
+    }
+    return 0;
+}
 
 /* Which tab, note and editor are active; called before every layout. */
 static void sync_ui(App *a) {
@@ -396,21 +481,43 @@ int main(int argc, char **argv) {
     memset(&app, 0, sizeof app);
     app.zoom = 1.0f;
     app.blink_on = 1;
-    app.r = ex_renderer_create("Exhaust", 1100, 700);
-    if (!app.r) {
-        fprintf(stderr, "exhaust: cannot open a window: %s\n", ex_render_error());
-        return 1;
-    }
-    if (ex_theme_init_builtin(&app.theme, EX_THEME_DARK) != 0) return 1;
-    ex_renderer_set_display_scale(app.r, ex_renderer_detect_display_scale(app.r));
-    app.ui = ex_ui_create(app.r, &app.theme, 16.0f);
-    app.demo_doc = ex_doc_create(intro, strlen(intro));
-    app.ws = ex_ws_create();
-
     if (argc > 1) {
         app.vault = ex_vault_open(argv[1]);
         if (!app.vault) fprintf(stderr, "exhaust: cannot open %s as a vault\n", argv[1]);
     }
+    {   /* settings: the vault's .exhaust folder over the global file; reading creates nothing */
+        char *cfg = ex_platform_config_dir(), *vcfg = NULL;
+        if (app.vault) {
+            vcfg = malloc(strlen(ex_vault_path(app.vault)) + 16);
+            if (vcfg) sprintf(vcfg, "%s/.exhaust", ex_vault_path(app.vault));
+        }
+        app.settings = ex_settings_open(vcfg, cfg);
+        free(vcfg);
+        free(cfg);
+        if (!app.settings) { fprintf(stderr, "exhaust: cannot read the settings\n"); return 1; }
+    }
+    app.r = ex_renderer_create("Exhaust", (int)ex_settings_get_int(app.settings, "appearance", "window_width"), (int)ex_settings_get_int(app.settings, "appearance", "window_height"));
+    if (!app.r) {
+        fprintf(stderr, "exhaust: cannot open a window: %s\n", ex_render_error());
+        return 1;
+    }
+    {
+        const char *scheme = ex_settings_get(app.settings, "appearance", "color_scheme");
+        int dark = strcmp(scheme, "light") != 0;
+        if (strcmp(scheme, "system") == 0) dark = SDL_GetSystemTheme() != SDL_SYSTEM_THEME_LIGHT;
+        if (ex_theme_init_builtin(&app.theme, dark ? EX_THEME_DARK : EX_THEME_LIGHT) != 0) return 1;
+    }
+    ex_renderer_set_display_scale(app.r, ex_renderer_detect_display_scale(app.r));
+    {
+        long fs = ex_settings_get_int(app.settings, "appearance", "font_size");
+        long zp = ex_settings_get_int(app.settings, "interface", "zoom_percent");
+        app.ui = ex_ui_create(app.r, &app.theme, (float)(fs < 8 ? 8 : fs > 48 ? 48 : fs));
+        zoom = (float)(zp < 50 ? 50 : zp > 400 ? 400 : zp) / 100.0f;
+        ex_renderer_set_zoom(app.r, zoom);
+    }
+    app.demo_doc = ex_doc_create(intro, strlen(intro));
+    app.ws = ex_ws_create();
+
     if (app.vault) {
         ExRegistry *reg = ex_registry_load(NULL);
         ExNotesConfig nc;
@@ -422,6 +529,10 @@ int main(int argc, char **argv) {
             ex_registry_free(reg);
         }
         memset(&nc, 0, sizeof nc);
+        nc.autosave_idle_ms = (int)ex_settings_get_int(app.settings, "files", "autosave_idle_ms");
+        nc.autosave_max_ms = (int)ex_settings_get_int(app.settings, "files", "autosave_max_ms");
+        nc.journal_flush_ms = (int)ex_settings_get_int(app.settings, "files", "journal_flush_ms");
+        ex_settings_apply_vault(app.settings, app.vault);
         app.notes = ex_notes_create(app.vault, &nc);
         app.session = ex_session_create(app.vault, NULL, 300);
         loaded = app.session ? ex_session_load(app.session, app.ws) : 0;
@@ -436,6 +547,7 @@ int main(int argc, char **argv) {
         ex_ws_new_tab(app.ws, 0, "", "welcome");   /* no vault: one tab with the welcome text */
     }
 
+    register_features_and_commands(&app);
     memset(&hooks, 0, sizeof hooks);
     hooks.make_content = make_content;
     hooks.content_closed = content_closed;
@@ -468,6 +580,8 @@ int main(int argc, char **argv) {
         left_content->bg_token = EX_COLOR_BACKGROUND_ALT;
     }
     if (app.vault && left_content) ex_explorer_set_new_note_handler(left_content, on_new_note, &app);
+    app.left_content = left_content;
+    on_files_feature("files", ex_features_enabled(app.features, "files"), &app);
     app.left_sb = ex_sidebar_create(app.ui, app.ws, EX_SIDE_LEFT, left_content, "Left sidebar");
     ex_widget_add(row, app.left_sb);
 
@@ -543,6 +657,8 @@ int main(int argc, char **argv) {
             ExMessage m;
             while (ex_queue_pop(results, &m))
                 if (m.type == MSG_FONTS_READY) ex_renderer_set_font_db(app.r, (ExFontDb *)m.payload);
+        } else if (e.type == SDL_EVENT_KEY_DOWN && run_shortcut(&app, &e.key)) {
+            app.blink_on = 1;
         } else if (ex_text_event_decode(&e, &te)) {
             app.blink_on = 1;
             if (te.kind == EX_TEXT_COMMIT) ex_ui_text_input(app.ui, te.text, strlen(te.text));
@@ -595,11 +711,16 @@ int main(int argc, char **argv) {
             }
             case SDL_EVENT_KEY_DOWN:
                 if (ex_mods_from_sdl() & EX_MOD_PRIMARY) {
+                    float before = zoom;
                     if (e.key.key == SDLK_EQUALS || e.key.key == SDLK_PLUS) zoom *= 1.1f;
                     else if (e.key.key == SDLK_MINUS) zoom /= 1.1f;
                     else if (e.key.key == SDLK_0) zoom = 1.0f;
-                    else if (e.key.key == SDLK_BACKSLASH) toggle_side(&app, EX_SIDE_LEFT);
-                    ex_renderer_set_zoom(app.r, zoom);
+                    if (zoom < 0.5f) zoom = 0.5f;
+                    if (zoom > 4.0f) zoom = 4.0f;
+                    if (zoom != before) {
+                        ex_renderer_set_zoom(app.r, zoom);
+                        ex_settings_set_int(app.settings, "interface", "zoom_percent", (long)(zoom * 100.0f + 0.5f));   /* written at once */
+                    }
                 }
                 break;
             default: break;
@@ -639,6 +760,9 @@ int main(int argc, char **argv) {
     free(app.tabnotes);
     ex_doc_free(app.demo_doc);
     ex_ws_free(app.ws);
+    ex_commands_free(app.commands);
+    ex_features_free(app.features);
+    ex_settings_close(app.settings);               /* waits for the settings writes that are queued */
     ex_vault_close(app.vault);
     ex_ui_free(app.ui);
     ex_theme_free(&app.theme);

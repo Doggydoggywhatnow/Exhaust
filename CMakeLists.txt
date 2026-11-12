@@ -196,18 +196,31 @@ add_library(exhaust_workspace STATIC src/workspace/workspace.c src/workspace/ses
 target_include_directories(exhaust_workspace PUBLIC include)
 target_link_libraries(exhaust_workspace PUBLIC exhaust_vault exhaust_buffer exhaust_platform SDL3::SDL3-static)
 
+# ---- Settings: the table of known keys is generated from docs/formats.md ----
+add_executable(gen_tables tools/gen_tables.c)
+set(SETTINGS_SCHEMA_C ${CMAKE_CURRENT_BINARY_DIR}/settings_schema.c)
+set(COMMAND_TABLE_C ${CMAKE_CURRENT_BINARY_DIR}/command_table.c)
+add_custom_command(
+  OUTPUT ${SETTINGS_SCHEMA_C} ${COMMAND_TABLE_C}
+  COMMAND gen_tables ${CMAKE_CURRENT_SOURCE_DIR}/docs/formats.md ${SETTINGS_SCHEMA_C} ${COMMAND_TABLE_C}
+  DEPENDS gen_tables ${CMAKE_CURRENT_SOURCE_DIR}/docs/formats.md
+  COMMENT "Generating the settings and command tables from docs/formats.md")
+add_library(exhaust_settings STATIC src/settings/settings.c src/settings/registry.c src/settings/apply.c ${SETTINGS_SCHEMA_C} ${COMMAND_TABLE_C})
+target_include_directories(exhaust_settings PUBLIC include)
+target_link_libraries(exhaust_settings PUBLIC exhaust_workspace exhaust_buffer exhaust_platform SDL3::SDL3-static)
+
 add_library(exhaust_vault STATIC src/vault/vault.c src/vault/registry.c)
 target_include_directories(exhaust_vault PUBLIC include)
 target_link_libraries(exhaust_vault PUBLIC exhaust_platform exhaust_buffer)
 
-add_library(exhaust_platform STATIC src/platform/paths.c src/platform/input.c src/platform/files.c)
+add_library(exhaust_platform STATIC src/platform/paths.c src/platform/input.c src/platform/files.c src/platform/integration.c)
 target_include_directories(exhaust_platform PUBLIC include)
 target_link_libraries(exhaust_platform PUBLIC SDL3::SDL3-static)
 if(APPLE)
   target_sources(exhaust_platform PRIVATE src/platform/trash_mac.m)
   target_link_libraries(exhaust_platform PUBLIC "-framework Foundation")
 elseif(WIN32)
-  target_link_libraries(exhaust_platform PUBLIC shell32)
+  target_link_libraries(exhaust_platform PUBLIC shell32 advapi32)
 endif()
 
 # UTF-8 and grapheme clusters: no dependencies, so the fuzz targets can link just this.
@@ -249,7 +262,7 @@ if(NOT MSVC)
 endif()
 
 add_executable(exhaust src/main.c)
-target_link_libraries(exhaust PRIVATE exhaust_core exhaust_render exhaust_ui exhaust_notes)
+target_link_libraries(exhaust PRIVATE exhaust_core exhaust_render exhaust_ui exhaust_notes exhaust_settings)
 # Release builds are stripped of symbols (the size budget is for the installed program).
 if(NOT MSVC AND NOT APPLE)
   target_link_options(exhaust PRIVATE $<$<CONFIG:Release>:-s>)
@@ -361,6 +374,27 @@ add_test(NAME session_restore_files COMMAND test_session)
 add_executable(test_panes tests/test_panes.c)
 target_link_libraries(test_panes PRIVATE exhaust_ui)
 add_test(NAME workspace_layout_panes COMMAND test_panes)
+
+add_executable(test_settings tests/test_settings.c)
+target_link_libraries(test_settings PRIVATE exhaust_settings)
+target_compile_definitions(test_settings PRIVATE DOC_PATH="${CMAKE_CURRENT_SOURCE_DIR}/docs/formats.md")
+add_test(NAME settings COMMAND test_settings)
+
+add_executable(test_registry tests/test_registry.c)
+target_link_libraries(test_registry PRIVATE exhaust_settings)
+target_compile_definitions(test_registry PRIVATE DOC_PATH="${CMAKE_CURRENT_SOURCE_DIR}/docs/formats.md")
+add_test(NAME registry COMMAND test_registry)
+
+add_executable(test_integration tests/test_integration.c)
+target_link_libraries(test_integration PRIVATE exhaust_platform)
+add_test(NAME platform_integration COMMAND test_integration)
+
+add_executable(settings_child tests/settings_child.c)
+target_link_libraries(settings_child PRIVATE exhaust_settings)
+add_executable(test_settings_writethrough tests/test_settings_writethrough.c)
+target_link_libraries(test_settings_writethrough PRIVATE exhaust_settings)
+add_dependencies(test_settings_writethrough settings_child)
+add_test(NAME settings_writethrough COMMAND test_settings_writethrough $<TARGET_FILE:settings_child>)
 
 add_executable(test_vault_tree tests/test_vault_tree.c)
 target_link_libraries(test_vault_tree PRIVATE exhaust_vault)

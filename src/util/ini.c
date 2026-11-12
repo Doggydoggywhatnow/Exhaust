@@ -205,3 +205,124 @@ int ex_ini_get_bool(const ExIni *ini, const char *section, const char *key, int 
     if (!strcmp(v, "false") || !strcmp(v, "no") || !strcmp(v, "off") || !strcmp(v, "0")) return 0;
     return def;
 }
+
+/* ---- patching the text of a file ---- */
+
+typedef struct Buf { char *p; size_t n, cap; int fail; } Buf;
+
+static void put(Buf *b, const char *s, size_t n) {
+    if (b->fail) return;
+    if (b->n + n + 1 > b->cap) {
+        size_t nc = (b->n + n + 1) * 2;
+        char *np = realloc(b->p, nc);
+        if (!np) { b->fail = 1; return; }
+        b->p = np;
+        b->cap = nc;
+    }
+    memcpy(b->p + b->n, s, n);
+    b->n += n;
+    b->p[b->n] = 0;
+}
+
+/* The section name of a header line, or NULL. Writes into out. */
+static int header_name(const char *l, size_t n, char *out, size_t cap) {
+    size_t i = 0, e;
+    while (i < n && (l[i] == ' ' || l[i] == '\t')) i++;
+    if (i >= n || l[i] != '[') return 0;
+    for (e = i + 1; e < n && l[e] != ']'; e++) {}
+    if (e >= n) return 0;
+    snprintf(out, cap, "%.*s", (int)(e - i - 1), l + i + 1);
+    return 1;
+}
+
+/* Is this line "key = ..." for the key? Returns the offset of the value start (after "="), or 0. */
+static size_t key_line(const char *l, size_t n, const char *key) {
+    size_t i = 0, ks, ke, kl = strlen(key);
+    while (i < n && (l[i] == ' ' || l[i] == '\t')) i++;
+    if (i >= n || l[i] == '#' || l[i] == ';' || l[i] == '[') return 0;
+    ks = i;
+    while (i < n && l[i] != '=') i++;
+    if (i >= n) return 0;
+    ke = i;
+    while (ke > ks && (l[ke - 1] == ' ' || l[ke - 1] == '\t')) ke--;
+    if (ke - ks != kl || memcmp(l + ks, key, kl) != 0) return 0;
+    return i + 1;
+}
+
+char *ex_ini_patch(const char *text, size_t len, const char *section, const char *key, const char *value, size_t *out_len) {
+    Buf b = {0};
+    size_t pos = 0, insert_at = (size_t)-1, bom = 0, last_content_end = 0;
+    int in_section = 0, found_section = 0, done = 0, crlf = 0;
+    char name[256];
+    if (len >= 3 && (unsigned char)text[0] == 0xEF && (unsigned char)text[1] == 0xBB && (unsigned char)text[2] == 0xBF) bom = 3;
+    { const char *nl = memchr(text, '\n', len); crlf = nl && nl > text && nl[-1] == '\r'; }
+    pos = bom;
+    /* pass 1: where the value goes */
+    {
+        size_t p = bom, key_start = (size_t)-1, key_end = 0, val_off = 0;
+        last_content_end = bom;
+        in_section = section[0] == 0;      /* keys before any header belong to the unnamed section */
+        found_section = section[0] == 0;
+        while (p < len) {
+            const char *l = text + p, *nl = memchr(l, '\n', len - p);
+            size_t line_len = nl ? (size_t)(nl - l) + 1 : len - p, content = line_len;
+            while (content > 0 && (l[content - 1] == '\n' || l[content - 1] == '\r')) content--;
+            if (header_name(l, content, name, sizeof name)) {
+                if (in_section && found_section) insert_at = last_content_end;      /* the last block of this section wins */
+                in_section = strcmp(name, section) == 0;
+                if (in_section) { found_section = 1; last_content_end = p + line_len; }
+            } else if (in_section) {
+                size_t vo = key_line(l, content, key);
+                if (vo) { key_start = p;      /* the last line wins, as when the file is read */ key_end = p + line_len; val_off = vo; }
+                {
+                    size_t i = 0;
+                    while (i < content && (l[i] == ' ' || l[i] == '\t')) i++;
+                    if (i < content) last_content_end = p + line_len;   /* not blank */
+                }
+            }
+            p += line_len;
+        }
+        if (in_section && found_section) insert_at = last_content_end;
+        if (key_start != (size_t)-1) {
+            /* rewrite that one line */
+            const char *l = text + key_start;
+            size_t content = key_end - key_start, eol = content, keep_from = 0, i;
+            while (eol > 0 && (l[eol - 1] == '\n' || l[eol - 1] == '\r')) eol--;
+            for (i = val_off; i + 1 < eol; i++) if (l[i] == ' ' && l[i + 1] == '#') { while (i > val_off + 1 && l[i - 1] == ' ') i--; keep_from = i; break; }   /* a trailing comment stays, with its spacing */
+            put(&b, text, key_start);
+            {
+                size_t k = 0, ke;
+                while (k < eol && (l[k] == ' ' || l[k] == '\t')) k++;
+                for (ke = k; ke < val_off - 1 && l[ke] != ' ' && l[ke] != '\t' && l[ke] != '='; ke++) {}
+                put(&b, l, ke);              /* indentation and the key as written */
+                put(&b, " = ", 3);
+                put(&b, value, strlen(value));
+                if (keep_from) put(&b, l + keep_from, eol - keep_from);
+                put(&b, l + eol, content - eol);   /* the line ending as it was */
+                if (content == eol && key_end == len) {}   /* last line without a line ending stays without */
+            }
+            put(&b, text + key_end, len - key_end);
+            done = 1;
+        }
+    }
+    if (!done) {
+        const char *eol = crlf ? "\r\n" : "\n";
+        if (insert_at != (size_t)-1 && found_section) {
+            put(&b, text, insert_at);
+            if (insert_at > 0 && text[insert_at - 1] != '\n') put(&b, eol, strlen(eol));   /* the last line had no line ending */
+            put(&b, key, strlen(key)); put(&b, " = ", 3); put(&b, value, strlen(value)); put(&b, eol, strlen(eol));
+            put(&b, text + insert_at, len - insert_at);
+        } else {
+            put(&b, text, len);
+            if (len > bom && text[len - 1] != '\n') put(&b, eol, strlen(eol));
+            if (len > bom) put(&b, eol, strlen(eol));
+            if (section[0]) { put(&b, "[", 1); put(&b, section, strlen(section)); put(&b, "]", 1); put(&b, eol, strlen(eol)); }
+            put(&b, key, strlen(key)); put(&b, " = ", 3); put(&b, value, strlen(value)); put(&b, eol, strlen(eol));
+        }
+    }
+    (void)pos;
+    if (b.fail) { free(b.p); return NULL; }
+    if (!b.p) { b.p = malloc(1); if (!b.p) return NULL; b.p[0] = 0; }
+    if (out_len) *out_len = b.n;
+    return b.p;
+}

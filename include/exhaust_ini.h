@@ -36,6 +36,13 @@ long long ex_ini_get_int(const ExIni *ini, const char *section, const char *key,
 int ex_ini_get_bool(const ExIni *ini, const char *section, const char *key, int def); /* true, false, yes, no, on, off, 1, 0 */
 double ex_ini_get_float(const ExIni *ini, const char *section, const char *key, double def);
 
+/* Changes one value in the text of an INI file and leaves everything else byte for byte as it was:
+ * comments, blank lines, the order of sections and keys, keys this version does not know, line
+ * endings (LF or CRLF, as the file already uses) and a byte-order mark. An existing key keeps its
+ * line (a trailing " # comment" stays); a new key goes at the end of its section; a new section goes
+ * at the end of the file. Returns a malloc'ed NUL terminated text, or NULL when out of memory. */
+char *ex_ini_patch(const char *text, size_t len, const char *section, const char *key, const char *value, size_t *out_len);
+
 #ifdef __cplusplus
 }
 #endif

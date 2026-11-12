@@ -76,6 +76,20 @@ int ex_platform_show_in_file_manager(const char *path);
  * Not the cache folder (the OS may clear a cache) and not the roaming folder. */
 char *ex_platform_local_data_dir(void);
 
+/* ---- Operating system integration. Only ever done when the user asks for it in Settings. ---- */
+typedef enum ExIntegration {
+    EX_INTEGRATION_FILE_TYPES,   /* Exhaust is offered for Markdown files */
+    EX_INTEGRATION_URI_SCHEME    /* the exhaust:// scheme opens Exhaust (needs the allow_uri_callbacks setting) */
+} ExIntegration;
+/* Registers (enable != 0) or removes the integration for the current user: a .desktop file under
+ * $XDG_DATA_HOME/applications on Linux, keys under HKEY_CURRENT_USER\Software\Classes on Windows. It
+ * never changes which application is the default for a file type. exe_path is the running program.
+ * Returns 0, -1 on failure (err gets a short reason), or -2 where there is nothing to do at run time
+ * (on macOS file types and the scheme are declared in the app bundle). Removing something that is not
+ * registered succeeds. */
+int ex_platform_integration_set(ExIntegration what, int enable, const char *exe_path, char *err, size_t err_cap);
+int ex_platform_integration_registered(ExIntegration what);   /* 1 or 0 */
+
 typedef struct ExSaveResult {
     int ok;
     int error_code;          /* the OS error number, 0 when ok */
