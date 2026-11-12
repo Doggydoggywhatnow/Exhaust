@@ -100,6 +100,9 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 | `excluded` | list | empty | 0.1.0 |
 | `config_folder` | string | `.exhaust` | 0.1.0 |
 | `allow_uri_callbacks` | bool | `false` | 0.1.0 |
+| `autosave_idle_ms` | int | `1000` | 0.1.0 |
+| `autosave_max_ms` | int | `5000` | 0.1.0 |
+| `journal_flush_ms` | int | `200` | 0.1.0 |
 
 ### [features]
 
@@ -488,6 +491,76 @@ Plain text, one section per saved layout, `[workspace.<name>]`:
 | `right_width` | int | `300` | 0.1.0 |
 | `active` | string | empty (the active tab id) | 0.1.0 |
 | `tab.<n>` | string | none: `path\|view\|mode\|pinned` for each open tab, `n` from 0 | 0.1.0 |
+
+## Journal and session state
+
+Exhaust saves continuously (see the README's Saving). Two things make that safe: the **recovery journal**, which holds every edit that is not yet in a note file (crash safety), and the **session state**, which holds what was open (restore on launch). Both are user data: never delete them except after the text is safely in the note file, and never rebuild them from scratch. File recovery snapshots (history of saved versions) are separate and live in the file recovery store (see slice 7e).
+
+### Where they live
+
+In the OS local-data folder, keyed by vault, **not** in the OS cache folder (the OS may clear a cache) and **not** inside the vault (sync tools would copy them between devices). The folder for a vault is `<local-data>/Exhaust/vaults/<vault-id>/`:
+
+| OS | `<local-data>` |
+| --- | --- |
+| Linux | `$XDG_DATA_HOME`, or `~/.local/share` when unset |
+| Windows | `%LOCALAPPDATA%` (not `%APPDATA%`, which roams) |
+| macOS | `~/Library/Application Support` |
+
+`<vault-id>` is the first 32 hexadecimal digits of the SHA-256 of the vault's canonical absolute path (symbolic links resolved). The search index and other caches use the same id under the OS cache folder. *TODO-verify*: whether SDL3's preferences-folder function returns these folders on all three OSes (on Windows it uses the roaming folder); the platform layer should compute the folders itself.
+
+### Journal file
+
+`journal/<n>.jrn` in the vault's folder, binary, little-endian, append-only. A new file starts after 64 MB or at launch.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| magic | 4 bytes | `EXJ1` |
+| version | u32 | `1` |
+
+Then records until the end of the file. Each record:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| length | u32 | bytes in the record after this field |
+| type | u8 | `B` base, `E` edit, `S` saved |
+| timestamp | u64 | milliseconds since the Unix epoch |
+| path_length | u16 | length of the path in bytes |
+| path | bytes | vault-relative path, UTF-8, with `/` separators |
+| offset | u64 | byte offset of the edit in the file's text (edit records) |
+| removed | u64 | number of bytes removed at the offset (edit records) |
+| inserted_length | u32 | number of bytes inserted (edit records) |
+| inserted | bytes | the inserted text, UTF-8 (edit records) |
+| base_size, base_hash | u64, 16 bytes | size and the first 16 bytes of the SHA-256 of the file as saved, written when a file is opened (base records) and after every successful save (saved records) |
+| checksum | u32 | CRC-32 of the record from `type` to the last field before the checksum |
+
+Rules:
+- A record with a bad checksum, or a short record at the end of the file (a power cut in mid-write), ends replay at that point; everything before it is replayed.
+- Replay applies the edits since the last saved record for a path onto the file as it is on disk. If the file's size and hash no longer match the last base or saved record, the conflict banner appears and both versions are kept.
+- After an atomic save succeeds, a saved record is appended. Records before the last saved record for a path may then be removed when a journal file is compacted. Nothing is removed before its saved record exists.
+- Since: 0.1.0, frozen after release.
+
+### Session state file
+
+`session.ini` in the same folder, plain text, INI style, rewritten atomically on every change (write-through). It is separate from `workspaces.ini`, which holds layouts you saved by name.
+
+| Name | Type | Default | Since |
+| --- | --- | --- | --- |
+| `[session]` `version` | int | `1` | 0.1.0 |
+| `[window.<n>]` `x`, `y`, `width`, `height` | int | the last position and size | 0.1.0 |
+| `[window.<n>]` `maximized` | bool | `false` | 0.1.0 |
+| `[layout]` `left_visible`, `right_visible` | bool | `true` | 0.1.0 |
+| `[layout]` `left_width`, `right_width` | int | `260`, `300` | 0.1.0 |
+| `[layout]` `open_panels` | list | empty | 0.1.0 |
+| `[layout]` `active_tab` | string | empty (a tab id) | 0.1.0 |
+| `[tab.<id>]` `path`, `view`, `mode` | string | required | 0.1.0 |
+| `[tab.<id>]` `pinned`, `stacked` | bool | `false` | 0.1.0 |
+| `[tab.<id>]` `group` | int | `0` (the split it is in) | 0.1.0 |
+| `[tab.<id>]` `cursor_line`, `cursor_column` | int | `0` | 0.1.0 |
+| `[tab.<id>]` `scroll_y` | int | `0` | 0.1.0 |
+| `[graph]` | keys of the graph settings, plus `open` (bool) | the last state | 0.1.0 |
+| `[search]` `text` | string | empty | 0.1.0 |
+
+Settings changes are not stored here: they are written to `settings.ini` at once (see slice 2d). Unknown keys are kept and written back unchanged.
 
 ## themes/*.theme
 

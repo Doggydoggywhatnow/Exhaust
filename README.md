@@ -11,10 +11,12 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 - **Simple**: Exhaust provides a simple environment in which to use complex features. And where features present in other apps do not go directly towards text, we will drop those features.
 - **Small, but not at the cost of features**: Exhaust is as small as it can be without dropping anything in this README. The program may be as large as it needs to be to fit all of these features, but the core install stays within a fixed size budget (see Technical design); optional libraries ship separately.
 - **Private**: What you write is your business. Simple as.
+- **Nothing is ever lost**: Exhaust saves continuously. Closing the app, a crash, a kill or a power cut never loses what you typed.
 
 ## Rules
 
 - Notes are plain Markdown files in a folder you choose. Exhaust never moves, renames or reorganizes them behind your back.
+- Exhaust saves continuously: every edit is journaled within 200 ms and notes are written to disk after a short idle, so closing, a crash, a kill or a power cut never loses what you typed. Typing in a note is the action that lets Exhaust write it. See Saving.
 - No network requests, telemetry or accounts unless you turn on an *(optional)* feature.
 - **Updates**: there is no auto-updater. An optional manual "check for updates" button *(optional)* asks the network only when you press it.
 - Every feature below can be switched off. Built-in features such as Graph, Canvas and Bases are separate toggles in Settings.
@@ -28,10 +30,19 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 - **Excluded files**: patterns that hide files from search, links and the graph.
 - **Link-safe renames**: renaming or moving a note updates every link to it. It asks first by default; you can make it automatic or off. It covers wikilinks, embeds, Markdown links (URL-encoded and relative), links inside properties, `#heading` and `#^block` references, `.canvas` files, `.base` files and bookmarks.
 - **Note names**: a name cannot contain `# ^ [ ] |` or `:`, a `%%` pair, or a Windows reserved name (such as `CON` or `NUL`). Links match names without regard to case and after Unicode (NFC) normalization.
-- **Saving**: notes autosave after a short idle. If a file changes on disk while the editor has unsaved changes, Exhaust keeps the editor's text, shows a conflict banner with a diff, and takes a snapshot in file recovery first. Line endings (CRLF or LF) and a byte-order mark are preserved. Notes are UTF-8.
+- **Saving**: Exhaust saves continuously.
+  - Every edit is written to an append-only recovery journal within 200 ms.
+  - The note file itself is written after a short idle (1 second by default) and at the latest every 5 seconds of continuous typing. A note is also saved when focus leaves it, when you switch tabs and when the window closes.
+  - The same applies to canvases, bases, bookmarks and every other file you edit in Exhaust.
+  - Writes are atomic: Exhaust writes a temporary file next to the note, flushes it to disk, then renames it over the note. It never writes a partial note. It preserves the file's symlink, permissions, line endings (CRLF or LF) and byte-order mark. Notes are UTF-8.
+  - On a clean close, SIGTERM, SIGHUP, Windows session end and macOS terminate, Exhaust flushes everything before exiting.
+  - After a crash, kill or power cut, the next launch replays the journal and restores the text, with a banner saying so. If the note file on disk changed in the meantime, the conflict banner (with a diff) appears and both versions are kept.
+  - A new note that has had nothing typed in it is not created on disk.
+  - If a write fails (disk full, permission denied, file locked), the text stays in the journal, a persistent error names the file, and Exhaust retries. Unsaved text is never discarded.
+  - Nothing in this changes the rule that notes are only written through an action you take: typing in a note is that action.
 - **Trash**: deleted notes go to the system trash, to a `.trash` folder in the vault, or are deleted permanently, as you choose, with an optional confirmation.
 - **Symbolic links**: followed, with loops detected.
-- **Configuration folder**: settings, themes, snippets, hotkeys and workspaces live in a `.exhaust` folder inside the vault, in plain text. The search index and other caches live in the operating system's cache folder, keyed by vault, never inside the vault, so file-sync tools cannot corrupt them. Settings has a *Rebuild vault cache* button.
+- **Configuration folder**: settings, themes, snippets, hotkeys and workspaces live in a `.exhaust` folder inside the vault, in plain text. The search index and other caches live in the operating system's cache folder, keyed by vault, never inside the vault, so file-sync tools cannot corrupt them. Settings has a *Rebuild vault cache* button. The recovery journal and the session state are your data, not a cache: they live in the operating system's local-data folder, keyed by vault, never in the cache folder (the OS may clear it) and never inside the vault (sync tools would copy them between devices). The exact folders are in [`docs/formats.md`](docs/formats.md#journal-and-session-state).
 - **Import**: Markdown and plain text folders, HTML, CSV and Textbundle. Importer templates control how imported notes are named and laid out. Importers for Apple Journal, Apple Notes, Bear, Craft, Evernote, Google Keep, Logseq, OneNote, Notion, Roam, Tomboy/Gnote and Airtable are listed as disabled *(later)* entries.
 - **Backups**: because everything is plain files, any backup tool works.
 
@@ -112,6 +123,7 @@ PDFs open in a tab and embed in notes (needs the optional PDF library).
 - **Status bar**.
 - **Workspaces**: save and restore whole layouts for journaling, reading or writing.
 - **Drag and drop** files and text.
+- **Session state**: saved as it changes, not only on exit, and restored on launch: open tabs, splits, pop-out windows, pinned and stacked tabs, sidebar sizes and open panels, cursor and scroll positions, the open graph and its settings, the active search text, and every settings change.
 - **Hotkeys**: every command is bindable, with conflicts shown.
 - **File recovery**: automatic snapshots (every 5 minutes, kept 7 days by default, both adjustable) with restore and diff.
 - **Command line** and a **URI scheme** to open notes, search and create from other programs *(later)*.
@@ -189,14 +201,14 @@ Exhaust is written in C (C11). There is no web browser or web view anywhere in i
 | Rendering | SDL_Renderer with a FreeType glyph atlas and Exhaust's own tessellator for lines, curves and circles (used by the graph and canvas) | zlib, Unlicense (own) |
 | UI | Own widget tree, with Clay for layout, built around accessibility from the start; colors, sizes and fonts come from theme tokens, never hard-coded | Unlicense (own), zlib (Clay) |
 | Accessibility | AccessKit (Rust) behind a small C wrapper; the only Rust in the build | MIT or Apache-2.0 |
-| Text | HarfBuzz, FreeType, SheenBidi and libgrapheme; font fallback; system fonts found by scanning the OS font folders | MIT, FreeType License, Apache-2.0, ISC |
+| Text | HarfBuzz, FreeType, SheenBidi and libgrapheme; font fallback; system fonts found by scanning the OS font folders; the system font scan is cached in the OS cache folder, keyed by the modification times of the font folders, and fonts load lazily (only when a glyph needs them) | MIT, FreeType License, Apache-2.0, ISC |
 | Fonts | Atkinson Hyperlegible and Atkinson Hyperlegible Mono; STIX Two Math for equations | SIL Open Font License 1.1 |
 | Text buffer | Piece table with an undo tree | Unlicense (own) |
 | Markdown | Own tokenizer with source ranges for live preview; md4c for reading mode and exports | Unlicense (own), MIT |
 | Properties | Read with libyaml; edited as text so files are never reformatted | MIT |
-| Index | SQLite with FTS5 using the `trigram` tokenizer (so partial words match), plus tables for lines, blocks, sections and tasks; stored in the OS cache folder, keyed by vault; always rebuildable from the notes | Public domain |
+| Index | SQLite with FTS5 using the `trigram` tokenizer (so partial words match), plus tables for lines, blocks, sections and tasks; stored in the OS cache folder, keyed by vault; always rebuildable from the notes; the trigram index is at most 4 times the size of the note text | Public domain |
 | Search regex | PCRE2, run over the files the index returns | BSD |
-| File watching | dmon (single-header C), or Exhaust's own inotify, ReadDirectoryChangesW and FSEvents code | BSD-2-Clause, Unlicense (own) |
+| File watching | dmon (single-header C), or Exhaust's own inotify, ReadDirectoryChangesW and FSEvents code; when the OS refuses more watches (inotify `ENOSPC` on Linux), it falls back to polling modification times every 2 seconds on a worker thread and says so in the status bar; excluded files are never watched | BSD-2-Clause, Unlicense (own) |
 | Platform layer (`src/platform/`) | Trash (freedesktop spec on Linux, SHFileOperation on Windows, NSFileManager on macOS), file associations, URI registration, cache and config folders | Unlicense (own) |
 | JSON | yyjson | MIT |
 | Images | stb_image, with WebP and AVIF decoders; nanosvg for SVG | Public domain, BSD, zlib |
@@ -204,6 +216,7 @@ Exhaust is written in C (C11). There is no web browser or web view anywhere in i
 | Video embeds | libmpv, loaded at run time | LGPL or GPL (never linked) |
 | PDF | PDFium, loaded at run time | BSD-3 or Apache-2.0 |
 | PDF export | Own PDF writer: lays pages out with Exhaust's reading-mode renderer, embeds font subsets through FreeType, compresses with miniz | Unlicense (own), public domain or MIT |
+| Recovery journal | Own append-only journal (a CRC-32 per record) and session-state file in the OS local-data folder, keyed by vault; formats in `docs/formats.md` | Unlicense (own) |
 | Plugins | Lua, sandboxed, with Exhaust's own API | MIT |
 | Bases expressions | Own expression engine module: the documented types and all 72 documented functions, tested against the examples in the docs | Unlicense (own) |
 | Math | Own LaTeX-subset layout using HarfBuzz's `hb-ot-math` and STIX Two Math | Unlicense (own), OFL 1.1 |
@@ -211,6 +224,13 @@ Exhaust is written in C (C11). There is no web browser or web view anywhere in i
 | Dates | Own formatter for Moment-style date tokens | Unlicense (own) |
 | Spell check | Own checker reading Hunspell `.aff`/`.dic` files, supporting `PFX`, `SFX`, `REP` and `KEY` only (no compounding); English (US) included | Unlicense (own); each word list keeps its own license |
 | Sync *(later)* | libsodium | ISC |
+
+### Threads
+
+- **UI thread**: input and drawing only. It never blocks on disk, the index or layout for more than 16 ms.
+- **Worker threads**: save and journal I/O, the file watcher, the indexer and graph layout.
+- **Messages**: workers talk to the UI thread through a message queue. The UI reads snapshots and never takes a lock that a worker holds.
+- **SQLite**: write-ahead logging (WAL) mode, with one writer connection (the indexer) and one reader connection for each thread that needs one.
 
 ### Registries
 

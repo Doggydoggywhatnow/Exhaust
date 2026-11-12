@@ -16,9 +16,10 @@ C for all of Exhaust's own code, with these exceptions only:
 Never add a web browser, web view or JavaScript engine to Exhaust itself.
 
 ## Hard rules
-- **Never write to, move, rename or reorganize users' notes** except through an action the user takes (saving a note, a link-safe rename after confirmation, importing). Sorting and grouping change presentation only. Never reformat YAML properties or Markdown the user did not edit. `.base` files belong to Exhaust and may be rewritten, but unknown keys must be kept.
+- **Never write to, move, rename or reorganize users' notes** except through an action the user takes (typing in a note, which Exhaust saves continuously; a link-safe rename after confirmation; importing). Sorting and grouping change presentation only. Never reformat YAML properties or Markdown the user did not edit. `.base` files belong to Exhaust and may be rewritten, but unknown keys must be kept.
 - **Privacy:** no network requests, telemetry or accounts by default. Items marked *(optional)* are off until the user turns them on.
 - **Where data lives:** settings, themes, snippets, hotkeys and workspaces are plain text in a `.exhaust` folder inside the vault. The search index and other caches live in the **OS cache folder, keyed by vault id, never inside the vault** (a SQLite file in a synced folder corrupts). The index is a cache and must always be rebuildable from the notes.
+- **Recovery journal and session state are user data.** They live in the OS local-data folder, keyed by vault, **not** the OS cache folder (the OS may clear a cache) and **not** inside the vault (sync tools would copy them between devices); the exact folders are in `docs/formats.md`. Never delete them except after the text is safely in the note file, and never rebuild them from scratch. Exhaust saves continuously (see the README's Saving): never add a code path that can lose typed text.
 - Must run on Windows, Linux (Wayland and X11) and macOS. No display-server-specific code. Platform code lives in `src/platform/`.
 - Dependencies must be compatible with the Unlicense. Prefer public domain or permissive libraries. Never add GPL or AGPL code. LGPL libraries (libmpv) are loaded at run time, never linked. Record each dependency and its license in the README's table when you add it, after confirming the license yourself.
 - Accessibility is designed in from the first slice: keyboard navigation, scalable text, high contrast, and an accessibility tree for every widget. No hard-coded colors, sizes or fonts: use theme tokens from slice 1a-iv.
@@ -50,17 +51,19 @@ Never add a web browser, web view or JavaScript engine to Exhaust itself.
 Add tests with the code. Required at minimum: the text buffer and undo tree, the Markdown tokenizer, link and property parsing, the index and search, link-safe rename (all the cases in the README), the Bases expression engine against the documented examples, settings and theme loading, and the compatibility tests below.
 
 ## Compatibility
+- **Journal and session state:** their file formats (in `docs/formats.md`) are frozen after release like every other name. A newer journal must replay in an older version or be left untouched, never discarded.
 - **`docs/formats.md`** is the source of truth for every name that is frozen after release: settings keys, theme tokens, the snippet grammar, `hotkeys.ini`, `workspaces.ini`, the plugin manifest, slash commands and the Lua API. **Add a key or name to `docs/formats.md` before adding it to the code**, with its type, default and the version it first appears in. Resolve every *TODO-verify* there before implementing the item.
 - **Index:** change the schema only by adding a numbered migration, only adding nullable or defaulted columns, tables and indexes; never rename, drop or retype a column. Bump the schema version and extend the compatibility test. If the cached index cannot be migrated, delete the cache and rebuild it from the notes. Never delete or alter a user's notes.
 - **Settings and themes:** never rename or remove a key in `settings.ini` or a theme file. To change one, add a new key and migrate the old value on load. Keep keys Exhaust does not recognize and write them back unchanged on save, so a downgrade does not lose newer settings. Extend `tests/test_settings.c` with every change.
 
 ## Decisions already made
+- Threads: the UI thread does input and drawing only and never blocks on disk, the index or layout for more than 16 ms; save and journal I/O, the file watcher, the indexer and graph layout run on worker threads that talk to the UI through a message queue; SQLite uses WAL mode with one writer connection and one reader per thread that needs one.
 - Rendering: SDL_Renderer, a FreeType glyph atlas and our own tessellator for lines, curves and circles.
 - Layout: Clay, vendored, on top of Exhaust's own widget tree.
 - Search: SQLite FTS5 with the `trigram` tokenizer (queries under three characters fall back to a scan), PCRE2 over the candidate files, and tables for lines, blocks, sections and tasks so `line:`, `block:`, `section:`, `task:`, `task-todo:` and `task-done:` work.
 - Files in `.exhaust`: `settings.ini`, `themes/*.theme`, `snippets/*.style`, `workspaces.ini`, `hotkeys.ini`, `plugins/`; their formats are in `docs/formats.md`. The index (`index.db`) is in the OS cache folder.
 - Note names forbid `# ^ [ ] |` and `:`, `%%`, and Windows reserved names. Links match case-insensitively after NFC normalization.
-- Saving: autosave after a short idle; on an outside change with unsaved edits, keep the buffer, show a conflict banner with a diff, and snapshot to file recovery first. Preserve CRLF and BOM. UTF-8 only.
+- Saving: every edit goes to the append-only recovery journal within 200 ms, and the note file is written atomically after 1 second idle or every 5 seconds at most (`autosave_idle_ms`, `autosave_max_ms`, `journal_flush_ms`); on an outside change with unsaved edits, keep the buffer, show a conflict banner with a diff, and snapshot to file recovery first. Preserve CRLF and BOM. UTF-8 only.
 - Plugins use Lua and Exhaust's own API; Obsidian plugins are not compatible.
 - Math uses STIX Two Math with `hb-ot-math`. Mermaid in 0.1.0: flowchart, sequence, class, state, ER, pie and gantt.
 - Spell check: own checker, `PFX`, `SFX`, `REP` and `KEY` only, no compounding, English (US) only in 0.1.
