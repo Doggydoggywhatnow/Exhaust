@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(exhaust VERSION 0.0.0 LANGUAGES C)
+project(exhaust VERSION 0.0.0 LANGUAGES C CXX)
 
 
 # ---- Vendored dependencies (third_party/, see third_party/VERSIONS.md) ----
@@ -34,6 +34,62 @@ add_subdirectory(third_party/freetype EXCLUDE_FROM_ALL)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
+# zlib and libpng (FreeType needs libpng to read color emoji bitmaps), built
+# from third_party/ with their own warnings left alone.
+add_library(zlib_static STATIC
+  third_party/zlib/adler32.c third_party/zlib/crc32.c third_party/zlib/deflate.c third_party/zlib/infback.c
+  third_party/zlib/inffast.c third_party/zlib/inflate.c third_party/zlib/inftrees.c third_party/zlib/trees.c
+  third_party/zlib/zutil.c)
+target_include_directories(zlib_static PUBLIC third_party/zlib)
+target_compile_definitions(zlib_static PRIVATE _LARGEFILE64_SOURCE=1)
+if(NOT MSVC)
+  target_compile_options(zlib_static PRIVATE -w)
+else()
+  target_compile_definitions(zlib_static PRIVATE _CRT_SECURE_NO_DEPRECATE _CRT_NONSTDC_NO_DEPRECATE)
+endif()
+add_library(png_static STATIC
+  third_party/libpng/png.c third_party/libpng/pngerror.c third_party/libpng/pngget.c third_party/libpng/pngmem.c
+  third_party/libpng/pngpread.c third_party/libpng/pngread.c third_party/libpng/pngrio.c
+  third_party/libpng/pngrtran.c third_party/libpng/pngrutil.c third_party/libpng/pngset.c
+  third_party/libpng/pngtrans.c third_party/libpng/pngwio.c third_party/libpng/pngwrite.c
+  third_party/libpng/pngwtran.c third_party/libpng/pngwutil.c)
+target_include_directories(png_static PUBLIC third_party/libpng)
+# No SIMD filter code: the portable C paths are used on every CPU.
+target_compile_definitions(png_static PRIVATE PNG_ARM_NEON_OPT=0 PNG_INTEL_SSE_OPT=0 PNG_MIPS_MSA_OPT=0
+  PNG_POWERPC_VSX_OPT=0 PNG_LOONGARCH_LSX_OPT=0)
+target_link_libraries(png_static PUBLIC zlib_static)
+if(NOT MSVC)
+  target_compile_options(png_static PRIVATE -w)
+else()
+  target_compile_definitions(png_static PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+# FreeType reads PNG-compressed bitmaps (CBDT, sbix) through libpng.
+target_compile_definitions(freetype PRIVATE FT_CONFIG_OPTION_USE_PNG)
+target_link_libraries(freetype PRIVATE $<BUILD_INTERFACE:png_static>)
+
+# HarfBuzz: the single-file build, OpenType shaping with FreeType table access.
+add_library(harfbuzz STATIC third_party/harfbuzz/src/harfbuzz.cc)
+target_include_directories(harfbuzz PUBLIC third_party/harfbuzz/src)
+target_compile_definitions(harfbuzz PRIVATE HAVE_FREETYPE=1 HAVE_FT_GET_VAR_BLEND_COORDINATES=1
+  HAVE_FT_SET_VAR_BLEND_COORDINATES=1 HAVE_FT_DONE_MM_VAR=1 HAVE_FT_GET_TRANSFORM=1 HB_NO_PRAGMA_GCC_DIAGNOSTIC)
+target_link_libraries(harfbuzz PUBLIC freetype)
+set_target_properties(harfbuzz PROPERTIES CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+if(NOT MSVC)
+  target_compile_options(harfbuzz PRIVATE -fno-exceptions -fno-rtti -w)
+else()
+  target_compile_options(harfbuzz PRIVATE /utf-8 /wd4244 /wd4267 /wd4996)
+endif()
+
+# SheenBidi: Unicode bidirectional algorithm, single-file (unity) build.
+add_library(sheenbidi STATIC third_party/SheenBidi/Source/SheenBidi.c)
+target_include_directories(sheenbidi PUBLIC third_party/SheenBidi/Headers PRIVATE third_party/SheenBidi/Source)
+target_compile_definitions(sheenbidi PRIVATE SB_CONFIG_UNITY)
+if(NOT MSVC)
+  target_compile_options(sheenbidi PRIVATE -w)
+else()
+  target_compile_options(sheenbidi PRIVATE /utf-8 /wd4244 /wd4267 /wd4996)
+endif()
+
 if(NOT MSVC)
   add_compile_options(-Wall -Wextra -fstack-protector-strong
     $<$<NOT:$<CONFIG:Debug>>:-D_FORTIFY_SOURCE=2>)
@@ -74,9 +130,14 @@ add_custom_command(OUTPUT ${FONTS_C}
 add_library(exhaust_core STATIC src/version.c)
 target_include_directories(exhaust_core PUBLIC include ${CMAKE_CURRENT_BINARY_DIR}/include)
 
-add_library(exhaust_text STATIC src/text/utf8.c src/text/font.c src/text/fonts_table.c ${FONTS_C})
+add_library(exhaust_platform STATIC src/platform/paths.c src/platform/input.c)
+target_include_directories(exhaust_platform PUBLIC include)
+target_link_libraries(exhaust_platform PUBLIC SDL3::SDL3-static)
+
+add_library(exhaust_text STATIC src/text/utf8.c src/text/grapheme.c src/text/grapheme_data.c src/text/font.c
+  src/text/fontdb.c src/text/shape.c src/text/fonts_table.c ${FONTS_C})
 target_include_directories(exhaust_text PUBLIC include PRIVATE src/text)
-target_link_libraries(exhaust_text PUBLIC freetype)
+target_link_libraries(exhaust_text PUBLIC freetype harfbuzz sheenbidi exhaust_platform)
 
 add_library(exhaust_render STATIC src/render/render.c src/render/atlas.c)
 target_include_directories(exhaust_render PUBLIC include)
@@ -94,6 +155,16 @@ install(FILES
   DESTINATION share/exhaust/licenses RENAME SDL3-LICENSE.txt)
 install(FILES third_party/freetype/docs/FTL.TXT
   DESTINATION share/exhaust/licenses RENAME FreeType-FTL.txt)
+install(FILES third_party/harfbuzz/COPYING
+  DESTINATION share/exhaust/licenses RENAME HarfBuzz-COPYING.txt)
+install(FILES third_party/SheenBidi/LICENSE
+  DESTINATION share/exhaust/licenses RENAME SheenBidi-LICENSE.txt)
+install(FILES third_party/zlib/LICENSE
+  DESTINATION share/exhaust/licenses RENAME zlib-LICENSE.txt)
+install(FILES third_party/libpng/LICENSE
+  DESTINATION share/exhaust/licenses RENAME libpng-LICENSE.txt)
+install(FILES third_party/unicode/LICENSE.txt
+  DESTINATION share/exhaust/licenses RENAME Unicode-LICENSE.txt)
 install(FILES third_party/fonts/atkinson-hyperlegible/OFL.txt
   DESTINATION share/exhaust/licenses RENAME AtkinsonHyperlegible-OFL.txt)
 install(FILES third_party/fonts/atkinson-hyperlegible-mono/OFL.txt
@@ -108,6 +179,15 @@ add_test(NAME version COMMAND test_version)
 add_executable(test_utf8 tests/test_utf8.c)
 target_link_libraries(test_utf8 PRIVATE exhaust_text)
 add_test(NAME utf8 COMMAND test_utf8)
+
+add_executable(test_shaping tests/test_shaping.c)
+target_link_libraries(test_shaping PRIVATE exhaust_text)
+add_test(NAME shaping COMMAND test_shaping ${CMAKE_CURRENT_SOURCE_DIR}/third_party/unicode
+  ${CMAKE_CURRENT_SOURCE_DIR}/tests/fonts)
+
+add_executable(test_font_cache tests/test_font_cache.c)
+target_link_libraries(test_font_cache PRIVATE exhaust_text)
+add_test(NAME font_cache COMMAND test_font_cache ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts)
 
 add_executable(test_renderer_smoke tests/test_renderer_smoke.c)
 target_link_libraries(test_renderer_smoke PRIVATE exhaust_render)

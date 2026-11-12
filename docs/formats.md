@@ -970,3 +970,9 @@ Copied as facts (key combinations) from the Obsidian Help page "Editing shortcut
 | Extend selection to the end of the note                | `Cmd+Shift+↓`     |
 | Extend selection one page up                           | `Ctrl+Shift+↑`      |
 | Extend selection one page down                         | `Ctrl+Shift+↓`    |
+
+## Font cache
+
+*Since 0.1.0. A cache, not user data: it may be deleted at any time and is rebuilt by scanning the OS font folders.* `fonts.cache` in the OS cache folder (`<cache>/Exhaust/`, see the cache folder table of the platform layer: `$XDG_CACHE_HOME` or `~/.cache` on Linux, `%LOCALAPPDATA%\Exhaust\Cache` on Windows, `~/Library/Caches` on macOS). It is not stored in the vault.
+
+Plain text, written atomically. Line 1 is `EXHAUST-FONTS 1` (the format version; a different version is ignored and rescanned). Line 2 is `sig <16 hex digits>`: a hash of the path and modification time of every folder visited under the OS font folders. If the signature of a new walk differs, the cache is ignored. Then one line per font face, with fields separated by tabs: file path, face index, flags (1 bold, 2 italic, 4 monospaced, 8 color), family name, style name, and the coverage as 384 hexadecimal digits (192 bytes: one bit for each page of 128 code points below U+30000; a set bit means the face has at least one glyph in that page). Files with tabs or line breaks in a path or family name are left out.

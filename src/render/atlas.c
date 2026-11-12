@@ -161,6 +161,7 @@ const ExAtlasGlyph *ex_atlas_glyph(ExAtlas *a, ExFont *font, uint32_t glyph, int
 
     memset(&g, 0, sizeof g);
     g.page = -1;
+    g.color = bm.color;
     g.left = bm.left;
     g.top = bm.top;
     g.advance = bm.advance;
@@ -171,13 +172,17 @@ const ExAtlasGlyph *ex_atlas_glyph(ExAtlas *a, ExFont *font, uint32_t glyph, int
         if (pi < 0) return NULL;
         p = &a->pages[pi];
         for (row = 0; row < bm.height; row++) {
-            const uint8_t *src = bm.coverage + (ptrdiff_t)row * bm.pitch;
             uint8_t *dst = p->pix + ((size_t)(oy + row) * (size_t)p->w + (size_t)ox) * 4;
-            for (col = 0; col < bm.width; col++) {
-                dst[col * 4 + 0] = 255;
-                dst[col * 4 + 1] = 255;
-                dst[col * 4 + 2] = 255;
-                dst[col * 4 + 3] = src[col];
+            if (bm.color) {
+                memcpy(dst, bm.rgba + (ptrdiff_t)row * bm.pitch, (size_t)bm.width * 4);
+            } else {
+                const uint8_t *src = bm.coverage + (ptrdiff_t)row * bm.pitch;
+                for (col = 0; col < bm.width; col++) {
+                    dst[col * 4 + 0] = 255;
+                    dst[col * 4 + 1] = 255;
+                    dst[col * 4 + 2] = 255;
+                    dst[col * 4 + 3] = src[col];
+                }
             }
         }
         if (!p->dirty) {

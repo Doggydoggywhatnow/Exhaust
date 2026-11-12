@@ -42,6 +42,11 @@ const char *ex_render_error(void);
 
 struct SDL_Window *ex_renderer_window(ExRenderer *r);
 ExFontLib *ex_renderer_fonts(ExRenderer *r);
+/* Gives the renderer a system font database for fallback fonts (it takes
+ * ownership). Scan on a worker thread (ex_fontdb_scan) and hand the result over
+ * on the UI thread. */
+struct ExFontDb;
+void ex_renderer_set_font_db(ExRenderer *r, struct ExFontDb *db);
 
 /* Output size in pixels. */
 void ex_renderer_size(ExRenderer *r, int *w, int *h);

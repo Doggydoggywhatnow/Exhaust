@@ -201,7 +201,7 @@ Exhaust is written in C (C11). There is no web browser or web view anywhere in i
 | Rendering | SDL_Renderer with a FreeType glyph atlas and Exhaust's own tessellator for lines, curves and circles (used by the graph and canvas) | zlib, Unlicense (own) |
 | UI | Own widget tree, with Clay for layout, built around accessibility from the start; colors, sizes and fonts come from theme tokens, never hard-coded | Unlicense (own), zlib (Clay) |
 | Accessibility | AccessKit (Rust) behind a small C wrapper; the only Rust in the build | MIT or Apache-2.0 |
-| Text | HarfBuzz, FreeType, SheenBidi and libgrapheme; font fallback; system fonts found by scanning the OS font folders; the system font scan is cached in the OS cache folder, keyed by the modification times of the font folders, and fonts load lazily (only when a glyph needs them) | MIT, FreeType License, Apache-2.0, ISC |
+| Text | HarfBuzz (shaping), FreeType, SheenBidi (bidirectional text) and Exhaust's own grapheme-cluster segmenter (UAX #29, tables generated from the Unicode data files); font fallback; color emoji (bitmap and COLR v0 fonts; FreeType reads their PNGs with libpng and zlib; COLR v1 is *(later)*); system fonts found by scanning the OS font folders; the system font scan is cached in the OS cache folder, keyed by the modification times of the font folders, and fonts load lazily (only when a glyph needs them) | MIT, FreeType License, Apache-2.0, Unlicense (own) with Unicode License v3 data, zlib, libpng License |
 | Fonts | Atkinson Hyperlegible and Atkinson Hyperlegible Mono; STIX Two Math for equations | SIL Open Font License 1.1 |
 | Text buffer | Piece table with an undo tree | Unlicense (own) |
 | Markdown | Own tokenizer with source ranges for live preview; md4c for reading mode and exports | Unlicense (own), MIT |
@@ -225,7 +225,7 @@ Exhaust is written in C (C11). There is no web browser or web view anywhere in i
 | Spell check | Own checker reading Hunspell `.aff`/`.dic` files, supporting `PFX`, `SFX`, `REP` and `KEY` only (no compounding); English (US) included | Unlicense (own); each word list keeps its own license |
 | Sync *(later)* | libsodium | ISC |
 
-Pinned versions, sources and what was left out of each vendored copy are in [`third_party/VERSIONS.md`](third_party/VERSIONS.md). FreeType is dual licensed (FreeType License or GPLv2); Exhaust uses it under the FreeType License only. Exhaust's UI uses portions of the FreeType Project (https://freetype.org); the FreeType License asks for that credit.
+libgrapheme (ISC), named in earlier drafts of this table, could not be vendored (its hosts were not reachable when the dependency was added), so the grapheme-cluster rules are implemented in `src/text/grapheme.c` and checked against Unicode's own `GraphemeBreakTest.txt`. Pinned versions, sources and what was left out of each vendored copy are in [`third_party/VERSIONS.md`](third_party/VERSIONS.md). FreeType is dual licensed (FreeType License or GPLv2); Exhaust uses it under the FreeType License only. Exhaust's UI uses portions of the FreeType Project (https://freetype.org); the FreeType License asks for that credit.
 
 ### Threads
 

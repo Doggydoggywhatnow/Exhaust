@@ -7,6 +7,8 @@
 
 #include "atlas.h"
 #include "exhaust_render.h"
+#include "exhaust_fontdb.h"
+#include "exhaust_shape.h"
 
 #define BATCH_GLYPHS 128
 
@@ -64,6 +66,8 @@ void ex_renderer_destroy(ExRenderer *r) {
 
 SDL_Window *ex_renderer_window(ExRenderer *r) { return r->window; }
 ExFontLib *ex_renderer_fonts(ExRenderer *r) { return r->fonts; }
+
+void ex_renderer_set_font_db(ExRenderer *r, ExFontDb *db) { ex_fontlib_set_db(r->fonts, db, 1); }
 
 void ex_renderer_size(ExRenderer *r, int *w, int *h) {
     int ww = 0, hh = 0;
@@ -197,44 +201,38 @@ static void emit(ExRenderer *r, Batch *b, const ExAtlasGlyph *g, float x, float 
 static float layout(ExRenderer *r, ExFont *font, float size, float x, float y, const char *s, size_t len,
                     ExColor color, int draw) {
     Batch *b = NULL;
-    SDL_FColor col;
+    SDL_FColor col, white;
     ExFontMetrics m;
+    ExShaped sh;
     int px = ex_px(r, size);
-    float pen = 0.0f;
-    float baseline;
-    uint32_t prev = 0;
-    size_t i = 0;
+    float pen = 0.0f, baseline;
+    size_t i;
 
     if (!font || !s || ex_font_metrics(font, px, &m)) return 0.0f;
+    if (ex_shape(r->fonts, font, px, s, len, &sh) < 0) return 0.0f;
     if (draw) {
         b = malloc(sizeof *b);
-        if (!b) return 0.0f;
+        if (!b) { ex_shaped_free(&sh); return 0.0f; }
         b->glyphs = 0;
         b->page = -1;
         col.r = color.r / 255.0f; col.g = color.g / 255.0f; col.b = color.b / 255.0f; col.a = color.a / 255.0f;
+        white.r = white.g = white.b = 1.0f;
+        white.a = col.a;
     }
     baseline = floorf(y + 0.5f) + (float)m.ascent;
-    while (i < len) {
-        uint32_t cp = ex_utf8_decode(s, len, &i);
-        uint32_t gi;
-        ExAtlasGlyph g;
-        const ExAtlasGlyph *pg;
-        if (cp < 0x20 || cp == 0x7F) continue; /* control characters have no glyph here */
-        gi = ex_font_glyph_index(font, cp);
-        pen += ex_font_kerning(font, prev, gi, px);
-        if (draw) {
-            pg = ex_atlas_glyph(r->atlas, font, gi, px);
-            if (pg) {
-                g = *pg; /* copy: the table may move on the next lookup */
-                emit(r, b, &g, floorf(x + pen + 0.5f) + (float)g.left, baseline - (float)g.top, col);
-                pen += g.advance;
-            }
-        } else {
-            pen += ex_font_advance(font, gi, px);
+    for (i = 0; draw && i < sh.nglyphs; i++) {
+        const ExGlyph *gl = &sh.glyphs[i];
+        const ExAtlasGlyph *pg = ex_atlas_glyph(r->atlas, gl->font, gl->glyph, px);
+        if (pg) {
+            ExAtlasGlyph g = *pg; /* copy: the table may move on the next lookup */
+            emit(r, b, &g, floorf(x + pen + gl->x_offset + 0.5f) + (float)g.left,
+                 baseline - (float)g.top - floorf(gl->y_offset + 0.5f), g.color ? white : col);
         }
-        prev = gi;
+        pen += gl->advance;
     }
+    if (!draw) pen = sh.width;
     if (draw) { flush(r, b); free(b); }
+    ex_shaped_free(&sh);
     return pen;
 }
 

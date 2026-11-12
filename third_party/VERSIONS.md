@@ -10,6 +10,12 @@ and what was left out of the vendored copy.
 | FreeType | 2.13.3 (tag `VER-2-13-3`, commit `42608f77f20749dd6ddc9e0536788eaad70ea4b5`) | https://github.com/freetype/freetype | `freetype/docs/FTL.TXT`, `freetype/LICENSE.TXT` | FreeType License (FTL) |
 | Atkinson Hyperlegible (Regular, Bold, Italic, Bold Italic) | commit `1cb311624b2ddf88e9e37873999d165a8cd28b46` | https://github.com/googlefonts/atkinson-hyperlegible | `fonts/atkinson-hyperlegible/OFL.txt` | SIL Open Font License 1.1 |
 | Atkinson Hyperlegible Mono (Regular, Bold, Italic, Bold Italic) | commit `154d50362016cc3e873eb21d242cd0772384c8f9` | https://github.com/googlefonts/atkinson-hyperlegible-next-mono | `fonts/atkinson-hyperlegible-mono/OFL.txt` | SIL Open Font License 1.1 |
+| HarfBuzz | 15.1.0 (commit `3df40d9b98d6b32f0e4288d4ecfbb158ddb3a372`) | https://github.com/harfbuzz/harfbuzz | `harfbuzz/COPYING` | MIT (the "Old MIT" license) |
+| SheenBidi | 3.0.0 (commit `cfe430e7375a7845b679adae9d51dac6deaa8858`) | https://github.com/Tehreer/SheenBidi | `SheenBidi/LICENSE` | Apache-2.0 |
+| zlib | 1.3.1 (commit `51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf`) | https://github.com/madler/zlib | `zlib/LICENSE` | zlib |
+| libpng | 1.6.59 (commit `cd952f49f95bb27154ae77dbb103032d95f6e580`) | https://github.com/pnggroup/libpng | `libpng/LICENSE` | libpng License |
+| Unicode data (grapheme break, emoji, Indic conjunct break) | 17.0.0 | https://github.com/unicode-org/unicodetools (`unicodetools/data/ucd/17.0.0`) | `unicode/LICENSE.txt` | Unicode License v3 |
+| Test fonts (Noto subsets, tests only) | see `tests/fonts/README.md` | notofonts, googlefonts/noto-emoji | `tests/fonts/OFL-Noto.txt` | SIL Open Font License 1.1 |
 
 ## Notes
 
@@ -32,3 +38,18 @@ and what was left out of the vendored copy.
   for the four styles are vendored. They are embedded into the executable by
   `tools/embed.c` at build time. OFL 1.1 allows embedding; the license text is
   shipped with the program.
+- **HarfBuzz**: `src/` minus tests, Python scripts, Ragel sources, the subsetter
+  and the fuzzing code, plus `COPYING`. Built as the single file `harfbuzz.cc`
+  (a C++ compiler is needed to build Exhaust; Exhaust's own code stays C), with
+  FreeType table access (`hb-ft`). C++ exceptions and RTTI are off.
+- **SheenBidi**: `Headers/` and `Source/`, built as one unity file.
+- **zlib and libpng**: C sources and headers only; `libpng/pnglibconf.h` is
+  upstream's `scripts/pnglibconf.h.prebuilt`. libpng's SIMD code is off. They exist
+  so FreeType can read PNG-compressed emoji bitmaps (CBDT, sbix).
+- **Unicode data**: `GraphemeBreakProperty.txt`, `GraphemeBreakTest.txt`,
+  `emoji-data.txt`, and `InCB.txt`, an extract of the `InCB` lines of
+  `DerivedCoreProperties.txt` (the full file is 1 MB). `src/text/grapheme_data.c`
+  is generated from them by `tools/gen_grapheme.c`; the generated file is committed.
+  libgrapheme (ISC) was not vendored because its hosts were unreachable.
+- Licenses of HarfBuzz, SheenBidi, zlib, libpng and the Unicode data are
+  installed with the program under `share/exhaust/licenses/`.

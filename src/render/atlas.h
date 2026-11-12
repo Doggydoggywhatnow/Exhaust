@@ -13,6 +13,7 @@
 typedef struct ExAtlasGlyph {
     int page;          /* -1: no pixels (space) */
     int x, y, w, h;    /* in the page texture */
+    int color;         /* 1: the pixels are RGBA (emoji) and not tinted */
     int left, top;     /* bearing, pixels */
     float advance;     /* pixels */
 } ExAtlasGlyph;
