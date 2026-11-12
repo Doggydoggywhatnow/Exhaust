@@ -161,7 +161,7 @@ static void run_theme(ExBuiltinTheme which, float scale) {
     ex_ui_key(ui, EX_KEY_RIGHT, EX_MOD_SHIFT);
     ex_ui_key(ui, EX_KEY_RIGHT, EX_MOD_SHIFT);
     CHECK(ex_doc_sel(doc, 0).anchor == 0 && ex_doc_sel(doc, 0).head == 2);
-    ex_ui_key(ui, EX_KEY_RIGHT, EX_MOD_PRIMARY | EX_MOD_SHIFT);  /* to the end of the word */
+    ex_ui_key(ui, EX_KEY_RIGHT, EX_MOD_ALT | EX_MOD_SHIFT);      /* to the end of the word (Alt, which is Option on a Mac, moves by words on every system) */
     CHECK(ex_doc_sel(doc, 0).head == 5);
     ex_ui_key(ui, EX_KEY_DOWN, EX_MOD_SHIFT);                    /* extend down a line */
     CHECK(ex_doc_sel(doc, 0).anchor == 0 && ex_doc_sel(doc, 0).head > 11);
