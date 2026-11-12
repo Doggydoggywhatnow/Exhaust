@@ -4,6 +4,8 @@ This file is the source of truth for every name that `AGENTS.md` freezes after r
 
 Each item has a name, a type, a default and the version it first appeared in ("since"). Defaults for settings follow the states shown in `screenshots/settings/` where a screenshot shows one; values marked *TODO-verify* could not be confirmed from the screenshots or the Obsidian Help pages and must be decided before the key is implemented.
 
+*TODO-verify* items are assigned: `default_file` to 7a; the Canvas, Note composer and Quick switcher values to 7b; the command-list boundaries and the macOS defaults to 7c. The slash-command list is done (see Slash commands), ahead of 3d.
+
 Types: `bool`, `int`, `percent`, `string`, `path` (relative to the vault), `color` (`#rrggbb` or `#rrggbbaa`), `list` (comma separated), `enum(a|b|c)`.
 
 ## settings.ini
@@ -23,7 +25,7 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 
 | Name | Type | Default | Since |
 | --- | --- | --- | --- |
-| `color_scheme` | enum(dark|light|system) | `system` | 0.1.0 |
+| `color_scheme` | enum(dark\|light\|system) | `system` | 0.1.0 |
 | `accent_color` | color | empty (the theme's accent) | 0.1.0 |
 | `theme` | string | `exhaust` | 0.1.0 |
 | `snippets_enabled` | list | empty | 0.1.0 |
@@ -46,20 +48,20 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 | `ribbon_items` | list | empty (all) | 0.1.0 |
 | `zoom_percent` | percent | `100` | 0.1.0 |
 | `native_menus` | bool | `false` | 0.1.0 |
-| `window_frame` | enum(custom|native|hidden) | `hidden` | 0.1.0 |
+| `window_frame` | enum(custom\|native\|hidden) | `hidden` | 0.1.0 |
 | `settings_in_new_window` | bool | `false` | 0.1.0 |
 
 ### [editor]
 
 | Name | Type | Default | Since |
 | --- | --- | --- | --- |
-| `default_view` | enum(editing|reading) | `editing` | 0.1.0 |
-| `default_mode` | enum(live_preview|source) | `live_preview` | 0.1.0 |
+| `default_view` | enum(editing\|reading) | `editing` | 0.1.0 |
+| `default_mode` | enum(live_preview\|source) | `live_preview` | 0.1.0 |
 | `show_mode_in_status_bar` | bool | `true` | 0.1.0 |
 | `inline_title` | bool | `true` | 0.1.0 |
 | `readable_line_length` | bool | `true` | 0.1.0 |
 | `strict_line_breaks` | bool | `false` | 0.1.0 |
-| `properties_in_document` | enum(visible|hidden|source) | `visible` | 0.1.0 |
+| `properties_in_document` | enum(visible\|hidden\|source) | `visible` | 0.1.0 |
 | `fold_heading` | bool | `true` | 0.1.0 |
 | `fold_indent` | bool | `true` | 0.1.0 |
 | `line_numbers` | bool | `false` | 0.1.0 |
@@ -79,22 +81,22 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 
 | Name | Type | Default | Since |
 | --- | --- | --- | --- |
-| `default_file` | enum(last_opened|...) | `last_opened` (*TODO-verify*: the other values) | 0.1.0 |
+| `default_file` | enum(last_opened\|...) | `last_opened` (*TODO-verify*: the other values) | 0.1.0 |
 | `always_focus_new_tabs` | bool | `true` | 0.1.0 |
 | `sort_by` | enum(name\|modified\|created) | `name` | 0.1.0 |
 | `sort_descending` | bool | `false` | 0.1.0 |
-| `new_note_location` | enum(vault|folder|same_folder|subfolder) | `vault` | 0.1.0 |
+| `new_note_location` | enum(vault\|folder\|same_folder\|subfolder) | `vault` | 0.1.0 |
 | `new_note_folder` | path | empty | 0.1.0 |
-| `attachment_location` | enum(vault|folder|same_folder|subfolder) | `vault` | 0.1.0 |
+| `attachment_location` | enum(vault\|folder\|same_folder\|subfolder) | `vault` | 0.1.0 |
 | `attachment_folder` | path | empty | 0.1.0 |
 | `attachment_subfolder` | string | empty | 0.1.0 |
-| `link_format` | enum(shortest|relative|absolute) | `shortest` | 0.1.0 |
+| `link_format` | enum(shortest\|relative\|absolute) | `shortest` | 0.1.0 |
 | `auto_update_links` | bool | `true` | 0.1.0 |
 | `use_wikilinks` | bool | `true` | 0.1.0 |
 | `show_all_file_types` | bool | `false` | 0.1.0 |
 | `confirm_delete` | bool | `true` | 0.1.0 |
-| `delete_attachments` | enum(ask|always|never) | `ask` | 0.1.0 |
-| `trash_mode` | enum(system|vault_trash|permanent) | `system` | 0.1.0 |
+| `delete_attachments` | enum(ask\|always\|never) | `ask` | 0.1.0 |
+| `trash_mode` | enum(system\|vault_trash\|permanent) | `system` | 0.1.0 |
 | `excluded` | list | empty | 0.1.0 |
 | `config_folder` | string | `.exhaust` | 0.1.0 |
 | `allow_uri_callbacks` | bool | `false` | 0.1.0 |
@@ -144,10 +146,10 @@ One switch per built-in feature, `true` or `false`. Defaults follow the Core plu
 
 | Name | Type | Default | Since |
 | --- | --- | --- | --- |
-| `new_file_location` | enum(vault|folder|same_folder|subfolder) | `vault` | 0.1.0 |
-| `wheel` | enum(pan|zoom) | `pan` (*TODO-verify*: full value set) | 0.1.0 |
-| `ctrl_drag` | enum(menu|...) | `menu` (*TODO-verify*: other values) | 0.1.0 |
-| `show_card_names` | enum(always|...) | `always` (*TODO-verify*: other values) | 0.1.0 |
+| `new_file_location` | enum(vault\|folder\|same_folder\|subfolder) | `vault` | 0.1.0 |
+| `wheel` | enum(pan\|zoom) | `pan` (*TODO-verify*: full value set) | 0.1.0 |
+| `ctrl_drag` | enum(menu\|...) | `menu` (*TODO-verify*: other values) | 0.1.0 |
+| `show_card_names` | enum(always\|...) | `always` (*TODO-verify*: other values) | 0.1.0 |
 | `snap_to_grid` | bool | `true` | 0.1.0 |
 | `snap_to_objects` | bool | `true` | 0.1.0 |
 | `zoom_hide_threshold` | percent | `100` | 0.1.0 |
@@ -177,7 +179,7 @@ One switch per built-in feature, `true` or `false`. Defaults follow the Core plu
 
 | Name | Type | Default | Since |
 | --- | --- | --- | --- |
-| `text_after_extract` | enum(link|...) | `link` (*TODO-verify*: other values) | 0.1.0 |
+| `text_after_extract` | enum(link\|...) | `link` (*TODO-verify*: other values) | 0.1.0 |
 | `template` | path | empty | 0.1.0 |
 | `confirm_merge` | bool | `true` | 0.1.0 |
 
@@ -227,9 +229,9 @@ One `ctrl_required_<place>` key per place, all `bool`.
 
 | Name | Type | Default | Since |
 | --- | --- | --- | --- |
-| `page_size` | enum(A3|A4|A5|Legal|Letter|Tabloid) | `A4` | 0.1.0 |
+| `page_size` | enum(A3\|A4\|A5\|Legal\|Letter\|Tabloid) | `A4` | 0.1.0 |
 | `landscape` | bool | `false` | 0.1.0 |
-| `margin` | enum(default|minimal|none) | `default` | 0.1.0 |
+| `margin` | enum(default\|minimal\|none) | `default` | 0.1.0 |
 | `downscale_percent` | percent | `100` | 0.1.0 |
 | `include_title` | bool | `false` | 0.1.0 |
 
@@ -262,6 +264,218 @@ other.command =
 - Duplicates are allowed and are shown as conflicts in Settings.
 - Since: 0.1.0.
 
+## Commands
+
+Every command in the command registry, read from the nine hotkeys screenshots (`screenshots/settings/hotkeys-1.png` to `hotkeys-9.png`). **Id** is Exhaust's id (`area.action`, lowercase, hyphens; commands with no area are `app.` or, for text-editing commands, `editor.`). **Default** is the shortcut shown in the screenshots for Windows and Linux; a blank means no default shortcut. **Editor** is *yes* for commands that act on the text at the cursor: those are exactly the commands the slash menu lists. The Editor column is Exhaust's own classification, not read from any screenshot. Since: 0.1.0 for every command.
+
+203 commands. Left out on purpose: *Configure mobile Quick Action* (mobile is a non-goal), *Open sandbox vault* and *Show release notes* (Obsidian-specific), and *Copy Obsidian URL for current file*, which is renamed *Copy URL for current file*. Commands for stubbed features (Sync) are present and disabled; *Download attachments for current file* needs the network and is *(optional)*. *TODO-verify*: the screenshots are cropped at page edges, so a command may be missing at a boundary between two pages; the macOS defaults are not shown; and the shortcuts shown may be one person's settings rather than defaults.
+
+| Id | Name | Default | Editor |
+| --- | --- | --- | --- |
+| `app.add-alias` | Add alias |  |  |
+| `editor.add-cursor-above` | Add cursor above |  | yes |
+| `editor.add-cursor-below` | Add cursor below |  | yes |
+| `editor.add-embed` | Add embed |  | yes |
+| `app.add-file-property` | Add file property | `Ctrl+;` |  |
+| `editor.add-internal-link` | Add internal link |  | yes |
+| `editor.add-tag` | Add tag |  | yes |
+| `backlinks.open-backlinks-for-the-current-note` | Backlinks: Open backlinks for the current note |  |  |
+| `backlinks.show-backlinks` | Backlinks: Show backlinks |  |  |
+| `backlinks.toggle-backlinks-in-document` | Backlinks: Toggle backlinks in document |  |  |
+| `bases.add-item` | Bases: Add item |  |  |
+| `bases.add-view` | Bases: Add view |  |  |
+| `bases.copy-table-to-clipboard` | Bases: Copy table to clipboard |  |  |
+| `bases.create-new-base` | Bases: Create new base |  |  |
+| `bases.insert-new-base` | Bases: Insert new base |  | yes |
+| `bases.switch-view` | Bases: Switch view... |  |  |
+| `bookmarks.bookmark-all-tabs` | Bookmarks: Bookmark all tabs... |  |  |
+| `bookmarks.bookmark-block-under-cursor` | Bookmarks: Bookmark block under cursor... |  |  |
+| `bookmarks.bookmark-current-search` | Bookmarks: Bookmark current search... |  |  |
+| `bookmarks.bookmark-heading-under-cursor` | Bookmarks: Bookmark heading under cursor... |  |  |
+| `bookmarks.bookmark` | Bookmarks: Bookmark... |  |  |
+| `bookmarks.remove-bookmark-for-the-current-file` | Bookmarks: Remove bookmark for the current file |  |  |
+| `bookmarks.show-bookmarks` | Bookmarks: Show bookmarks |  |  |
+| `canvas.convert-to-file` | Canvas: Convert to file... |  |  |
+| `canvas.create-new-canvas` | Canvas: Create new canvas |  |  |
+| `canvas.export-as-image` | Canvas: Export as image |  |  |
+| `canvas.jump-to-group` | Canvas: Jump to group |  |  |
+| `app.change-theme` | Change theme... |  |  |
+| `app.change-vault` | Change vault... |  |  |
+| `app.clear-file-properties` | Clear file properties |  |  |
+| `editor.clear-formatting` | Clear formatting |  | yes |
+| `app.close-all-other-tabs` | Close all other tabs |  |  |
+| `app.close-current-tab` | Close current tab | `Ctrl+W` |  |
+| `app.close-others-in-tab-group` | Close others in tab group |  |  |
+| `app.close-this-tab-group` | Close this tab group |  |  |
+| `app.close-window` | Close window | `Ctrl+Shift+W` |  |
+| `command-palette.open-command-palette` | Command palette: Open command palette | `Ctrl+P` |  |
+| `app.copy-current-file-path-from-system-root` | Copy current file path from system root |  |  |
+| `app.copy-current-file-path-from-vault-folder` | Copy current file path from vault folder |  |  |
+| `app.copy-url-for-current-file` | Copy URL for current file |  |  |
+| `app.create-new-note` | Create new note | `Ctrl+N` |  |
+| `app.create-new-note-in-current-tab` | Create new note in current tab |  |  |
+| `app.create-note-to-the-right` | Create note to the right | `Ctrl+Shift+N` |  |
+| `editor.cycle-bullet-checkbox` | Cycle bullet/checkbox |  | yes |
+| `daily-notes.open-next-daily-note` | Daily notes: Open next daily note |  |  |
+| `daily-notes.open-previous-daily-note` | Daily notes: Open previous daily note |  |  |
+| `daily-notes.open-today-s-daily-note` | Daily notes: Open today's daily note |  |  |
+| `app.decrease-font-size` | Decrease font size |  |  |
+| `app.delete-current-file` | Delete current file |  |  |
+| `editor.delete-paragraph` | Delete paragraph | `Ctrl+D` | yes |
+| `app.download-attachments-for-current-file` | Download attachments for current file |  |  |
+| `app.export-to-pdf` | Export to PDF... |  |  |
+| `file-recovery.open-local-history` | File recovery: Open local history |  |  |
+| `files.create-new-folder` | Files: Create new folder |  |  |
+| `files.reveal-current-file-in-navigation` | Files: Reveal current file in navigation |  |  |
+| `files.show-file-explorer` | Files: Show file explorer |  |  |
+| `app.focus-on-last-note` | Focus on last note |  |  |
+| `app.focus-on-tab-group-above` | Focus on tab group above |  |  |
+| `app.focus-on-tab-group-below` | Focus on tab group below |  |  |
+| `app.focus-on-tab-group-to-the-left` | Focus on tab group to the left |  |  |
+| `app.focus-on-tab-group-to-the-right` | Focus on tab group to the right |  |  |
+| `editor.fold-all-headings-and-lists` | Fold all headings and lists |  | yes |
+| `editor.fold-less` | Fold less |  | yes |
+| `editor.fold-more` | Fold more |  | yes |
+| `app.follow-link-under-cursor` | Follow link under cursor | `Alt+Enter` |  |
+| `format-converter.frontmatter-migration` | Format converter: Frontmatter migration |  |  |
+| `app.go-to-last-tab` | Go to last tab | `Ctrl+9` |  |
+| `app.go-to-next-tab` | Go to next tab | `Ctrl+Tab`, `Ctrl+PageDown` |  |
+| `app.go-to-previous-tab` | Go to previous tab | `Ctrl+Shift+Tab`, `Ctrl+PageUp` |  |
+| `app.go-to-tab-1` | Go to tab #1 | `Ctrl+1` |  |
+| `app.go-to-tab-2` | Go to tab #2 | `Ctrl+2` |  |
+| `app.go-to-tab-3` | Go to tab #3 | `Ctrl+3` |  |
+| `app.go-to-tab-4` | Go to tab #4 | `Ctrl+4` |  |
+| `app.go-to-tab-5` | Go to tab #5 | `Ctrl+5` |  |
+| `app.go-to-tab-6` | Go to tab #6 | `Ctrl+6` |  |
+| `app.go-to-tab-7` | Go to tab #7 | `Ctrl+7` |  |
+| `app.go-to-tab-8` | Go to tab #8 | `Ctrl+8` |  |
+| `graph-view.open-graph-view` | Graph view: Open graph view | `Ctrl+G` |  |
+| `graph-view.open-local-graph` | Graph view: Open local graph |  |  |
+| `graph-view.start-graph-timelapse-animation` | Graph view: Start graph timelapse animation |  |  |
+| `app.increase-font-size` | Increase font size |  |  |
+| `editor.indent-list-item` | Indent list item |  | yes |
+| `editor.insert-attachment` | Insert attachment |  | yes |
+| `editor.insert-callout` | Insert callout |  | yes |
+| `editor.insert-code-block` | Insert code block |  | yes |
+| `editor.insert-footnote` | Insert footnote |  | yes |
+| `editor.insert-horizontal-rule` | Insert horizontal rule |  | yes |
+| `editor.insert-markdown-link` | Insert Markdown link | `Ctrl+K` | yes |
+| `editor.insert-math-block` | Insert math block |  | yes |
+| `editor.insert-table` | Insert table |  | yes |
+| `app.make-a-copy-of-the-current-file` | Make a copy of the current file |  |  |
+| `app.manage-vaults` | Manage vaults |  |  |
+| `app.move-current-file-to-another-folder` | Move current file to another folder |  |  |
+| `app.move-current-tab-to-new-window` | Move current tab to new window |  |  |
+| `editor.move-line-down` | Move line down |  | yes |
+| `editor.move-line-up` | Move line up |  | yes |
+| `app.navigate-back` | Navigate back | `Ctrl+Alt+Left` |  |
+| `app.navigate-forward` | Navigate forward | `Ctrl+Alt+Right` |  |
+| `app.new-tab` | New tab | `Ctrl+T` |  |
+| `app.new-window` | New window |  |  |
+| `note-composer.extract-current-selection` | Note composer: Extract current selection... |  | yes |
+| `note-composer.extract-this-heading` | Note composer: Extract this heading... |  | yes |
+| `note-composer.merge-current-file-with-another-file` | Note composer: Merge current file with another file... |  |  |
+| `app.open-current-tab-in-new-window` | Open current tab in new window |  |  |
+| `app.open-file-from-outside-the-vault` | Open file from outside the vault... |  |  |
+| `app.open-help` | Open help | `F1` |  |
+| `app.open-in-default-app` | Open in default app |  |  |
+| `app.open-link-under-cursor-in-new-tab` | Open link under cursor in new tab | `Ctrl+Enter` |  |
+| `app.open-link-under-cursor-in-new-window` | Open link under cursor in new window | `Ctrl+Alt+Shift+Enter` |  |
+| `app.open-link-under-cursor-to-the-right` | Open link under cursor to the right | `Ctrl+Alt+Enter` |  |
+| `app.open-settings` | Open settings | `Ctrl+,` |  |
+| `app.open-vault` | Open vault... |  |  |
+| `outgoing-links.open-outgoing-links-for-the-current-file` | Outgoing links: Open outgoing links for the current file |  |  |
+| `outgoing-links.show-outgoing-links` | Outgoing links: Show outgoing links |  |  |
+| `outline.open-outline-of-the-current-file` | Outline: Open outline of the current file |  |  |
+| `outline.show-outline` | Outline: Show outline |  |  |
+| `properties-view.show-all-properties` | Properties view: Show all properties |  |  |
+| `properties-view.show-file-properties` | Properties view: Show file properties |  |  |
+| `quick-switcher.open-quick-switcher` | Quick switcher: Open quick switcher | `Ctrl+O` |  |
+| `app.reload-app-without-saving` | Reload app without saving |  |  |
+| `editor.remove-heading` | Remove heading |  | yes |
+| `app.rename-file` | Rename file | `F2` |  |
+| `editor.rename-this-heading` | Rename this heading... |  | yes |
+| `app.reset-zoom` | Reset zoom |  |  |
+| `app.save-current-file` | Save current file | `Ctrl+S` |  |
+| `app.search-and-replace-in-current-file` | Search & replace in current file | `Ctrl+H` |  |
+| `app.search-current-file` | Search current file | `Ctrl+F` |  |
+| `search.search-in-all-files` | Search: Search in all files | `Ctrl+Shift+F` |  |
+| `editor.set-as-heading-1` | Set as heading 1 |  | yes |
+| `editor.set-as-heading-2` | Set as heading 2 |  | yes |
+| `editor.set-as-heading-3` | Set as heading 3 |  | yes |
+| `editor.set-as-heading-4` | Set as heading 4 |  | yes |
+| `editor.set-as-heading-5` | Set as heading 5 |  | yes |
+| `editor.set-as-heading-6` | Set as heading 6 |  | yes |
+| `app.show-context-menu-under-cursor` | Show context menu under cursor |  |  |
+| `app.show-debug-info` | Show debug info |  |  |
+| `app.show-in-system-explorer` | Show in system explorer |  |  |
+| `app.show-trash` | Show trash |  |  |
+| `app.split-down` | Split down |  |  |
+| `app.split-right` | Split right |  |  |
+| `sync.open-activity-log` | Sync: Open activity log |  |  |
+| `sync.open-version-history-for-the-current-file` | Sync: Open version history for the current file |  |  |
+| `sync.set-up-sync` | Sync: Set up Sync |  |  |
+| `sync.show-sync-history` | Sync: Show Sync history |  |  |
+| `table.add-column-to-the-left` | Table: Add column to the left |  | yes |
+| `table.add-column-to-the-right` | Table: Add column to the right |  | yes |
+| `table.add-row-above` | Table: Add row above |  | yes |
+| `table.add-row-below` | Table: Add row below |  | yes |
+| `table.align-center` | Table: Align center |  | yes |
+| `table.align-left` | Table: Align left |  | yes |
+| `table.align-right` | Table: Align right |  | yes |
+| `table.delete-column` | Table: Delete column |  | yes |
+| `table.delete-row` | Table: Delete row |  | yes |
+| `table.duplicate-column` | Table: Duplicate column |  | yes |
+| `table.duplicate-row` | Table: Duplicate row |  | yes |
+| `table.move-column-left` | Table: Move column left |  | yes |
+| `table.move-column-right` | Table: Move column right |  | yes |
+| `table.move-row-down` | Table: Move row down |  | yes |
+| `table.move-row-up` | Table: Move row up |  | yes |
+| `tags-view.show-tags` | Tags view: Show tags |  |  |
+| `templates.insert-current-date` | Templates: Insert current date |  | yes |
+| `templates.insert-current-time` | Templates: Insert current time |  | yes |
+| `templates.insert-template` | Templates: Insert template |  | yes |
+| `editor.toggle-blockquote` | Toggle blockquote |  | yes |
+| `editor.toggle-blue-highlight` | Toggle blue highlight |  | yes |
+| `editor.toggle-bold` | Toggle bold | `Ctrl+B` | yes |
+| `editor.toggle-bullet-list` | Toggle bullet list |  | yes |
+| `editor.toggle-checkbox-status` | Toggle checkbox status | `Ctrl+L` | yes |
+| `editor.toggle-code` | Toggle code |  | yes |
+| `editor.toggle-comment` | Toggle comment | `Ctrl+/` | yes |
+| `app.toggle-default-mode-for-new-tabs` | Toggle default mode for new tabs |  |  |
+| `editor.toggle-fold-on-the-current-line` | Toggle fold on the current line |  | yes |
+| `app.toggle-fold-properties-in-current-file` | Toggle fold properties in current file |  |  |
+| `editor.toggle-green-highlight` | Toggle green highlight |  | yes |
+| `editor.toggle-heading` | Toggle heading |  | yes |
+| `editor.toggle-highlight` | Toggle highlight |  | yes |
+| `editor.toggle-inline-math` | Toggle inline math |  | yes |
+| `editor.toggle-italic` | Toggle italic | `Ctrl+I` | yes |
+| `app.toggle-left-sidebar` | Toggle left sidebar |  |  |
+| `app.toggle-light-dark-mode` | Toggle light/dark mode |  |  |
+| `app.toggle-line-numbers` | Toggle line numbers |  |  |
+| `app.toggle-live-preview-source-mode` | Toggle Live Preview/Source mode |  |  |
+| `editor.toggle-numbered-list` | Toggle numbered list |  | yes |
+| `editor.toggle-orange-highlight` | Toggle orange highlight |  | yes |
+| `app.toggle-pin` | Toggle pin |  |  |
+| `editor.toggle-purple-highlight` | Toggle purple highlight |  | yes |
+| `app.toggle-readable-line-length` | Toggle readable line length |  |  |
+| `app.toggle-reading-view` | Toggle reading view | `Ctrl+E` |  |
+| `editor.toggle-red-highlight` | Toggle red highlight |  | yes |
+| `app.toggle-ribbon` | Toggle ribbon |  |  |
+| `app.toggle-right-sidebar` | Toggle right sidebar |  |  |
+| `app.toggle-spellcheck` | Toggle spellcheck |  |  |
+| `app.toggle-stacked-tabs` | Toggle stacked tabs |  |  |
+| `editor.toggle-strikethrough` | Toggle strikethrough |  | yes |
+| `app.toggle-window-always-on-top` | Toggle window always on top |  |  |
+| `editor.toggle-yellow-highlight` | Toggle yellow highlight |  | yes |
+| `app.undo-close-tab` | Undo close tab | `Ctrl+Shift+T` |  |
+| `editor.unfold-all-headings-and-lists` | Unfold all headings and lists |  | yes |
+| `editor.unindent-list-item` | Unindent list item |  | yes |
+| `unique-note-creator.add-unique-internal-link` | Unique note creator: Add unique internal link |  | yes |
+| `unique-note-creator.create-new-unique-note` | Unique note creator: Create new unique note |  |  |
+| `app.zoom-in` | Zoom in |  |  |
+| `app.zoom-out` | Zoom out |  |  |
+
 ## workspaces.ini
 
 Plain text, one section per saved layout, `[workspace.<name>]`:
@@ -273,7 +487,7 @@ Plain text, one section per saved layout, `[workspace.<name>]`:
 | `left_width` | int | `260` | 0.1.0 |
 | `right_width` | int | `300` | 0.1.0 |
 | `active` | string | empty (the active tab id) | 0.1.0 |
-| `tab.<n>` | string | none: `path|view|mode|pinned` for each open tab, `n` from 0 | 0.1.0 |
+| `tab.<n>` | string | none: `path\|view\|mode\|pinned` for each open tab, `n` from 0 | 0.1.0 |
 
 ## themes/*.theme
 
@@ -476,7 +690,83 @@ Event names for `exhaust.events.on`: `vault-open`, `file-open`, `file-save`, `fi
 
 The slash menu opens when you type `/` at the start of a line or after a blank space. It lists every command registered with the `editor` flag, in command palette order, matched with the same fuzzy matching as the command palette (`scf` finds *Save current file*). `Esc` or `Space` closes it. The list itself is therefore the set of editor commands in the command registry; it is not a separate list.
 
-*TODO-verify*: the Obsidian Help pages do not list the default slash commands, and the nine hotkeys screenshots have not been read to extract command ids. Before 3d is finished, list the `editor` commands here from the command registry.
+The Obsidian Help pages do not list the default slash commands, so Exhaust defines its own list: the commands in the Commands table marked *Editor: yes*. They are, in table order:
+
+- `editor.add-cursor-above`: Add cursor above
+- `editor.add-cursor-below`: Add cursor below
+- `editor.add-embed`: Add embed
+- `editor.add-internal-link`: Add internal link
+- `editor.add-tag`: Add tag
+- `bases.insert-new-base`: Bases: Insert new base
+- `editor.clear-formatting`: Clear formatting
+- `editor.cycle-bullet-checkbox`: Cycle bullet/checkbox
+- `editor.delete-paragraph`: Delete paragraph
+- `editor.fold-all-headings-and-lists`: Fold all headings and lists
+- `editor.fold-less`: Fold less
+- `editor.fold-more`: Fold more
+- `editor.indent-list-item`: Indent list item
+- `editor.insert-attachment`: Insert attachment
+- `editor.insert-callout`: Insert callout
+- `editor.insert-code-block`: Insert code block
+- `editor.insert-footnote`: Insert footnote
+- `editor.insert-horizontal-rule`: Insert horizontal rule
+- `editor.insert-markdown-link`: Insert Markdown link
+- `editor.insert-math-block`: Insert math block
+- `editor.insert-table`: Insert table
+- `editor.move-line-down`: Move line down
+- `editor.move-line-up`: Move line up
+- `note-composer.extract-current-selection`: Note composer: Extract current selection...
+- `note-composer.extract-this-heading`: Note composer: Extract this heading...
+- `editor.remove-heading`: Remove heading
+- `editor.rename-this-heading`: Rename this heading...
+- `editor.set-as-heading-1`: Set as heading 1
+- `editor.set-as-heading-2`: Set as heading 2
+- `editor.set-as-heading-3`: Set as heading 3
+- `editor.set-as-heading-4`: Set as heading 4
+- `editor.set-as-heading-5`: Set as heading 5
+- `editor.set-as-heading-6`: Set as heading 6
+- `table.add-column-to-the-left`: Table: Add column to the left
+- `table.add-column-to-the-right`: Table: Add column to the right
+- `table.add-row-above`: Table: Add row above
+- `table.add-row-below`: Table: Add row below
+- `table.align-center`: Table: Align center
+- `table.align-left`: Table: Align left
+- `table.align-right`: Table: Align right
+- `table.delete-column`: Table: Delete column
+- `table.delete-row`: Table: Delete row
+- `table.duplicate-column`: Table: Duplicate column
+- `table.duplicate-row`: Table: Duplicate row
+- `table.move-column-left`: Table: Move column left
+- `table.move-column-right`: Table: Move column right
+- `table.move-row-down`: Table: Move row down
+- `table.move-row-up`: Table: Move row up
+- `templates.insert-current-date`: Templates: Insert current date
+- `templates.insert-current-time`: Templates: Insert current time
+- `templates.insert-template`: Templates: Insert template
+- `editor.toggle-blockquote`: Toggle blockquote
+- `editor.toggle-blue-highlight`: Toggle blue highlight
+- `editor.toggle-bold`: Toggle bold
+- `editor.toggle-bullet-list`: Toggle bullet list
+- `editor.toggle-checkbox-status`: Toggle checkbox status
+- `editor.toggle-code`: Toggle code
+- `editor.toggle-comment`: Toggle comment
+- `editor.toggle-fold-on-the-current-line`: Toggle fold on the current line
+- `editor.toggle-green-highlight`: Toggle green highlight
+- `editor.toggle-heading`: Toggle heading
+- `editor.toggle-highlight`: Toggle highlight
+- `editor.toggle-inline-math`: Toggle inline math
+- `editor.toggle-italic`: Toggle italic
+- `editor.toggle-numbered-list`: Toggle numbered list
+- `editor.toggle-orange-highlight`: Toggle orange highlight
+- `editor.toggle-purple-highlight`: Toggle purple highlight
+- `editor.toggle-red-highlight`: Toggle red highlight
+- `editor.toggle-strikethrough`: Toggle strikethrough
+- `editor.toggle-yellow-highlight`: Toggle yellow highlight
+- `editor.unfold-all-headings-and-lists`: Unfold all headings and lists
+- `editor.unindent-list-item`: Unindent list item
+- `unique-note-creator.add-unique-internal-link`: Unique note creator: Add unique internal link
+
+73 commands.
 
 
 ## Default editing shortcuts
