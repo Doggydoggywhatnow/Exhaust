@@ -23,3 +23,9 @@ The vault button at the bottom left of the file tree lets the user switch betwee
 ![Settings](settings.png)
 
 The settings menu to copy. A search box sits at the top. Below it, Options: General, Appearance, Interface, Editor, Files and links, Hotkeys, Keychain, Core plugins and Community plugins. Below that, one entry for each core plugin: Backlinks, Canvas, Command palette, Daily notes, File recovery, Note composer, Page preview, Quick switcher, Sync, Templates and Unique note creator.
+
+## Hotkeys
+
+![Hotkeys](hotkeys.png)
+
+The hotkeys list to copy. One row per command, in alphabetical order, with the command name on the left. On the right of each row is a shortcut chip, or "Blank" when none is set, and a plus button to add another shortcut. A chip with a shortcut has a cross to remove it. Examples in the screenshot: Toggle reading view (Ctrl + E), Undo close tab (Ctrl + Shift + T), and many commands with no shortcut, such as Toggle numbered list, the highlight colors, Toggle spellcheck, Toggle stacked tabs, Unique note creator and Zoom in and out.
