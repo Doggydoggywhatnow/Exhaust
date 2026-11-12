@@ -3,44 +3,69 @@
 Exhaust is a note-taking and knowledge-base app written in **C** (C11). **Stay in C.** `README.md` is the spec; the current release's build spec is `docs/0.1.0.md`.
 
 ## Goal
-Release 0.1.0 fits **every specification in the README**. Items marked *(later)* or *(optional)* may be stubs in the first demo, but must exist as disabled, clearly labeled entries where the README places them. If you deviate from the README, update the README in the same change.
+Release 0.1.0 fits **every specification in the README**. Items marked *(later)* or *(optional)* may be stubs in the first demo, but must exist as disabled, clearly labeled entries where the README places them. Things listed under the README's **Non-goals** are not built. If you deviate from the README, update the README in the same change.
 
 ## Other languages
-C for all of Exhaust's own code. Use another language only where it makes a feature far easier or reaches README parity: **Lua** for plugins, **Rust** only for the AccessKit screen reader bridge behind a small C wrapper. Never add a web browser, web view or JavaScript engine.
+C for all of Exhaust's own code, with these exceptions only:
+- **Lua** for plugins.
+- **Rust** only for the AccessKit screen reader bridge (`src/a11y/`), behind a small C wrapper.
+- **Objective-C**, at most 150 lines, only in `src/platform/` for macOS (trash and similar).
+- **JavaScript** only for the web clipper browser extension in `extras/clipper/`. It runs in the user's own browser, not in Exhaust.
+
+Never add a web browser, web view or JavaScript engine to Exhaust itself.
 
 ## Hard rules
-- **Never write to, move, rename or reorganize users' notes** except through an action the user takes (saving a note, a link-safe rename after confirmation, importing). Sorting and grouping change presentation only. Never reformat YAML properties or Markdown the user did not edit.
+- **Never write to, move, rename or reorganize users' notes** except through an action the user takes (saving a note, a link-safe rename after confirmation, importing). Sorting and grouping change presentation only. Never reformat YAML properties or Markdown the user did not edit. `.base` files belong to Exhaust and may be rewritten, but unknown keys must be kept.
 - **Privacy:** no network requests, telemetry or accounts by default. Items marked *(optional)* are off until the user turns them on.
-- Exhaust's own data (settings, themes, snippets, index) lives in a `.exhaust` folder inside the vault and in the OS standard config directory. The index is a cache and must always be rebuildable from the notes.
-- Must run on Windows, Linux (Wayland and X11) and macOS. No display-server-specific code.
+- **Where data lives:** settings, themes, snippets, hotkeys and workspaces are plain text in a `.exhaust` folder inside the vault. The search index and other caches live in the **OS cache folder, keyed by vault id, never inside the vault** (a SQLite file in a synced folder corrupts). The index is a cache and must always be rebuildable from the notes.
+- Must run on Windows, Linux (Wayland and X11) and macOS. No display-server-specific code. Platform code lives in `src/platform/`.
 - Dependencies must be compatible with the Unlicense. Prefer public domain or permissive libraries. Never add GPL or AGPL code. LGPL libraries (libmpv) are loaded at run time, never linked. Record each dependency and its license in the README's table when you add it, after confirming the license yourself.
-- Accessibility is designed in from the first slice: keyboard navigation, scalable text, high contrast, and an accessibility tree for every widget.
+- Accessibility is designed in from the first slice: keyboard navigation, scalable text, high contrast, and an accessibility tree for every widget. No hard-coded colors, sizes or fonts: use theme tokens from slice 1.
+- Every feature registers its commands in the command registry and its switch in the feature-toggle registry from slice 2 onward.
+
+## Dependencies
+- **Vendor everything** in `third_party/`: source and headers, with each license file, and a pinned version recorded in `third_party/VERSIONS.md`. Core builds need no downloads. Commit AccessKit's Rust sources with `cargo vendor`.
+- **Exception, large optional libraries (PDFium, libmpv):** vendor only their headers. Load them at run time (`dlopen` or `LoadLibrary`). Without them show "Open externally". They ship only in a separate optional add-on package, which the packaging job builds from pinned, checksummed upstream releases listed in `third_party/VERSIONS.md`.
+- **lib-Peep** (https://github.com/Doggydoggywhatnow/lib-Peep, Unlicense) is vendored and linked statically for WAV and FLAC. Read its README and source for the API; if the interface is unclear, note what you assumed in your commit message and in the README. MP3 and OGG use dr_mp3 and stb_vorbis. Other audio and video go through libmpv.
+- File watching uses dmon (single-header C) or our own inotify, ReadDirectoryChangesW and FSEvents code. Do not use efsw (C++).
 
 ## Workflow
-- Work on `dev`. **Never push directly to `main`.**
+- Work on `dev`. **Never push directly to `main`.** (The repository owner may tell you otherwise for a specific push.)
 - Versioning: `x.0.0` major, `0.x.0` minor (big features), `0.0.x` patch (small features, fixes, security).
 - Build: `cmake -S . -B build && cmake --build build && ctest --test-dir build`
-- Layout: `src/` sources, `include/` headers, `tests/` tests, `third_party/` vendored dependencies, `docs/` build specs.
+- Layout: `src/` sources (`src/platform/`, `src/a11y/`), `include/` headers, `tests/` tests (`tests/fuzz/` fuzz targets), `third_party/` vendored dependencies, `tools/` scripts, `extras/clipper/` the web clipper extension, `docs/` build specs.
 - Finish and commit each slice in `docs/0.1.0.md` before the next. Commit and push after each slice.
-- Keep CI (`.github/workflows/ci.yml`) green on all three OSes. When you add a dependency, update the workflow in the same slice to install or build it on Linux, Windows and macOS.
+- Keep CI (`.github/workflows/ci.yml`) green on all three OSes. When you add a dependency, update the workflow in the same slice.
+
+## Quality gates (CI)
+- **Size budget:** the core install is at most 25 MB (`tools/check_size.sh`).
+- **ASan and UBSan** job.
+- **libFuzzer targets** for the Markdown tokenizer, frontmatter, HTML subset, canvas JSON, base expressions and importers. Add each when its module is written.
+- **Hardening flags:** `-fstack-protector-strong -D_FORTIFY_SOURCE=2` where supported.
+- **Accessibility:** an automated accessibility-tree dump test, because a screen reader cannot run in CI.
 
 ## Tests
-Add tests with the code. Required at minimum: the text buffer and undo tree, the Markdown tokenizer, link and property parsing, the index and search, link-safe rename, settings and theme loading, and the compatibility tests below.
+Add tests with the code. Required at minimum: the text buffer and undo tree, the Markdown tokenizer, link and property parsing, the index and search, link-safe rename (all the cases in the README), the Bases expression engine against the documented examples, settings and theme loading, and the compatibility tests below.
 
 ## Compatibility
-- **Index:** change the schema only by adding a numbered migration, only adding nullable or defaulted columns, tables and indexes; never rename, drop or retype a column. Bump the schema version and extend the compatibility test. Never delete a user's data; if the index cannot be migrated, rebuild it from the notes.
+- **Index:** change the schema only by adding a numbered migration, only adding nullable or defaulted columns, tables and indexes; never rename, drop or retype a column. Bump the schema version and extend the compatibility test. If the cached index cannot be migrated, delete the cache and rebuild it from the notes. Never delete or alter a user's notes.
 - **Settings and themes:** never rename or remove a key in `settings.ini` or a theme file. To change one, add a new key and migrate the old value on load. Keep keys Exhaust does not recognize and write them back unchanged on save, so a downgrade does not lose newer settings. Extend `tests/test_settings.c` with every change.
 
 ## Decisions already made
-- Layout: Clay for layout, vendored in `third_party/`, on top of Exhaust's own widget tree.
-- **All dependencies are vendored** in `third_party/`, with their license files and a pinned version recorded in `third_party/VERSIONS.md`. Builds need no downloads. For AccessKit, commit its Rust sources with `cargo vendor`; for PDFium, commit the prebuilt binaries for each OS. Exhaust itself makes no network requests at run time.
-- AccessKit is built offline from the vendored sources with `cargo` as a static library and wrapped in `src/a11y/`.
-- Files in `.exhaust`: `settings.ini`, `index.db`, `themes/*.theme`, `snippets/*.style`, `workspaces.ini`, `hotkeys.ini`, `plugins/`.
-- Plugins use Lua and Exhaust's own API; Obsidian plugins are not compatible and need not be.
-- Spell check uses Exhaust's own dictionary checker with Hunspell-format word lists, on all three OSes.
+- Rendering: SDL_Renderer, a FreeType glyph atlas and our own tessellator for lines, curves and circles.
+- Layout: Clay, vendored, on top of Exhaust's own widget tree.
+- Search: SQLite FTS5 with the `trigram` tokenizer (queries under three characters fall back to a scan), PCRE2 over the candidate files, and tables for lines, blocks, sections and tasks so `line:`, `block:`, `section:`, `task:`, `task-todo:` and `task-done:` work.
+- Files in `.exhaust`: `settings.ini`, `themes/*.theme`, `snippets/*.style`, `workspaces.ini`, `hotkeys.ini`, `plugins/`. The index (`index.db`) is in the OS cache folder.
+- Note names forbid `# ^ [ ] |` and `:`, `%%`, and Windows reserved names. Links match case-insensitively after NFC normalization.
+- Saving: autosave after a short idle; on an outside change with unsaved edits, keep the buffer, show a conflict banner with a diff, and snapshot to file recovery first. Preserve CRLF and BOM. UTF-8 only.
+- Plugins use Lua and Exhaust's own API; Obsidian plugins are not compatible.
+- Math uses STIX Two Math with `hb-ot-math`. Mermaid in 0.1.0: flowchart, sequence, class, state, ER, pie and gantt.
+- Spell check: own checker, `PFX`, `SFX`, `REP` and `KEY` only, no compounding, English (US) only in 0.1.
+- Fonts: Atkinson Hyperlegible, Atkinson Hyperlegible Mono for code, system fonts discovered by scanning the OS font folders, no bundled emoji font.
+- Date formatting uses an own formatter for Moment-style tokens.
 
 ## UI design
-The screenshots in `screenshots/` are the **skeleton of how Exhaust should look**. Build the layout to match them: ribbon on the far left, file tree with the vault button at its bottom, tabs across the top, side-by-side panes for notes, graph, canvas and reference notes, and the searchable settings list. Design the look itself yourself in the README's Midori notebook style. Do not copy pixels, icons or text from the screenshots. Give light and dark themes, and keep the design consistent. Document major UI decisions in the README.
+The screenshots in `screenshots/` are the **skeleton of how Exhaust should look**. Build the layout to match them: ribbon on the far left, file tree with the vault button at its bottom, tabs across the top, side-by-side panes for notes, graph, canvas and reference notes, and the searchable settings list. Design the look itself yourself in the README's Midori notebook style. Do not copy pixels, icons or text from the screenshots. Give light and dark themes, and document major UI decisions in the README.
 
 ## Licensing of reference material
 `screenshots/` shows another app's interface for layout reference. Do not copy its icons, artwork, wording or code. Draw your own icons and write your own text.

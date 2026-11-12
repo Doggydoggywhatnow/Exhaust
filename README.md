@@ -9,7 +9,7 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 - **Customizable, but not overwhelmingly**: Exhaust offers settings to change the workflow of the notepad to fit your needs. You can even set the default size of a new exhaust window. Despite this, it is not overloaded with features. We include a robust kit of text editing features, some quality of life things, and allow you to control which features you want and where you want them. As well as what you want everything included to look like.
 - **Aesthetic**: The design of Exhaust is meant to be simple and pleasant to the eye. It is inspired by the design of Midori MD notebooks.
 - **Simple**: Exhaust provides a simple environment in which to use complex features. And where features present in other apps do not go directly towards text, we will drop those features.
-- **Small, but not at the cost of features**: Exhaust is as small as it can be without dropping anything in this README. The program may be as large as it needs to be to fit all of these features.
+- **Small, but not at the cost of features**: Exhaust is as small as it can be without dropping anything in this README. The program may be as large as it needs to be to fit all of these features, but the core install stays within a fixed size budget (see Technical design); optional libraries ship separately.
 - **Private**: What you write is your business. Simple as.
 
 ## Rules
@@ -22,17 +22,20 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 
 - **Vaults**: a vault is a folder of Markdown files. A vault button at the bottom of the file tree switches between vaults. Create, open and remember several.
 - **File explorer**: a tree of folders and notes. Create, rename, move, delete and sort. Folders shown here are the real folders on disk.
-- **Open anything**: Markdown, plain text, images, audio, video, PDFs, canvases and bases. Other file types are left alone.
+- **Open anything**, with exactly these file types: Markdown (`.md`), bases (`.base`), JSON Canvas (`.canvas`), images (`.avif`, `.bmp`, `.gif`, `.jpeg`, `.jpg`, `.png`, `.svg`, `.webp`), audio (`.flac`, `.m4a`, `.mp3`, `.ogg`, `.wav`, `.webm`, `.3gp`), video (`.mkv`, `.mov`, `.mp4`, `.ogv`, `.webm`) and PDF (`.pdf`). Other file types are left alone. Audio, video and PDF need the optional media and PDF libraries; without them Exhaust offers "Open externally". Playback depends on the codecs available.
 - **Excluded files**: patterns that hide files from search, links and the graph.
-- **Link-safe renames**: renaming or moving a note updates every link to it. It asks first by default; you can make it automatic or off.
+- **Link-safe renames**: renaming or moving a note updates every link to it. It asks first by default; you can make it automatic or off. It covers wikilinks, embeds, Markdown links (URL-encoded and relative), links inside properties, `#heading` and `#^block` references, `.canvas` files, `.base` files and bookmarks.
+- **Note names**: a name cannot contain `# ^ [ ] |` or `:`, a `%%` pair, or a Windows reserved name (such as `CON` or `NUL`). Links match names without regard to case and after Unicode (NFC) normalization.
+- **Saving**: notes autosave after a short idle. If a file changes on disk while the editor has unsaved changes, Exhaust keeps the editor's text, shows a conflict banner with a diff, and takes a snapshot in file recovery first. Line endings (CRLF or LF) and a byte-order mark are preserved. Notes are UTF-8.
+- **Trash**: deleted notes go to the system trash, to a `.trash` folder in the vault, or are deleted permanently, as you choose, with an optional confirmation.
 - **Symbolic links**: followed, with loops detected.
-- **Configuration folder**: settings live in a `.exhaust` folder inside the vault, in plain text.
+- **Configuration folder**: settings, themes, snippets, hotkeys and workspaces live in a `.exhaust` folder inside the vault, in plain text. The search index and other caches live in the operating system's cache folder, keyed by vault, never inside the vault, so file-sync tools cannot corrupt them. Settings has a *Rebuild vault cache* button.
 - **Import**: Markdown and plain text folders, HTML, CSV and Textbundle. Other apps' exports are *(later)*.
 - **Backups**: because everything is plain files, any backup tool works.
 
 ## Writing
 
-- **Markdown**: headings, bold, italic, strikethrough, highlight, lists, task lists, quotes, code blocks, tables, horizontal rules, footnotes, comments, math, and Mermaid diagrams (the common types).
+- **Markdown**: headings, bold, italic, strikethrough, highlight, lists, task lists, quotes, code blocks, tables, horizontal rules, footnotes, comments, math, and Mermaid diagrams (flowchart, sequence, class, state, ER, pie and gantt).
 - **Callouts**: typed, titled and foldable blocks, nestable.
 - **Live preview**: formatting shows as you type, with the syntax revealed under the cursor.
 - **Source mode and reading mode**: switch per note.
@@ -40,7 +43,7 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 - **Find and replace** inside a note, with regular expressions.
 - **Multiple cursors**.
 - **Editing shortcuts**: the usual text-editing keys, plus smart list continuation and indent.
-- **Spell check** (own dictionary checker) and a **word count** in the status bar.
+- **Spell check** (Exhaust's own checker, English (US) dictionary included, more added as word lists) and a **word count** in the status bar.
 - **Embedded content**: notes, headings, blocks, images, audio, video and PDFs. Web links open in the system browser; Exhaust has no embedded browser.
 - **HTML** in notes: a safe subset of tags, drawn by Exhaust itself.
 - **Slash commands**: type `/` for a menu of commands.
@@ -68,7 +71,8 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 
 ## Finding things
 
-- **Search**: full text over the vault with operators for file, path, folder, tag, property, line, section, task and case, plus regular expressions, boolean logic and quotes. Results show context, can be sorted, and can be saved as a query.
+- **Search**: full text over the vault with the operators `file:`, `path:`, `content:`, `match-case:`, `ignore-case:`, `tag:`, `line:`, `block:`, `section:`, `task:`, `task-todo:` and `task-done:`, property filters like `[property:value]`, regular expressions, `OR`, `-` for not, parentheses and quotes. Matching works on parts of words. Results show context, can be sorted, and can be saved as a query.
+- **Embedded search**: a `query` code block in a note shows live search results.
 - **Quick switcher**: `Ctrl+O`, fuzzy match by name or alias, `Enter` to create a note that doesn't exist.
 - **Command palette**: `Ctrl+P`, fuzzy match every command, with pinned commands.
 - **Outline**: the headings of the open note, clickable and draggable to reorder sections.
@@ -79,9 +83,9 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 ## Organizing and structure
 
 - **Canvas**: an infinite board for notes, images, web links, text cards and groups, joined by labeled arrows. Saved as `.canvas` in the open JSON Canvas format.
-- **Bases**: database-style views of your notes and their properties, with filters, sorting, formulas and functions. Table, list, cards, kanban and map layouts. Saved as `.base` files, or embedded in a note.
-- **Daily notes**: a note per day from a template, with an optional calendar.
-- **Templates**: insert a template with date, time and title variables.
+- **Bases**: database-style views of your notes and their properties, with filters, sorting, formulas and functions (all 72 documented ones). Table, list, cards, kanban and map layouts. Saved as `.base` files, or embedded in a note. `.base` files belong to Exhaust, so it may rewrite them (keeping any keys it doesn't know); notes are never reformatted. The map layout needs map tiles from the network, so it is *(optional)* and off by default, with a tile address you set; without it, it plots coordinates on a plain grid.
+- **Daily notes**: a note per day from a template, with an optional calendar. Date formats use Moment-style tokens, such as `YYYY-MM-DD`.
+- **Templates**: insert a template with date, time and title variables, using Moment-style date tokens (`{{date:YYYY-MM-DD}}`).
 - **Unique note creator**: timestamp-named notes for Zettelkasten work.
 - **Note composer**: merge two notes, or split a selection into a new note, with links updated.
 - **Slides**: present any note, with `---` between slides.
@@ -98,10 +102,21 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 - **File recovery**: automatic snapshots (every 5 minutes, kept 7 days by default, both adjustable) with restore and diff.
 - **Command line** and a **URI scheme** to open notes, search and create from other programs *(later)*.
 
+## Settings
+
+A searchable settings screen, laid out as in the screenshots. Every item has a default. Contents:
+
+- **Files and links**: default location for new notes; attachment location (vault root, a set folder, same folder as the note, or a subfolder of it); link format (shortest, relative or absolute); Use Wikilinks; trash mode; confirm before delete; excluded files; automatic link updates on rename; rebuild vault cache.
+- **Editor**: readable line length; strict line breaks; properties in document (visible, hidden or source); line numbers; indent guides; right-to-left text; auto-pair brackets and Markdown; smart lists; indent with tabs; paste HTML as Markdown; default view and mode for new tabs; spell check; Vim mode.
+- **Appearance**: theme, accent color, fonts, text size, interface zoom; inline title; tab title bar; ribbon configuration; hardware acceleration.
+- **Hotkeys**: every command, searchable, with conflicts shown.
+- **Built-in features**: one switch and options page for each feature (Backlinks, Canvas, Command palette, Daily notes, File recovery, Note composer, Page preview, Quick switcher, Sync, Templates, Unique note creator and the rest).
+- **Plugins**: installed plugins, their permissions and on/off switches *(later)*.
+
 ## Look and feel
 
 - **Themes**: light, dark, high contrast and your own; see [Themes](#themes).
-- **Fonts and size**: separate fonts for the interface, the editor and code, a text size, and an interface zoom.
+- **Fonts and size**: separate fonts for the interface, the editor and code, a text size, and an interface zoom. Atkinson Hyperlegible is the default interface and editor font and Atkinson Hyperlegible Mono is the default code font. Any font installed on the system can be chosen. Emoji use the system's emoji font; Exhaust bundles none.
 - **Accent color**: pick any color; Exhaust adjusts shades so text stays readable.
 - **Languages**: interface translations *(later)*.
 - **Accessibility**: full keyboard use, scalable text, high contrast and screen reader support, designed in from the first slice.
@@ -135,43 +150,75 @@ Themes can be changed at any time, in Settings, without restarting.
 
 ## Technical design
 
-Exhaust is written in C (C11). There is no web browser or web view anywhere in it. Other languages are used only where they make a feature far easier or reach parity: Lua for plugins and Rust for the screen reader bridge. All dependencies must be compatible with the Unlicense; prefer public domain or permissive libraries, and never add GPL or AGPL code. Each dependency and its license is recorded in the table below; confirm the license when the dependency is added.
+Exhaust is written in C (C11). There is no web browser or web view anywhere in it. Other languages are used only where they make a feature far easier or reach parity: Lua for plugins, Rust for the screen reader bridge, up to 150 lines of Objective-C for the macOS platform layer, and JavaScript only for the web clipper extension that runs in the user's own browser, never inside Exhaust. All dependencies must be compatible with the Unlicense; prefer public domain or permissive libraries, and never add GPL or AGPL code. Each dependency and its license is recorded in the table below; confirm the license when the dependency is added. Dependencies are vendored in `third_party/` (source and headers). The large optional libraries (PDFium and libmpv) are not committed: only their headers are, and Exhaust loads them at run time (`dlopen` or `LoadLibrary`). They ship as a separate optional add-on package built from pinned, checksummed upstream releases. Without them, Exhaust offers "Open externally" for PDFs and media it cannot play itself.
 
 | Area | Choice | License |
 | --- | --- | --- |
 | Window, input, IME, clipboard | SDL3 | zlib |
-| UI | Own widget tree, with Clay for layout, built around accessibility from the start | Unlicense (own), zlib (Clay) |
+| Rendering | SDL_Renderer with a FreeType glyph atlas and Exhaust's own tessellator for lines, curves and circles (used by the graph and canvas) | zlib, Unlicense (own) |
+| UI | Own widget tree, with Clay for layout, built around accessibility from the start; colors, sizes and fonts come from theme tokens, never hard-coded | Unlicense (own), zlib (Clay) |
 | Accessibility | AccessKit (Rust) behind a small C wrapper; the only Rust in the build | MIT or Apache-2.0 |
-| Text | HarfBuzz, FreeType, SheenBidi and libgrapheme; font fallback and color emoji | MIT, FreeType License, Apache-2.0, ISC |
-| Default font | Atkinson Hyperlegible | SIL Open Font License 1.1 |
+| Text | HarfBuzz, FreeType, SheenBidi and libgrapheme; font fallback; system fonts found by scanning the OS font folders | MIT, FreeType License, Apache-2.0, ISC |
+| Fonts | Atkinson Hyperlegible and Atkinson Hyperlegible Mono; STIX Two Math for equations | SIL Open Font License 1.1 |
 | Text buffer | Piece table with an undo tree | Unlicense (own) |
 | Markdown | Own tokenizer with source ranges for live preview; md4c for reading mode and exports | Unlicense (own), MIT |
 | Properties | Read with libyaml; edited as text so files are never reformatted | MIT |
-| Index | SQLite with FTS5 for links, tags, properties and search; always rebuildable from the files | Public domain |
-| File watching | efsw or per-OS watchers, to notice edits made outside Exhaust | MIT |
-| Search regex | PCRE2 | BSD |
+| Index | SQLite with FTS5 using the `trigram` tokenizer (so partial words match), plus tables for lines, blocks, sections and tasks; stored in the OS cache folder, keyed by vault; always rebuildable from the notes | Public domain |
+| Search regex | PCRE2, run over the files the index returns | BSD |
+| File watching | dmon (single-header C), or Exhaust's own inotify, ReadDirectoryChangesW and FSEvents code | BSD-2-Clause, Unlicense (own) |
+| Platform layer (`src/platform/`) | Trash (freedesktop spec on Linux, SHFileOperation on Windows, NSFileManager on macOS), file associations, URI registration, cache and config folders | Unlicense (own) |
 | JSON | yyjson | MIT |
-| Images | stb_image, with WebP and AVIF decoders | Public domain, BSD |
-| Audio and video embeds | lib-Peep and runtime-loaded libmpv, as in THC | Unlicense, LGPL or GPL (loaded at run time, never linked) |
-| PDF | PDFium prebuilt binaries | BSD-3 or Apache-2.0 |
+| Images | stb_image, with WebP and AVIF decoders; nanosvg for SVG | Public domain, BSD, zlib |
+| Audio embeds | lib-Peep (WAV and FLAC; vendored and linked statically, about 13 KB), dr_mp3 and stb_vorbis for MP3 and OGG, SDL3 for output; other formats through libmpv | Unlicense, public domain or MIT-0, public domain or MIT, zlib |
+| Video embeds | libmpv, loaded at run time | LGPL or GPL (never linked) |
+| PDF | PDFium, loaded at run time | BSD-3 or Apache-2.0 |
 | Plugins | Lua, sandboxed, with Exhaust's own API | MIT |
-| Math | Own LaTeX-subset renderer | Unlicense (own) |
-| Diagrams | Own renderer: flowchart and sequence first, other types later | Unlicense (own) |
-| Spell check | Own dictionary checker using Hunspell-format word lists, identical on all three OSes | Unlicense (own); each word list keeps its own license |
+| Bases expressions | Own expression engine module: the documented types and all 72 documented functions, tested against the examples in the docs | Unlicense (own) |
+| Math | Own LaTeX-subset layout using HarfBuzz's `hb-ot-math` and STIX Two Math | Unlicense (own), OFL 1.1 |
+| Diagrams | Own renderers for the Mermaid types listed above | Unlicense (own) |
+| Dates | Own formatter for Moment-style date tokens | Unlicense (own) |
+| Spell check | Own checker reading Hunspell `.aff`/`.dic` files, supporting `PFX`, `SFX`, `REP` and `KEY` only (no compounding); English (US) included | Unlicense (own); each word list keeps its own license |
 | Sync *(later)* | libsodium | ISC |
 
-Build order (finish and commit each slice before the next):
+### Registries
 
-1. Window, text rendering, buffer and accessibility tree, together
-2. Vault, tabs, file tree and saving
-3. Tokenizer and live preview
-4. Index: links, backlinks, tags, properties and search
-5. Graph view
-6. Canvas, bases, templates and daily notes
-7. Settings, hotkeys and themes
-8. Plugins, then the optional network features
+Two registries exist from slice 2, and every feature uses them from the start, so the settings and hotkey screens only add interface later:
+
+- **Command registry**: each command has an id, a name, a default key and an enabled predicate.
+- **Feature-toggle registry**: each built-in feature registers its on/off switch and options.
+
+### Size, safety and quality gates
+
+- **Size budget**: the core install (without the optional PDF and media add-on) is at most 25 MB, checked in CI.
+- **Sanitizers**: a CI job builds and tests with AddressSanitizer and UndefinedBehaviorSanitizer.
+- **Fuzzing**: libFuzzer targets for the Markdown tokenizer, frontmatter, HTML subset, canvas JSON, base expressions and importers.
+- **Hardening**: builds use `-fstack-protector-strong` and `-D_FORTIFY_SOURCE=2` where the compiler supports them.
+
+### Build order
+
+Each slice is finished, tested and committed before the next. The detailed spec, with "done when" checks, is in [`docs/0.1.0.md`](docs/0.1.0.md).
+
+1. **1a** Window, text, buffer, theme tokens. **1b** Accessibility tree.
+2. Vaults and files, registries, platform layer, settings file.
+3. Markdown and live preview.
+4. **4a** Index, links, backlinks, tags, properties, link-safe rename. **4b** Search, switcher, palette, outline, bookmarks, random note, footnotes.
+5. Graph view.
+6. **6a** Canvas. **6b** Bases and expression engine. **6c** Embeds, media, PDF and SVG. **6d** Math and diagrams. **6e** Templates, daily notes, unique notes, composer, slides, converter and import.
+7. Settings, hotkeys, themes and workspaces.
+8. Vim mode, plugins and the optional-feature stubs.
+9. Packaging: zip, AppImage and dmg.
 
 Exhaust must run on Windows, Linux (Wayland and X11) and macOS, with no display-server-specific code.
+
+## Non-goals
+
+These Obsidian features are deliberately not part of Exhaust:
+
+- A web viewer and embedded web pages (links open in the system browser).
+- Mobile apps.
+- Accounts, licenses, payments, credits and the Teams offering.
+- A hosted Sync or Publish server. Their settings and interface are stubs; any file-sync tool already syncs a vault.
+- Compatibility with Obsidian's JavaScript plugins. Exhaust has its own Lua plugin API.
 
 ## Screenshots
 
