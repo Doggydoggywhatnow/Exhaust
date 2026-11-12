@@ -49,3 +49,9 @@ This is what managing the vault should be like in Exhaust. A list of known vault
 ![Unresolved link](unresolved-link.png)
 
 An example of a simple link on the graph view and the text view, without the link being to a fully created file. In the note "Welcome", the text `[[create a link]]` is a wikilink to a note that does not exist yet. In the text view the link is shown dimmed, with its brackets visible while the cursor is on it. In the graph view it appears as a small, faint node labeled "create a link", joined by a line to the "Welcome" node. Creating the note later turns it into a normal node. The status bar at the bottom right shows the backlink count, word count and character count.
+
+## Resolved link
+
+![Resolved link](resolved-link.png)
+
+The same note compared with the unresolved link above: here the link is to an existing file. The note "create a link" now exists and appears in the file tree beside "Welcome". In the text, the link shows as underlined, brightly colored link text without visible brackets, instead of the dimmed `[[create a link]]`. In the graph, its node is brighter than the faint unresolved node, still joined to "Welcome". Compare this with the unresolved link to see how Exhaust should tell the two apart.
