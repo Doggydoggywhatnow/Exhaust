@@ -43,3 +43,9 @@ Full-page screenshots of 28 settings pages, in `settings/`. **These are the guid
 ![Vault manager](vault-manager.png)
 
 This is what managing the vault should be like in Exhaust. A list of known vaults sits on the left, each with its name, its folder and a three-dot menu for actions such as rename, move and remove. On the right are the ways to add one: create a new vault under a folder, open an existing folder of Markdown files as a vault, and (in Obsidian) open a vault from its sync service, which in Exhaust is an *(optional, later)* stub. A language choice sits below them.
+
+## Unresolved link
+
+![Unresolved link](unresolved-link.png)
+
+An example of a simple link on the graph view and the text view, without the link being to a fully created file. In the note "Welcome", the text `[[create a link]]` is a wikilink to a note that does not exist yet. In the text view the link is shown dimmed, with its brackets visible while the cursor is on it. In the graph view it appears as a small, faint node labeled "create a link", joined by a line to the "Welcome" node. Creating the note later turns it into a normal node. The status bar at the bottom right shows the backlink count, word count and character count.

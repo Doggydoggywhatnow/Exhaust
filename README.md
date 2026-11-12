@@ -246,6 +246,7 @@ The screenshots in [`screenshots`](screenshots) are the skeleton of how Exhaust 
 - **Main area**: panes that can each show a note being edited, the graph view, a canvas or a reference note, side by side.
 - **Settings**: a searchable list with Options first, then one entry for each built-in feature that can be switched on or off. The 28 pages in [`screenshots/settings`](screenshots/settings) are the guideline for what every settings page looks like and which options it offers.
 - **Vault manager**: the list of known vaults with a menu for each, plus buttons to create a vault, open a folder as a vault, and (as a stub) open a synced vault. See `screenshots/vault-manager.png`.
+- **Unresolved links**: a link to a note that doesn't exist yet shows dimmed in the text and as a faint node in the graph, joined to the note that links to it. See `screenshots/unresolved-link.png`.
 - **Hotkeys**: one row per command with its shortcut chip (or "Blank"), a plus button to add a shortcut and a cross to remove one.
 
 Exhaust keeps this arrangement but has its own look: the Midori notebook style, its own icons, its own colors and wording, and light and dark themes. The screenshots are a reference for placement, not artwork to copy.
