@@ -79,7 +79,6 @@ static void test_values(void) {
     CHECK(ex_settings_get_bool(s, "editor", "spellcheck") == 1 && ex_settings_get_bool(s, "editor", "vim_mode") == 0);
     CHECK(ex_settings_get_int(s, "appearance", "font_size") == 16 && ex_settings_get_int(s, "files", "autosave_idle_ms") == 1000);
     CHECK(strcmp(ex_settings_get(s, "appearance", "font_mono"), "Atkinson Hyperlegible Mono") == 0);
-    CHECK(strcmp(ex_settings_get(s, "date", "nothing"), "") != 0 || 1);
     CHECK(ex_settings_get(s, "nothing", "here") == NULL);
     CHECK(!exists(DIR "/vault/.exhaust"));
     ex_settings_close(s);
