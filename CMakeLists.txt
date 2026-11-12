@@ -210,7 +210,7 @@ add_custom_command(
   COMMAND gen_tables ${CMAKE_CURRENT_SOURCE_DIR}/docs/formats.md ${SETTINGS_SCHEMA_C} ${COMMAND_TABLE_C}
   DEPENDS gen_tables ${CMAKE_CURRENT_SOURCE_DIR}/docs/formats.md
   COMMENT "Generating the settings and command tables from docs/formats.md")
-add_library(exhaust_settings STATIC src/settings/settings.c src/settings/registry.c src/settings/apply.c ${SETTINGS_SCHEMA_C} ${COMMAND_TABLE_C})
+add_library(exhaust_settings STATIC src/settings/slash.c src/settings/settings.c src/settings/registry.c src/settings/apply.c ${SETTINGS_SCHEMA_C} ${COMMAND_TABLE_C})
 target_include_directories(exhaust_settings PUBLIC include)
 target_link_libraries(exhaust_settings PUBLIC exhaust_workspace exhaust_buffer exhaust_platform SDL3::SDL3-static)
 
@@ -229,6 +229,29 @@ elseif(WIN32)
 endif()
 
 # The Markdown tokenizer and the HTML subset: only the UTF-8 helpers, so the fuzz targets can link just these.
+# PCRE2 (BSD): 8-bit, UTF and Unicode properties, no JIT. Used for find and replace and, later, for search.
+add_library(pcre2_8 STATIC
+  third_party/pcre2/pcre2_auto_possess.c third_party/pcre2/pcre2_chartables.c third_party/pcre2/pcre2_chkdint.c
+  third_party/pcre2/pcre2_compile.c third_party/pcre2/pcre2_config.c third_party/pcre2/pcre2_context.c
+  third_party/pcre2/pcre2_convert.c third_party/pcre2/pcre2_dfa_match.c third_party/pcre2/pcre2_error.c
+  third_party/pcre2/pcre2_extuni.c third_party/pcre2/pcre2_find_bracket.c third_party/pcre2/pcre2_maketables.c
+  third_party/pcre2/pcre2_match.c third_party/pcre2/pcre2_match_data.c third_party/pcre2/pcre2_newline.c
+  third_party/pcre2/pcre2_ord2utf.c third_party/pcre2/pcre2_pattern_info.c third_party/pcre2/pcre2_script_run.c
+  third_party/pcre2/pcre2_serialize.c third_party/pcre2/pcre2_string_utils.c third_party/pcre2/pcre2_study.c
+  third_party/pcre2/pcre2_substitute.c third_party/pcre2/pcre2_substring.c third_party/pcre2/pcre2_tables.c
+  third_party/pcre2/pcre2_ucd.c third_party/pcre2/pcre2_valid_utf.c third_party/pcre2/pcre2_xclass.c)
+target_include_directories(pcre2_8 PUBLIC third_party/pcre2)
+target_compile_definitions(pcre2_8 PUBLIC PCRE2_CODE_UNIT_WIDTH=8 PCRE2_STATIC PRIVATE HAVE_CONFIG_H SUPPORT_UNICODE)
+if(MSVC)
+  target_compile_options(pcre2_8 PRIVATE /w)
+else()
+  target_compile_options(pcre2_8 PRIVATE -w)
+endif()
+
+add_library(exhaust_find STATIC src/find/find.c)
+target_include_directories(exhaust_find PUBLIC include)
+target_link_libraries(exhaust_find PUBLIC pcre2_8)
+
 add_library(exhaust_markdown STATIC src/markdown/html.c src/markdown/markdown.c src/markdown/md_inline.c src/markdown/reading.c third_party/md4c/md4c.c)
 target_include_directories(exhaust_markdown PRIVATE src/markdown third_party/md4c)
 set_source_files_properties(third_party/md4c/md4c.c PROPERTIES COMPILE_OPTIONS "$<$<NOT:$<C_COMPILER_ID:MSVC>>:-w>")
@@ -266,9 +289,9 @@ if(EXHAUST_A11Y)
   target_link_libraries(exhaust_a11y PUBLIC accesskit)
 endif()
 
-add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/editor_layout.c src/ui/editor_fold.c src/ui/reading_view.c src/ui/ui.c src/ui/panes.c src/ui/vault_screen.c ${THEME_C})
+add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/editor_layout.c src/ui/editor_fold.c src/ui/editor_keys.c src/ui/editor_format.c src/ui/findbar.c src/ui/reading_view.c src/ui/ui.c src/ui/panes.c src/ui/vault_screen.c ${THEME_C})
 target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
-target_link_libraries(exhaust_ui PUBLIC exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace exhaust_markdown clay_impl)
+target_link_libraries(exhaust_ui PUBLIC exhaust_settings exhaust_find exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace exhaust_markdown clay_impl)
 if(NOT MSVC)
   target_link_libraries(exhaust_ui PUBLIC m)
 endif()
@@ -302,6 +325,10 @@ install(FILES third_party/zlib/LICENSE
   DESTINATION share/exhaust/licenses RENAME zlib-LICENSE.txt)
 install(FILES third_party/libpng/LICENSE
   DESTINATION share/exhaust/licenses RENAME libpng-LICENSE.txt)
+install(FILES third_party/pcre2/LICENCE
+  DESTINATION share/exhaust/licenses RENAME PCRE2-LICENCE.txt)
+install(FILES third_party/md4c/LICENSE.md
+  DESTINATION share/exhaust/licenses RENAME md4c-LICENSE.md)
 install(FILES third_party/unicode/LICENSE.txt
   DESTINATION share/exhaust/licenses RENAME Unicode-LICENSE.txt)
 install(FILES third_party/fonts/atkinson-hyperlegible/OFL.txt
@@ -438,6 +465,29 @@ add_test(NAME reading_view COMMAND test_reading_view ${CMAKE_CURRENT_SOURCE_DIR}
 add_executable(test_folding tests/test_folding.c)
 target_link_libraries(test_folding PRIVATE exhaust_ui exhaust_markdown)
 add_test(NAME reading_mode_folding COMMAND test_folding)
+add_executable(test_find tests/test_find.c)
+target_link_libraries(test_find PRIVATE exhaust_find)
+add_test(NAME editing_find COMMAND test_find)
+add_executable(test_edit_format tests/test_edit_format.c)
+target_link_libraries(test_edit_format PRIVATE exhaust_ui exhaust_markdown)
+add_test(NAME editing_format COMMAND test_edit_format)
+add_executable(test_shortcuts tests/test_shortcuts.c)
+target_link_libraries(test_shortcuts PRIVATE exhaust_ui exhaust_platform)
+add_test(NAME editing_shortcuts COMMAND test_shortcuts ${CMAKE_CURRENT_SOURCE_DIR}/docs/formats.md)
+add_executable(test_rect tests/test_rect.c)
+target_link_libraries(test_rect PRIVATE exhaust_ui)
+add_test(NAME editing_rect COMMAND test_rect)
+add_executable(test_findbar tests/test_findbar.c)
+target_link_libraries(test_findbar PRIVATE exhaust_ui)
+target_include_directories(test_findbar PRIVATE src/ui)
+add_test(NAME editing_findbar COMMAND test_findbar)
+add_executable(test_slash tests/test_slash.c)
+target_link_libraries(test_slash PRIVATE exhaust_settings)
+target_include_directories(test_slash PRIVATE include)
+add_test(NAME editing_slash COMMAND test_slash)
+add_executable(test_slash_editor tests/test_slash_editor.c)
+target_link_libraries(test_slash_editor PRIVATE exhaust_ui exhaust_settings)
+add_test(NAME editing_slash_editor COMMAND test_slash_editor)
 add_test(NAME live_preview COMMAND test_live_preview ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/sample_note.md)
 
 add_executable(test_incremental_tokenize tests/test_incremental_tokenize.c)

@@ -35,6 +35,12 @@ void ex_text_input_start(struct SDL_Window *window);
 void ex_text_input_stop(struct SDL_Window *window);
 void ex_text_input_set_area(struct SDL_Window *window, int x, int y, int w, int h);
 
+/* The editing key for a letter shortcut. `keycode` is what the key produces on the user's layout (a lower case
+ * ASCII letter on Latin layouts, so Ctrl+Z is the key labelled Z on QWERTZ and AZERTY); on layouts with other
+ * letters (Cyrillic, Greek, ...) the key is found by its position (`scancode`, USB usage: A is 4 ... Z is 29), as
+ * on a US keyboard. Returns 1 and sets *key for A, B, C, I, K, V, X, Y and Z, else 0. */
+int ex_key_from_keycode(unsigned keycode, int scancode, ExKey *key);
+
 /* Turns an SDL text input or text editing event into an ExTextEvent. Returns 1
  * if the event was one, else 0. */
 int ex_text_event_decode(const union SDL_Event *event, ExTextEvent *out);

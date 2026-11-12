@@ -17,6 +17,7 @@ and what was left out of the vendored copy.
 | AccessKit C bindings (accesskit-c 0.23.2; Rust crates accesskit 0.25.1, accesskit_windows 0.35.1, accesskit_macos 0.27.1, accesskit_unix 0.24.0, and their dependencies) | commit `99023c87eca49531a8e1efc4657e35779257a463` of https://github.com/AccessKit/accesskit-c | https://github.com/AccessKit/accesskit-c | `accesskit-c/LICENSE-MIT`, `LICENSE-APACHE`, `LICENSE.chromium` | MIT or Apache-2.0 (parts derived from Chromium: BSD-style) |
 | Clay (layout engine, single header) | commit `e6cc36941ab2af5d81107617039d6f527a1c660b` (no release tag; main branch, May 2026) | https://github.com/nicbarker/clay | `clay/LICENSE.md` | zlib/libpng license |
 | md4c (Markdown parser, for reading mode and exports) | 0.5.2 (tag `release-0.5.2`, commit `729e6b8b320caa96328968ab27d7db2235e4fb47`) | https://github.com/mity/md4c | `md4c/LICENSE.md` | MIT |
+| PCRE2 (regular expressions, for find and replace now and search later) | 10.44 (tarball `pcre2-10.44.tar.gz`, sha256 `86b9cb0aa3bcb7994faa88018292bc704cdbb708e785f7c74352ff6ea7d3175b`, computed on the download from the project's GitHub release) | https://github.com/PCRE2Project/pcre2 | `pcre2/LICENCE` | BSD-3-Clause (with the project's exemption for binary redistribution) |
 | Unicode data (grapheme break, emoji, Indic conjunct break) | 17.0.0 | https://github.com/unicode-org/unicodetools (`unicodetools/data/ucd/17.0.0`) | `unicode/LICENSE.txt` | Unicode License v3 |
 | Test fonts (Noto subsets, tests only) | see `tests/fonts/README.md` | notofonts, googlefonts/noto-emoji | `tests/fonts/OFL-Noto.txt` | SIL Open Font License 1.1 |
 
@@ -72,3 +73,8 @@ and what was left out of the vendored copy.
 - **md4c**: only `src/md4c.c`, `src/md4c.h` and `LICENSE.md` (the HTML renderer, the
   command line tool, the tests and the build files were left out). Compiled as C in its default
   UTF-8 mode (its own Unicode tables are inside `md4c.c`; it needs no other library).
+- **PCRE2**: the 8-bit library without JIT, the POSIX wrapper, the test programs and the build
+  files left out: `src/pcre2_*.c` for the library, `pcre2_chartables.c.dist` as `pcre2_chartables.c`,
+  `pcre2.h.generic` as `pcre2.h`, `config.h.generic` as `config.h`, and the three internal headers.
+  Built as `pcre2_8` with `HAVE_CONFIG_H`, `SUPPORT_UNICODE`, `PCRE2_CODE_UNIT_WIDTH=8` and
+  `PCRE2_STATIC`; warnings of the vendored code are switched off.

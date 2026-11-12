@@ -18,6 +18,8 @@
 #include "exhaust_session.h"
 #include "exhaust_settings.h"
 #include "exhaust_theme.h"
+#include "exhaust_findbar.h"
+#include "exhaust_slash.h"
 #include "exhaust_ui.h"
 #include "exhaust_vault.h"
 #include "exhaust_vaultmgr.h"
@@ -56,6 +58,8 @@ typedef struct App {
     ExUi *ui;
     ExTheme theme;
     ExWidget *root, *editor, *tree, *status;     /* editor: the editor of the active tab, or NULL */
+    ExFindBar *findbar;
+    ExSlashMenu *slash;
     ExWidget *banner, *banner_text, *banner_a, *banner_b, *banner_c;
     ExWidget *left_sb, *right_sb;
     ExDoc *demo_doc;           /* shown when there is no vault */
@@ -290,6 +294,7 @@ static void content_closed(ExPanes *p, ExId tab, ExWidget *content, void *user) 
     size_t i;
     ExNote *n = NULL;
     (void)p;
+    if (a->findbar) ex_findbar_target_closed(a->findbar, content);
     for (i = 0; i < a->ntabnotes; i++) if (a->tabnotes[i].tab == tab) { n = a->tabnotes[i].note; a->tabnotes[i] = a->tabnotes[--a->ntabnotes]; break; }
     if (!n) return;
     if (a->editor == content) a->editor = NULL;
@@ -407,7 +412,11 @@ static void cmd_toggle_reading(void *u) {
     ex_ws_set_tab_mode(a->ws, tab, next);
     t = ex_ws_tab(a->ws, tab);
     w = make_content(a->panes, t, a);
-    if (w) { ex_panes_replace_content(a->panes, tab, w); a->focus_tab = tab; }
+    if (w) {
+        if (a->findbar) ex_findbar_target_closed(a->findbar, ex_panes_content(a->panes, tab));
+        ex_panes_replace_content(a->panes, tab, w);
+        a->focus_tab = tab;
+    }
 }
 static int has_note_tab(void *u) { App *a = u; ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws)); return t && note_for_tab(a, t) != NULL; }
 static void fold_cmd(App *a, ExFoldCmd cmd) { if (a->editor && a->editor->editor) ex_editor_fold(a->editor->editor, cmd); }
@@ -416,6 +425,47 @@ static void cmd_unfold_all(void *u) { fold_cmd(u, EX_FOLD_UNFOLD_ALL); }
 static void cmd_fold_more(void *u) { fold_cmd(u, EX_FOLD_MORE); }
 static void cmd_fold_less(void *u) { fold_cmd(u, EX_FOLD_LESS); }
 static void cmd_fold_toggle(void *u) { fold_cmd(u, EX_FOLD_TOGGLE_LINE); }
+static void cmd_find(void *u) { App *a = u; if (a->findbar && a->editor) ex_findbar_open(a->findbar, a->editor, 0); }
+static void cmd_find_replace(void *u) { App *a = u; if (a->findbar && a->editor) ex_findbar_open(a->findbar, a->editor, 1); }
+static void format_cmd(App *a, ExFormat f) { if (a->editor && a->editor->editor) ex_editor_format(a->editor->editor, f); }
+static void cmd_fmt_toggle_bold(void *u) { format_cmd(u, EX_FMT_BOLD); }
+static void cmd_fmt_toggle_italic(void *u) { format_cmd(u, EX_FMT_ITALIC); }
+static void cmd_fmt_toggle_strikethrough(void *u) { format_cmd(u, EX_FMT_STRIKE); }
+static void cmd_fmt_toggle_highlight(void *u) { format_cmd(u, EX_FMT_HIGHLIGHT); }
+static void cmd_fmt_toggle_code(void *u) { format_cmd(u, EX_FMT_CODE); }
+static void cmd_fmt_toggle_inline_math(void *u) { format_cmd(u, EX_FMT_INLINE_MATH); }
+static void cmd_fmt_toggle_comment(void *u) { format_cmd(u, EX_FMT_COMMENT); }
+static void cmd_fmt_toggle_heading(void *u) { format_cmd(u, EX_FMT_HEADING_CYCLE); }
+static void cmd_fmt_set_as_heading_1(void *u) { format_cmd(u, EX_FMT_HEADING_1); }
+static void cmd_fmt_set_as_heading_2(void *u) { format_cmd(u, EX_FMT_HEADING_2); }
+static void cmd_fmt_set_as_heading_3(void *u) { format_cmd(u, EX_FMT_HEADING_3); }
+static void cmd_fmt_set_as_heading_4(void *u) { format_cmd(u, EX_FMT_HEADING_4); }
+static void cmd_fmt_set_as_heading_5(void *u) { format_cmd(u, EX_FMT_HEADING_5); }
+static void cmd_fmt_set_as_heading_6(void *u) { format_cmd(u, EX_FMT_HEADING_6); }
+static void cmd_fmt_remove_heading(void *u) { format_cmd(u, EX_FMT_REMOVE_HEADING); }
+static void cmd_fmt_toggle_bullet_list(void *u) { format_cmd(u, EX_FMT_BULLET); }
+static void cmd_fmt_toggle_numbered_list(void *u) { format_cmd(u, EX_FMT_NUMBERED); }
+static void cmd_fmt_toggle_blockquote(void *u) { format_cmd(u, EX_FMT_QUOTE); }
+static void cmd_fmt_toggle_checkbox_status(void *u) { format_cmd(u, EX_FMT_CHECKBOX_STATUS); }
+static void cmd_fmt_cycle_bullet_checkbox(void *u) { format_cmd(u, EX_FMT_CYCLE_BULLET_CHECKBOX); }
+static void cmd_fmt_indent_list_item(void *u) { format_cmd(u, EX_FMT_INDENT); }
+static void cmd_fmt_unindent_list_item(void *u) { format_cmd(u, EX_FMT_UNINDENT); }
+static void cmd_fmt_move_line_up(void *u) { format_cmd(u, EX_FMT_MOVE_LINE_UP); }
+static void cmd_fmt_move_line_down(void *u) { format_cmd(u, EX_FMT_MOVE_LINE_DOWN); }
+static void cmd_fmt_delete_paragraph(void *u) { format_cmd(u, EX_FMT_DELETE_PARAGRAPH); }
+static void cmd_fmt_insert_horizontal_rule(void *u) { format_cmd(u, EX_FMT_HR); }
+static void cmd_fmt_insert_code_block(void *u) { format_cmd(u, EX_FMT_CODE_BLOCK); }
+static void cmd_fmt_insert_callout(void *u) { format_cmd(u, EX_FMT_CALLOUT); }
+static void cmd_fmt_insert_math_block(void *u) { format_cmd(u, EX_FMT_MATH_BLOCK); }
+static void cmd_fmt_insert_table(void *u) { format_cmd(u, EX_FMT_TABLE); }
+static void cmd_fmt_insert_footnote(void *u) { format_cmd(u, EX_FMT_FOOTNOTE); }
+static void cmd_fmt_insert_markdown_link(void *u) { format_cmd(u, EX_FMT_MD_LINK); }
+static void cmd_fmt_add_internal_link(void *u) { format_cmd(u, EX_FMT_INTERNAL_LINK); }
+static void cmd_fmt_add_embed(void *u) { format_cmd(u, EX_FMT_EMBED); }
+static void cmd_fmt_add_tag(void *u) { format_cmd(u, EX_FMT_TAG); }
+static void cmd_fmt_clear_formatting(void *u) { format_cmd(u, EX_FMT_CLEAR); }
+static void cmd_cursor_above(void *u) { App *a = u; if (a->editor && a->editor->editor) ex_editor_perform(a->editor->editor, a->r, EX_ACT_ADD_CURSOR_ABOVE, 0); }
+static void cmd_cursor_below(void *u) { App *a = u; if (a->editor && a->editor->editor) ex_editor_perform(a->editor->editor, a->r, EX_ACT_ADD_CURSOR_BELOW, 0); }
 static int has_editor(void *u) { return ((App *)u)->editor != NULL; }
 static void cmd_new_note(void *u) { on_new_note(NULL, "", u); }
 static int has_notes(void *u) { return ((App *)u)->notes != NULL && ((App *)u)->vault != NULL; }
@@ -436,6 +486,7 @@ static void register_features_and_commands(App *a) {
     a->features = ex_features_create(a->settings);
     ex_features_register(a->features, "files", "Files", on_files_feature, a);
     on_files_feature("files", ex_features_enabled(a->features, "files"), a);
+    ex_features_register(a->features, "slash_commands", "Slash commands", NULL, a);
     a->commands = ex_commands_create(a->features);
     ex_commands_bind(a->commands, "app.toggle-left-sidebar", cmd_toggle_left, NULL, a);
     ex_commands_bind(a->commands, "app.toggle-right-sidebar", cmd_toggle_right, NULL, a);
@@ -447,6 +498,47 @@ static void register_features_and_commands(App *a) {
     ex_commands_bind(a->commands, "editor.fold-more", cmd_fold_more, has_editor, a);
     ex_commands_bind(a->commands, "editor.fold-less", cmd_fold_less, has_editor, a);
     ex_commands_bind(a->commands, "editor.toggle-fold-on-the-current-line", cmd_fold_toggle, has_editor, a);
+    ex_commands_bind(a->commands, "app.search-current-file", cmd_find, has_editor, a);
+    ex_commands_bind(a->commands, "app.search-and-replace-in-current-file", cmd_find_replace, has_editor, a);
+    ex_commands_bind(a->commands, "editor.toggle-bold", cmd_fmt_toggle_bold, has_editor, a);
+    ex_commands_bind(a->commands, "editor.toggle-italic", cmd_fmt_toggle_italic, has_editor, a);
+    ex_commands_bind(a->commands, "editor.toggle-strikethrough", cmd_fmt_toggle_strikethrough, has_editor, a);
+    ex_commands_bind(a->commands, "editor.toggle-highlight", cmd_fmt_toggle_highlight, has_editor, a);
+    ex_commands_bind(a->commands, "editor.toggle-code", cmd_fmt_toggle_code, has_editor, a);
+    ex_commands_bind(a->commands, "editor.toggle-inline-math", cmd_fmt_toggle_inline_math, has_editor, a);
+    ex_commands_bind(a->commands, "editor.toggle-comment", cmd_fmt_toggle_comment, has_editor, a);
+    ex_commands_bind(a->commands, "editor.toggle-heading", cmd_fmt_toggle_heading, has_editor, a);
+    ex_commands_bind(a->commands, "editor.set-as-heading-1", cmd_fmt_set_as_heading_1, has_editor, a);
+    ex_commands_bind(a->commands, "editor.set-as-heading-2", cmd_fmt_set_as_heading_2, has_editor, a);
+    ex_commands_bind(a->commands, "editor.set-as-heading-3", cmd_fmt_set_as_heading_3, has_editor, a);
+    ex_commands_bind(a->commands, "editor.set-as-heading-4", cmd_fmt_set_as_heading_4, has_editor, a);
+    ex_commands_bind(a->commands, "editor.set-as-heading-5", cmd_fmt_set_as_heading_5, has_editor, a);
+    ex_commands_bind(a->commands, "editor.set-as-heading-6", cmd_fmt_set_as_heading_6, has_editor, a);
+    ex_commands_bind(a->commands, "editor.remove-heading", cmd_fmt_remove_heading, has_editor, a);
+    ex_commands_bind(a->commands, "editor.toggle-bullet-list", cmd_fmt_toggle_bullet_list, has_editor, a);
+    ex_commands_bind(a->commands, "editor.toggle-numbered-list", cmd_fmt_toggle_numbered_list, has_editor, a);
+    ex_commands_bind(a->commands, "editor.toggle-blockquote", cmd_fmt_toggle_blockquote, has_editor, a);
+    ex_commands_bind(a->commands, "editor.toggle-checkbox-status", cmd_fmt_toggle_checkbox_status, has_editor, a);
+    ex_commands_bind(a->commands, "editor.cycle-bullet-checkbox", cmd_fmt_cycle_bullet_checkbox, has_editor, a);
+    ex_commands_bind(a->commands, "editor.indent-list-item", cmd_fmt_indent_list_item, has_editor, a);
+    ex_commands_bind(a->commands, "editor.unindent-list-item", cmd_fmt_unindent_list_item, has_editor, a);
+    ex_commands_bind(a->commands, "editor.move-line-up", cmd_fmt_move_line_up, has_editor, a);
+    ex_commands_bind(a->commands, "editor.move-line-down", cmd_fmt_move_line_down, has_editor, a);
+    ex_commands_bind(a->commands, "editor.delete-paragraph", cmd_fmt_delete_paragraph, has_editor, a);
+    ex_commands_bind(a->commands, "editor.insert-horizontal-rule", cmd_fmt_insert_horizontal_rule, has_editor, a);
+    ex_commands_bind(a->commands, "editor.insert-code-block", cmd_fmt_insert_code_block, has_editor, a);
+    ex_commands_bind(a->commands, "editor.insert-callout", cmd_fmt_insert_callout, has_editor, a);
+    ex_commands_bind(a->commands, "editor.insert-math-block", cmd_fmt_insert_math_block, has_editor, a);
+    ex_commands_bind(a->commands, "editor.insert-table", cmd_fmt_insert_table, has_editor, a);
+    ex_commands_bind(a->commands, "editor.insert-footnote", cmd_fmt_insert_footnote, has_editor, a);
+    ex_commands_bind(a->commands, "editor.insert-markdown-link", cmd_fmt_insert_markdown_link, has_editor, a);
+    ex_commands_bind(a->commands, "editor.add-internal-link", cmd_fmt_add_internal_link, has_editor, a);
+    ex_commands_bind(a->commands, "editor.add-embed", cmd_fmt_add_embed, has_editor, a);
+    ex_commands_bind(a->commands, "editor.add-tag", cmd_fmt_add_tag, has_editor, a);
+    ex_commands_bind(a->commands, "editor.clear-formatting", cmd_fmt_clear_formatting, has_editor, a);
+    ex_commands_bind(a->commands, "editor.add-cursor-above", cmd_cursor_above, has_editor, a);
+    ex_commands_bind(a->commands, "editor.add-cursor-below", cmd_cursor_below, has_editor, a);
+    a->slash = ex_slash_create(a->commands);
     ex_commands_bind(a->commands, "app.toggle-reading-view", cmd_toggle_reading, has_note_tab, a);
     ex_commands_bind(a->commands, "app.create-new-note", cmd_new_note, has_notes, a);
     ex_commands_bind(a->commands, "app.close-current-tab", cmd_close_tab, has_tab, a);
@@ -507,15 +599,18 @@ static void sync_ui(App *a) {
     t = ex_ws_group_active(a->ws, g);
     c = t ? ex_panes_content(a->panes, t) : NULL;
     a->editor = c && c->type == EX_WIDGET_EDITOR ? c : NULL;
-    {                                                                                /* the fold settings apply to every editor */
+    {                                                                                /* the fold and indent settings apply to every editor */
+        int tabs = ex_settings_get_bool(a->settings, "editor", "indent_with_tabs"), width = ex_settings_get_int(a->settings, "editor", "indent_width");
         int fh = ex_settings_get_bool(a->settings, "editor", "fold_heading"), fi = ex_settings_get_bool(a->settings, "editor", "fold_indent");
+        int slash_on = ex_features_enabled(a->features, "slash_commands");
         size_t i;
         for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
             ExWidget *w = ex_panes_content(a->panes, ex_ws_tab_at(a->ws, i));
-            if (w && w->type == EX_WIDGET_EDITOR && w->editor) ex_editor_set_folding(w->editor, fh, fi);
+            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); }
         }
     }
     a->note = t ? note_for_tab(a, t) : NULL;
+    if (a->findbar && ex_findbar_is_open(a->findbar)) { if (a->editor) ex_findbar_set_target(a->findbar, a->editor); ex_findbar_update(a->findbar); }
     if (a->note != a->banner_note && !a->diff_doc) banner_for_note(a, a->note);
     if (a->focus_tab && a->focus_tab == t && a->editor) { ex_ui_set_focus(a->ui, a->editor); a->focus_tab = 0; }
     else if (a->focus_tab && !ex_ws_tab(a->ws, a->focus_tab)) a->focus_tab = 0;
@@ -880,6 +975,8 @@ int main(int argc, char **argv) {
     ex_widget_add(app.banner, app.banner_b);
     ex_widget_add(app.banner, app.banner_c);
     ex_widget_add(col, app.banner);
+    app.findbar = ex_findbar_create(app.ui);
+    if (app.findbar) ex_widget_add(col, ex_findbar_widget(app.findbar));
     ex_widget_add(col, ex_panes_root(app.panes));
     ex_widget_add(row, col);
 
@@ -1032,6 +1129,8 @@ int main(int argc, char **argv) {
     }
     ex_queue_destroy(results);
     stop_showing_diff(&app);
+    ex_findbar_free(app.findbar);
+    ex_slash_free(app.slash);
     ex_panes_free(app.panes);                                          /* contents are detached and closed; their notes are closed too */
     ex_notes_destroy(app.notes);
     ex_widget_free(app.root);

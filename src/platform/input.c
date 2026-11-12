@@ -41,6 +41,24 @@ int ex_text_event_decode(const SDL_Event *e, ExTextEvent *out) {
     return 0;
 }
 
+int ex_key_from_keycode(unsigned keycode, int scancode, ExKey *key) {
+    int letter = -1;
+    if (keycode >= 'a' && keycode <= 'z') letter = (int)(keycode - 'a');
+    else if (scancode >= 4 && scancode <= 29) letter = scancode - 4;     /* not a Latin letter: its position on a US keyboard */
+    switch (letter) {
+    case 'a' - 'a': *key = EX_KEY_A; return 1;
+    case 'b' - 'a': *key = EX_KEY_B; return 1;
+    case 'c' - 'a': *key = EX_KEY_C; return 1;
+    case 'i' - 'a': *key = EX_KEY_I; return 1;
+    case 'k' - 'a': *key = EX_KEY_K; return 1;
+    case 'v' - 'a': *key = EX_KEY_V; return 1;
+    case 'x' - 'a': *key = EX_KEY_X; return 1;
+    case 'y' - 'a': *key = EX_KEY_Y; return 1;
+    case 'z' - 'a': *key = EX_KEY_Z; return 1;
+    default: return 0;
+    }
+}
+
 int ex_mods_from_sdl(void) {
     SDL_Keymod m = SDL_GetModState();
     int mods = 0;
@@ -48,6 +66,7 @@ int ex_mods_from_sdl(void) {
     if (m & SDL_KMOD_ALT) mods |= EX_MOD_ALT;
 #ifdef __APPLE__
     if (m & SDL_KMOD_GUI) mods |= EX_MOD_PRIMARY;
+    if (m & SDL_KMOD_CTRL) mods |= EX_MOD_CTRL;
 #else
     if (m & SDL_KMOD_CTRL) mods |= EX_MOD_PRIMARY;
 #endif
@@ -72,14 +91,9 @@ int ex_key_from_sdl(const SDL_Event *e, ExKey *key, int *mods) {
     case SDLK_TAB: k = EX_KEY_TAB; break;
     case SDLK_SPACE: k = EX_KEY_SPACE; break;
     case SDLK_ESCAPE: k = EX_KEY_ESCAPE; break;
-    case SDLK_A: k = EX_KEY_A; break;
-    case SDLK_C: k = EX_KEY_C; break;
-    case SDLK_V: k = EX_KEY_V; break;
-    case SDLK_X: k = EX_KEY_X; break;
-    case SDLK_Y: k = EX_KEY_Y; break;
-    case SDLK_Z: k = EX_KEY_Z; break;
     default: break;
     }
+    if (k == EX_KEY_NONE) ex_key_from_keycode((unsigned)e->key.key, (int)e->key.scancode, &k);
     if (k == EX_KEY_NONE) return 0;
     /* plain letters are typed text, not commands: only pass them with the primary modifier */
     *mods = ex_mods_from_sdl();

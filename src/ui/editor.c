@@ -7,8 +7,10 @@
 #include "editor_fold.h"
 #include "editor_layout.h"
 #include "exhaust_editor.h"
+#include "exhaust_find.h"
 #include "exhaust_markdown.h"
 #include "exhaust_platform.h"
+#include "exhaust_slash.h"
 #include "exhaust_shape.h"
 
 #define CACHE_LINES 96
@@ -56,6 +58,17 @@ struct ExEditor {
     size_t *folded;
     size_t nfolded, capfolded;
     unsigned long folded_version;
+    ExFormatOptions fmt;
+    ExSlashMenu *slash;           /* not owned */
+    int slash_open;
+    size_t slash_start;           /* offset of the "/" that opened the menu */
+    float sp_x, sp_y, sp_w, sp_rowh;   /* the popup as last drawn, for clicks */
+    size_t sp_first, sp_rows;
+    struct ExFind *find;         /* matches to highlight (not owned) */
+    struct { size_t s, e; } *hl;  /* the matches in the lines drawn last */
+    size_t nhl, caphl;
+    int rect;                    /* a rectangular selection is being dragged from (rect_x, rect_y) */
+    float rect_x, rect_y;
     struct { size_t first, last; } *hid;
     size_t nhid;
 };
@@ -74,6 +87,8 @@ ExEditor *ex_editor_create(ExDoc *doc) {
     e->clip.get = os_get;
     e->clip.set = os_set;
     e->fold_headings = e->fold_lists = 1;
+    e->fmt.use_tabs = 1;
+    e->fmt.indent_width = 4;
     return e;
 }
 
@@ -90,6 +105,7 @@ void ex_editor_free(ExEditor *e) {
     ex_folds_free(&e->folds);
     free(e->folded);
     free(e->hid);
+    free(e->hl);
     free(e->goal);
     free(e);
 }
@@ -778,11 +794,57 @@ static void backspace_or_delete(ExEditor *e, ExRenderer *r, int forward, int wor
     free(rg);
 }
 
+/* ---- slash menu ---- */
+
+void ex_editor_set_slash(ExEditor *e, ExSlashMenu *menu) { if (e->slash == menu) return; e->slash = menu; e->slash_open = 0; }
+int ex_editor_slash_open(const ExEditor *e) { return e->slash && e->slash_open; }
+
+/* The menu follows the text after the slash; it closes when the caret leaves it, when there are several cursors or
+ * a selection, or when a space or line break is typed. */
+static void slash_refresh(ExEditor *e) {
+    ExSel p;
+    char q[128], c;
+    size_t n;
+    if (!e->slash || !e->slash_open) return;
+    p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
+    if (ex_doc_sel_count(e->doc) != 1 || p.anchor != p.head || p.head <= e->slash_start || p.head - e->slash_start > sizeof q) { e->slash_open = 0; return; }
+    if (ex_buffer_read(buf(e), e->slash_start, &c, 1) != 1 || c != '/') { e->slash_open = 0; return; }
+    n = ex_buffer_read(buf(e), e->slash_start + 1, q, p.head - e->slash_start - 1);
+    q[n] = 0;
+    if (strpbrk(q, " \t\r\n")) { e->slash_open = 0; return; }
+    ex_slash_set_query(e->slash, q);
+}
+
+static void slash_accept(ExEditor *e, ExRenderer *r) {
+    ExSel p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
+    const ExSlashItem *it = ex_slash_item(e->slash, ex_slash_selected(e->slash));
+    ExChange c;
+    ExSel after;
+    if (!it || !it->available) return;                       /* a command that cannot run stays in the list, disabled */
+    c.offset = e->slash_start; c.remove_len = p.head - e->slash_start; c.text = ""; c.text_len = 0;
+    after.anchor = after.head = e->slash_start;
+    e->slash_open = 0;
+    ex_doc_apply(e->doc, &c, 1, 0, &after, 1);               /* the "/..." is removed, then the command works on the text as it was */
+    ex_slash_run(e->slash);
+    ensure_visible(e, r);
+}
+
 void ex_editor_text_input(ExEditor *e, const char *text, size_t len) {
     if (len == 0 || e->readonly) return;
     e->composition[0] = 0;
     ex_doc_replace_selections(e->doc, text, len, 1);
     e->last_vertical = 0;
+    if (e->slash) {
+        ExSel p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
+        if (!e->slash_open && len == 1 && text[0] == '/' && ex_doc_sel_count(e->doc) == 1 && p.head >= 1) {   /* at the start of a line or after a blank */
+            char before;
+            if (p.head == 1 || (ex_buffer_read(buf(e), p.head - 2, &before, 1) == 1 && (before == ' ' || before == '\t' || before == '\n'))) {
+                e->slash_open = 1;
+                e->slash_start = p.head - 1;
+                ex_slash_set_query(e->slash, "");
+            }
+        } else slash_refresh(e);
+    }
 }
 
 void ex_editor_set_composition(ExEditor *e, const char *utf8) {
@@ -851,58 +913,160 @@ static void add_cursor_vertical(ExEditor *e, ExRenderer *r, int dir) {
     ensure_visible(e, r);
 }
 
-void ex_editor_key(ExEditor *e, ExRenderer *r, ExKey key, int mods) {
-    int shift = (mods & EX_MOD_SHIFT) != 0, prim = (mods & EX_MOD_PRIMARY) != 0, alt = (mods & EX_MOD_ALT) != 0;
-    if (!e->font) return;
-    switch (key) {
-    case EX_KEY_LEFT: move_horizontal(e, r, -1, prim || alt, shift); break;
-    case EX_KEY_RIGHT: move_horizontal(e, r, 1, prim || alt, shift); break;
-    case EX_KEY_UP:
-        if (prim && alt) add_cursor_vertical(e, r, -1); else move_vertical(e, r, -1, shift);
-        break;
-    case EX_KEY_DOWN:
-        if (prim && alt) add_cursor_vertical(e, r, 1); else move_vertical(e, r, 1, shift);
-        break;
-    case EX_KEY_PAGE_UP:
-    case EX_KEY_PAGE_DOWN: {
+/* The text of the lines the selections are on (with their line breaks), one range per line, merged; used by copy, cut
+ * and delete for a caret with nothing selected. */
+static size_t line_ranges(ExEditor *e, Range *rg) {
+    size_t n = ex_doc_sel_count(e->doc), i;
+    for (i = 0; i < n; i++) {
+        ExSel s = ex_doc_sel(e->doc, i);
+        size_t line = ex_buffer_line_of_offset(buf(e), s.head), st, en, nx;
+        line_range(e, line, &st, &en, &nx);
+        rg[i].a = st;
+        rg[i].b = nx;
+        if (nx == en && st > 0) rg[i].a = st - 1;                      /* the last line has no break of its own: take the one before it */
+    }
+    return n;
+}
+
+static int nothing_selected(ExEditor *e) {
+    size_t n = ex_doc_sel_count(e->doc), i;
+    for (i = 0; i < n; i++) { ExSel s = ex_doc_sel(e->doc, i); if (s.anchor != s.head) return 0; }
+    return 1;
+}
+
+static void copy_or_cut(ExEditor *e, ExRenderer *r, int cut) {
+    size_t len = 0, n = ex_doc_sel_count(e->doc), i;
+    char *t;
+    if (nothing_selected(e)) {                                          /* copy or cut the line (the paragraph) the caret is in */
+        Range *rg = malloc((n ? n : 1) * sizeof *rg);
+        size_t total = 0, used = 0;
+        if (!rg) return;
+        n = line_ranges(e, rg);
+        for (i = 0; i < n; i++) total += rg[i].b - rg[i].a;
+        t = malloc(total + n + 1);
+        if (t) {
+            for (i = 0; i < n; i++) {
+                size_t got = ex_buffer_read(buf(e), rg[i].a, t + used, rg[i].b - rg[i].a);
+                used += got;
+            }
+            t[used] = 0;
+            if (used && e->clip.set) e->clip.set(e->clip.user, t);
+            free(t);
+        }
+        if (cut && !e->readonly) delete_ranges(e, r, rg, n);
+        free(rg);
+        return;
+    }
+    t = ex_editor_selected_text(e, &len);
+    if (t && len > 0 && e->clip.set) {
+        e->clip.set(e->clip.user, t);
+        if (cut && !e->readonly) backspace_or_delete(e, r, 0, 0);
+    }
+    free(t);
+}
+
+static void delete_to_line_edge(ExEditor *e, ExRenderer *r, int to_end) {
+    size_t n = ex_doc_sel_count(e->doc), i;
+    Range *rg;
+    if (e->readonly) return;
+    rg = malloc((n ? n : 1) * sizeof *rg);
+    if (!rg) return;
+    for (i = 0; i < n; i++) {
+        ExSel s = ex_doc_sel(e->doc, i);
+        size_t line = ex_buffer_line_of_offset(buf(e), s.head), st, en, nx;
+        line_range(e, line, &st, &en, &nx);
+        if (s.anchor != s.head) { rg[i].a = lo(s); rg[i].b = hi(s); }
+        else if (to_end) { rg[i].a = s.head; rg[i].b = en; if (s.head == en && nx > en) rg[i].b = nx; }   /* at the end: the line break */
+        else { rg[i].a = st; rg[i].b = s.head; if (s.head == st && st > 0) rg[i].a = st - 1; }
+    }
+    delete_ranges(e, r, rg, n);
+    free(rg);
+}
+
+static void delete_lines(ExEditor *e, ExRenderer *r) {
+    size_t n = ex_doc_sel_count(e->doc);
+    Range *rg;
+    if (e->readonly || !nothing_selected(e)) return;
+    rg = malloc((n ? n : 1) * sizeof *rg);
+    if (!rg) return;
+    n = line_ranges(e, rg);
+    delete_ranges(e, r, rg, n);
+    free(rg);
+}
+
+void ex_editor_set_indent(ExEditor *e, int use_tabs, int indent_width) { e->fmt.use_tabs = use_tabs != 0; e->fmt.indent_width = indent_width < 1 ? 1 : indent_width > 16 ? 16 : indent_width; }
+void ex_editor_format(ExEditor *e, ExFormat f) {
+    if (e->readonly) return;
+    ex_doc_format(e->doc, f, &e->fmt);
+    e->last_vertical = 0;
+}
+
+void ex_editor_perform(ExEditor *e, ExRenderer *r, ExEditAction act, int extend) {
+    switch (act) {
+    case EX_ACT_LEFT: move_horizontal(e, r, -1, 0, extend); break;
+    case EX_ACT_RIGHT: move_horizontal(e, r, 1, 0, extend); break;
+    case EX_ACT_WORD_LEFT: move_horizontal(e, r, -1, 1, extend); break;
+    case EX_ACT_WORD_RIGHT: move_horizontal(e, r, 1, 1, extend); break;
+    case EX_ACT_UP: move_vertical(e, r, -1, extend); break;
+    case EX_ACT_DOWN: move_vertical(e, r, 1, extend); break;
+    case EX_ACT_ADD_CURSOR_ABOVE: add_cursor_vertical(e, r, -1); break;
+    case EX_ACT_ADD_CURSOR_BELOW: add_cursor_vertical(e, r, 1); break;
+    case EX_ACT_PAGE_UP:
+    case EX_ACT_PAGE_DOWN: {
         int lh = line_height_px(e, r), page = lh > 0 ? (int)(e->vh / (float)lh) - 1 : 10;
         if (page < 1) page = 1;
-        move_vertical(e, r, key == EX_KEY_PAGE_UP ? -page : page, shift);
+        move_vertical(e, r, act == EX_ACT_PAGE_UP ? -page : page, extend);
         break;
     }
-    case EX_KEY_HOME: if (prim) move_doc_edge(e, r, 0, shift); else move_line_edge(e, r, 0, shift); break;
-    case EX_KEY_END: if (prim) move_doc_edge(e, r, 1, shift); else move_line_edge(e, r, 1, shift); break;
-    case EX_KEY_BACKSPACE: backspace_or_delete(e, r, 0, prim || alt); break;
-    case EX_KEY_DELETE: backspace_or_delete(e, r, 1, prim || alt); break;
-    case EX_KEY_ENTER: ex_editor_text_input(e, "\n", 1); ensure_visible(e, r); break;
-    case EX_KEY_TAB: ex_editor_text_input(e, "\t", 1); break;
-    case EX_KEY_SPACE: break; /* typed through text input */
-    case EX_KEY_ESCAPE: {
+    case EX_ACT_LINE_START: move_line_edge(e, r, 0, extend); break;
+    case EX_ACT_LINE_END: move_line_edge(e, r, 1, extend); break;
+    case EX_ACT_DOC_START: move_doc_edge(e, r, 0, extend); break;
+    case EX_ACT_DOC_END: move_doc_edge(e, r, 1, extend); break;
+    case EX_ACT_DELETE_BACK: backspace_or_delete(e, r, 0, 0); break;
+    case EX_ACT_DELETE_FORWARD: backspace_or_delete(e, r, 1, 0); break;
+    case EX_ACT_DELETE_WORD_BACK: backspace_or_delete(e, r, 0, 1); break;
+    case EX_ACT_DELETE_WORD_FORWARD: backspace_or_delete(e, r, 1, 1); break;
+    case EX_ACT_DELETE_TO_LINE_START: delete_to_line_edge(e, r, 0); break;
+    case EX_ACT_DELETE_TO_LINE_END: delete_to_line_edge(e, r, 1); break;
+    case EX_ACT_DELETE_LINE: delete_lines(e, r); break;
+    case EX_ACT_NEWLINE: ex_editor_text_input(e, "\n", 1); ensure_visible(e, r); break;
+    case EX_ACT_TAB: ex_editor_text_input(e, "\t", 1); break;
+    case EX_ACT_SIMPLIFY: {
         ExSel s = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
         s.anchor = s.head;
         ex_doc_set_selections(e->doc, &s, 1);
         sync_goal(e, 1);
         break;
     }
-    case EX_KEY_A: if (prim) { ExSel s; s.anchor = 0; s.head = ex_buffer_size(buf(e)); ex_doc_set_selections(e->doc, &s, 1); sync_goal(e, 1); } break;
-    case EX_KEY_Z: if (prim && !e->readonly) { if (shift) ex_doc_redo(e->doc); else ex_doc_undo(e->doc); ensure_visible(e, r); } break;
-    case EX_KEY_Y: if (prim && !e->readonly) { ex_doc_redo(e->doc); ensure_visible(e, r); } break;
-    case EX_KEY_C:
-    case EX_KEY_X:
-        if (prim) {
-            size_t len = 0;
-            char *t = ex_editor_selected_text(e, &len);
-            if (t && len > 0 && e->clip.set) {
-                e->clip.set(e->clip.user, t);
-                if (key == EX_KEY_X && !e->readonly) backspace_or_delete(e, r, 0, 0);
-            }
-            free(t);
-        }
-        break;
-    case EX_KEY_V: if (prim) { paste(e); ensure_visible(e, r); } break;
+    case EX_ACT_SELECT_ALL: { ExSel s; s.anchor = 0; s.head = ex_buffer_size(buf(e)); ex_doc_set_selections(e->doc, &s, 1); sync_goal(e, 1); break; }
+    case EX_ACT_UNDO: if (!e->readonly) { ex_doc_undo(e->doc); ensure_visible(e, r); } break;
+    case EX_ACT_REDO: if (!e->readonly) { ex_doc_redo(e->doc); ensure_visible(e, r); } break;
+    case EX_ACT_COPY: copy_or_cut(e, r, 0); break;
+    case EX_ACT_CUT: copy_or_cut(e, r, 1); break;
+    case EX_ACT_PASTE:
+    case EX_ACT_PASTE_PLAIN: paste(e); ensure_visible(e, r); break;      /* the clipboard is plain text here, so both paste the same */
+    case EX_ACT_BOLD: case EX_ACT_ITALIC: ex_editor_format(e, act == EX_ACT_BOLD ? EX_FMT_BOLD : EX_FMT_ITALIC); ensure_visible(e, r); break;
     default: break;
     }
     sync_goal(e, ex_doc_sel_count(e->doc));
+}
+
+void ex_editor_key(ExEditor *e, ExRenderer *r, ExKey key, int mods) {
+    ExEditAction act;
+    int extend;
+    if (!e->font) return;
+    if (e->slash && e->slash_open) {
+        if (key == EX_KEY_UP || key == EX_KEY_DOWN) { ex_slash_move(e->slash, key == EX_KEY_UP ? -1 : 1); return; }
+        if (key == EX_KEY_ENTER || key == EX_KEY_TAB) { slash_accept(e, r); return; }
+        if (key == EX_KEY_ESCAPE) { e->slash_open = 0; return; }
+    }
+#ifdef __APPLE__
+    if (!ex_edit_action_for(key, mods, 1, &act, &extend)) return;
+#else
+    if (!ex_edit_action_for(key, mods, 0, &act, &extend)) return;
+#endif
+    ex_editor_perform(e, r, act, extend);
+    slash_refresh(e);
 }
 
 /* ---- mouse ---- */
@@ -934,9 +1098,48 @@ static void word_bounds(ExEditor *e, size_t off, size_t *a, size_t *b) {
     *a = s; *b = t;
 }
 
+void ex_editor_rect_select(ExEditor *e, ExRenderer *r, float ax, float ay, float x, float y) {
+    int lh = line_height_px(e, r);
+    long ra, rb, k;
+    size_t rows, n = 0;
+    float xa = ax - e->vx - (float)pad_px(r), xb = x - e->vx - (float)pad_px(r), left, right;
+    ExSel *sel;
+    if (!e->font || lh <= 0) return;
+    fold_sync(e);
+    rows = row_count(e);
+    ra = (long)floorf((ay - e->vy + e->scroll_y) / (float)lh);
+    rb = (long)floorf((y - e->vy + e->scroll_y) / (float)lh);
+    if (ra < 0) ra = 0;
+    if (rb < 0) rb = 0;
+    if ((size_t)ra >= rows) ra = (long)rows - 1;
+    if ((size_t)rb >= rows) rb = (long)rows - 1;
+    left = xa < xb ? xa : xb;
+    right = xa < xb ? xb : xa;
+    sel = malloc((size_t)(ra > rb ? ra - rb : rb - ra) * sizeof *sel + sizeof *sel);
+    if (!sel) return;
+    for (k = ra < rb ? ra : rb; k <= (ra > rb ? ra : rb); k++) {
+        size_t line = line_of_row(e, (size_t)k), o0 = offset_at_x(e, r, line, left), o1 = offset_at_x(e, r, line, right);
+        sel[n].anchor = xa <= xb ? o0 : o1;
+        sel[n].head = xa <= xb ? o1 : o0;
+        n++;
+    }
+    ex_doc_set_selections(e->doc, sel, n);
+    sync_goal(e, ex_doc_sel_count(e->doc));
+    free(sel);
+}
+
 void ex_editor_mouse(ExEditor *e, ExRenderer *r, ExMouse kind, float x, float y, int mods, int clicks) {
     size_t off;
     if (!e->font) return;
+    if (e->slash && e->slash_open) {
+        if (kind == EX_MOUSE_DOWN && x >= e->sp_x && x < e->sp_x + e->sp_w && y >= e->sp_y && e->sp_rowh > 0 && y < e->sp_y + e->sp_rowh * (float)e->sp_rows) {
+            size_t row = e->sp_first + (size_t)((y - e->sp_y) / e->sp_rowh);
+            ex_slash_select(e->slash, row);
+            slash_accept(e, r);
+            return;
+        }
+        if (kind == EX_MOUSE_DOWN) e->slash_open = 0;                       /* a click elsewhere closes it and is then an ordinary click */
+    }
     if (kind == EX_MOUSE_DOWN && x >= e->vx && x < e->vx + (float)gutter_px(r) && e->mode != EX_EDITOR_PLAIN) {   /* the gutter: fold or open */
         size_t row = (size_t)floorf((y - e->vy + e->scroll_y) / (float)line_height_px(e, r)), line;
         fold_sync(e);
@@ -944,6 +1147,13 @@ void ex_editor_mouse(ExEditor *e, ExRenderer *r, ExMouse kind, float x, float y,
             line = line_of_row(e, row);
             if (ex_editor_toggle_fold_at_line(e, line)) return;
         }
+    }
+    if (kind == EX_MOUSE_DOWN && (mods & EX_MOD_ALT) && (mods & EX_MOD_SHIFT)) { e->rect = 1; e->rect_x = x; e->rect_y = y; e->dragging = 0; ex_editor_rect_select(e, r, x, y, x, y); return; }
+    if (e->rect) {
+        if (kind == EX_MOUSE_DRAG) ex_editor_rect_select(e, r, e->rect_x, e->rect_y, x, y);
+        else if (kind == EX_MOUSE_UP) e->rect = 0;
+        ensure_visible(e, r);
+        return;
     }
     off = point_to_offset(e, r, x, y);
     if (kind == EX_MOUSE_DOWN) {
@@ -1093,6 +1303,11 @@ static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
     } else if (ll->code) {
         ex_fill_rect(r, e->vx, y, e->vw, (float)lh, ex_theme_color(t, EX_COLOR_CODE_BACKGROUND));
     }
+    for (si = 0; si < e->nhl; si++) {                   /* find matches behind the selection */
+        size_t ms = e->hl[si].s > st ? e->hl[si].s : st, me = e->hl[si].e < en ? e->hl[si].e : en;
+        if (me <= ms) continue;
+        ex_fill_rect(r, left + ll_x_of(ll, ms), y, ll_x_of(ll, me) - ll_x_of(ll, ms), (float)lh, ex_theme_color(t, EX_COLOR_HIGHLIGHT));
+    }
     /* selections behind the text */
     for (si = 0; si < nsel; si++) {
         ExSel s = ex_doc_sel(e->doc, si);
@@ -1153,6 +1368,45 @@ static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
     ll_free(ll);
 }
 
+void ex_editor_set_find(ExEditor *e, struct ExFind *find) { e->find = find; }
+
+void ex_editor_select(ExEditor *e, ExRenderer *r, size_t a, size_t b) {
+    ExSel s;
+    size_t size = ex_buffer_size(buf(e));
+    s.anchor = a > size ? size : a;
+    s.head = b > size ? size : b;
+    ex_doc_set_selections(e->doc, &s, 1);
+    sync_goal(e, 1);
+    ensure_visible(e, r);
+}
+
+/* The matches of the find pattern in the lines first..last (screen lines), by byte range, for drawing. */
+static void collect_matches(ExEditor *e, size_t first_line, size_t last_line) {
+    size_t from, to, len, pos, s, en;
+    char *text;
+    e->nhl = 0;
+    if (!e->find || first_line >= line_count(e)) return;
+    if (last_line >= line_count(e)) last_line = line_count(e) - 1;
+    from = ex_buffer_line_start(buf(e), first_line);
+    to = last_line + 1 < line_count(e) ? ex_buffer_line_start(buf(e), last_line + 1) : ex_buffer_size(buf(e));
+    text = malloc(to - from + 1);
+    if (!text) return;
+    len = ex_buffer_read(buf(e), from, text, to - from);
+    pos = 0;
+    while (pos <= len && ex_find_next(e->find, text, len, pos, &s, &en) == EX_FIND_MATCH && e->nhl < 2000) {
+        if (e->nhl == e->caphl) {
+            size_t nc = e->caphl ? e->caphl * 2 : 64;
+            void *p = realloc(e->hl, nc * sizeof *e->hl);
+            if (!p) break;
+            e->hl = p;
+            e->caphl = nc;
+        }
+        if (en > s) { e->hl[e->nhl].s = from + s; e->hl[e->nhl].e = from + en; e->nhl++; }
+        pos = en > s ? en : s + 1;
+    }
+    free(text);
+}
+
 /* The fold marker of a header line: a triangle in the gutter (pointing right when folded, down when open; open ones only
  * show on the caret's line), and three dots after the text of a folded header. */
 static void draw_fold_marker(ExEditor *e, ExRenderer *r, const ExTheme *t, size_t line, float y, int lh, int caret_line) {
@@ -1197,6 +1451,8 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
     last = first + (size_t)(e->vh / (float)lh) + 1;
     if (last >= rows) last = rows - 1;
     caret_line = ex_buffer_line_of_offset(buf(e), ex_doc_sel(e->doc, ex_doc_primary(e->doc)).head);
+    if (e->find && rows) collect_matches(e, line_of_row(e, first), line_of_row(e, last < rows ? last : rows - 1));
+    else e->nhl = 0;
     for (row = first; row <= last && row < rows; row++) {
         size_t len, st, en, nx;
         char *txt;
@@ -1209,6 +1465,11 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
         if (!txt) continue;
         line_range(e, line, &st, &en, &nx);
         sh = shaped(e, r, txt, len);
+        for (si = 0; si < e->nhl; si++) {                 /* find matches behind the selection */
+            size_t ms = e->hl[si].s > st ? e->hl[si].s : st, me = e->hl[si].e < en ? e->hl[si].e : en;
+            if (me <= ms || !sh) continue;
+            ex_fill_rect(r, e->vx + (float)pad + ex_shaped_x_for_offset(sh, ms - st, len), y, ex_shaped_x_for_offset(sh, me - st, len) - ex_shaped_x_for_offset(sh, ms - st, len), (float)lh, ex_theme_color(t, EX_COLOR_HIGHLIGHT));
+        }
         /* selections behind the text */
         for (si = 0; si < nsel; si++) {
             ExSel s = ex_doc_sel(e->doc, si);
@@ -1238,6 +1499,29 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
             if (focused && blink_on) ex_fill_rect(r, cx, y, (float)ex_px(r, 1.5f), (float)lh, cur_c);
         }
         free(txt);
+    }
+    ex_set_clip(r, (int)e->vx, (int)e->vy, (int)e->vw, (int)e->vh);
+    if (e->slash && e->slash_open) {                                    /* the slash menu under the caret */
+        size_t count = ex_slash_count(e->slash), rows = count ? (count < 8 ? count : 8) : 1, sel = ex_slash_selected(e->slash), first = 0, k;
+        float rowh = (float)lh, w = (float)ex_px(r, 300) * (e->size / 16.0f), h = rowh * (float)rows + (float)ex_px(r, 8), cx, cy, py, pxl;
+        ExColor bg = ex_theme_color(t, EX_COLOR_SURFACE), border = ex_theme_color(t, EX_COLOR_BORDER);
+        ex_editor_caret_rect(e, r, &cx, &cy, NULL, NULL);
+        pxl = cx;
+        if (pxl + w > e->vx + e->vw) pxl = e->vx + e->vw - w;
+        if (pxl < e->vx) pxl = e->vx;
+        py = cy + (float)lh + 2.0f;
+        if (py + h > e->vy + e->vh && cy - h - 2.0f >= e->vy) py = cy - h - 2.0f;
+        if (sel >= rows) first = sel - rows + 1;
+        e->sp_x = pxl; e->sp_y = py + (float)ex_px(r, 4); e->sp_w = w; e->sp_rowh = rowh; e->sp_first = first; e->sp_rows = count ? rows : 0;
+        ex_fill_round_rect(r, pxl, py, w, h, (float)ex_px(r, 6), border);
+        ex_fill_round_rect(r, pxl + 1, py + 1, w - 2, h - 2, (float)ex_px(r, 5), bg);
+        if (!count) ex_text_draw(r, e->font, e->size, pxl + (float)ex_px(r, 8), py + (float)ex_px(r, 4) + (rowh - (float)fm.line_height) / 2.0f, "No matching commands", 20, ex_theme_color(t, EX_COLOR_TEXT_FAINT));
+        for (k = 0; k < rows && first + k < count; k++) {
+            const ExSlashItem *it = ex_slash_item(e->slash, first + k);
+            float ry = py + (float)ex_px(r, 4) + rowh * (float)k;
+            if (first + k == sel) ex_fill_rect(r, pxl + 2, ry, w - 4, rowh, ex_theme_color(t, EX_COLOR_SELECTION));
+            ex_text_draw(r, e->font, e->size, pxl + (float)ex_px(r, 8), ry + (rowh - (float)fm.line_height) / 2.0f, it->name, strlen(it->name), ex_theme_color(t, it->available ? EX_COLOR_TEXT : EX_COLOR_TEXT_FAINT));
+        }
     }
     ex_set_clip(r, 0, 0, -1, -1);
 }
