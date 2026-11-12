@@ -158,7 +158,7 @@ Then one page for each built-in feature that has options:
 Themes can be changed at any time, in Settings, without restarting. The theme and snippet file formats and every token name are in [`docs/formats.md`](docs/formats.md).
 
 - **Switching**: choose Light, Dark or Follow system. A theme can also be set for each vault.
-- **Built in**: Exhaust Light and Exhaust Dark (the Midori notebook look), plus high contrast versions of both.
+- **Built in**: Exhaust Dark, which uses the colors of the reference screenshots (navy background, lilac text, purple accent), Exhaust Light, and a high contrast version of each. The exact color values are in the Palette table in [`docs/formats.md`](docs/formats.md#palette); Light and the high contrast themes are derived from it, since no screenshot shows them.
 - **Your own**: a theme is a plain text file in the `.exhaust/themes` folder of a vault, or in Exhaust's own settings folder to use it in every vault. It names colors, fonts, sizes, spacing, corner shapes and icons for each part of the interface: the editor, file tree, tabs, sidebars, graph, canvas, callouts and code blocks.
 - **Settings editor**: every theme value can also be changed from Settings with live preview and a color picker, so no file editing is needed. Changes you make are saved to a copy of the theme, never to a built-in one.
 - **Style snippets**: small extra files in Exhaust's own style format that tweak any part of the interface without replacing the theme. They can be switched on and off one by one.
@@ -266,7 +266,7 @@ The screenshots in [`screenshots`](screenshots) are the skeleton of how Exhaust 
 - **Unresolved links**: a link to a note that doesn't exist yet shows dimmed in the text and as a faint node in the graph, joined to the note that links to it. Once the note exists, the link becomes underlined, colored text and the node brightens. See `screenshots/unresolved-link.png` and `screenshots/resolved-link.png`.
 - **Hotkeys**: one row per command with its shortcut chip (or "Blank"), a plus button to add a shortcut and a cross to remove one.
 
-Exhaust keeps this arrangement but has its own look: the Midori notebook style, its own icons, its own colors and wording, and light and dark themes. The screenshots are a reference for placement, not artwork to copy.
+Exhaust keeps this arrangement but has its own look: the Midori notebook style, its own icons and wording, and the color palette in [`docs/formats.md`](docs/formats.md#palette) (which follows the screenshots' colors), and light and dark themes. The screenshots are a reference for placement, not artwork to copy.
 
 ## License
 

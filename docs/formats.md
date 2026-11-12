@@ -286,7 +286,7 @@ author = Someone
 base = dark          # light or dark: the built-in theme that supplies missing values
 
 [colors]
-accent = #7c5cbf
+accent = #8167eb
 
 [fonts]
 text = Atkinson Hyperlegible
@@ -297,49 +297,97 @@ radius = 6
 
 Sections: `[theme]` (name, author, base), `[colors]`, `[fonts]`, `[sizes]`. Any token not set comes from `base`. Values: colors as `#rrggbb` or `#rrggbbaa`, fonts as a font family name, sizes as integers in pixels at 100% zoom.
 
+### Palette
+
+The built-in color values. **Exhaust Dark** takes its values from the colors measured in `screenshots/` (the navy background, the lilac text, the purple accent); the screenshots' graph colors come from the second, neutral-grey screenshot set. **Exhaust Light**, **Exhaust High Contrast Dark** and **Exhaust High Contrast Light** are not in any screenshot: their values are derived here by hand and are Exhaust's own choices. Every text pair was checked against WCAG contrast: 4.5:1 (normal text) for Dark and Light, 7:1 for the high contrast themes; `text_faint`, `link_unresolved` and `accent` are held to 3:1 because they are for hints and controls. Alpha is the last two hex digits.
+
+| Token | Dark | Light | High contrast dark | High contrast light | Source |
+| --- | --- | --- | --- | --- | --- |
+| `colors.background` | `#1e1f2d` | `#f7f8fc` | `#000000` | `#ffffff` | Dark measured; others derived |
+| `colors.background_alt` | `#181924` | `#eceef6` | `#000000` | `#ffffff` | Dark measured; others derived |
+| `colors.surface` | `#181924` | `#ffffff` | `#0b0b14` | `#ffffff` | Dark measured; others derived |
+| `colors.surface_hover` | `#2b2d3c` | `#e3e6f2` | `#1c1c2e` | `#e8e8f4` | Dark measured; others derived |
+| `colors.border` | `#323343` | `#cfd3e4` | `#ffffff` | `#000000` | Dark measured; others derived |
+| `colors.text` | `#cad1f2` | `#1e1f2d` | `#ffffff` | `#000000` | Dark measured; others derived |
+| `colors.text_muted` | `#9196b1` | `#4b4f6b` | `#e6e8ff` | `#1a1a2e` | Dark measured; others derived |
+| `colors.text_faint` | `#7f839b` | `#5d6180` | `#c8cbe8` | `#3a3a52` | Dark measured; others derived |
+| `colors.accent` | `#8167eb` | `#5b3fd1` | `#b6a5ff` | `#3a1fb0` | Dark measured; others derived |
+| `colors.accent_hover` | `#9580f0` | `#4a2fb8` | `#d0c4ff` | `#2a1090` | derived |
+| `colors.link` | `#a191f2` | `#4a35c4` | `#c9bdff` | `#2a10a0` | Dark measured; others derived |
+| `colors.link_unresolved` | `#796eb2` | `#7a6fb8` | `#a99fe0` | `#5a4a9a` | Dark measured; others derived |
+| `colors.selection` | `#8167eb59` | `#5b3fd140` | `#b6a5ff80` | `#3a1fb040` | derived |
+| `colors.cursor` | `#cad1f2` | `#1e1f2d` | `#ffffff` | `#000000` | Dark measured; others derived |
+| `colors.highlight` | `#e8b58d40` | `#e8a16466` | `#ffd23f80` | `#ffd23f99` | derived |
+| `colors.error` | `#dc91a8` | `#b3304f` | `#ff9fb8` | `#a0002a` | Dark measured; others derived |
+| `colors.warning` | `#e8b58d` | `#9a5a10` | `#ffc78f` | `#7a3f00` | Dark measured; others derived |
+| `colors.success` | `#a6d9a0` | `#2e7d32` | `#9dffb0` | `#00602a` | derived |
+| `colors.code_background` | `#181924` | `#eceef6` | `#0b0b14` | `#f0f0f8` | Dark measured; others derived |
+| `colors.code_text` | `#cad1f2` | `#1e1f2d` | `#ffffff` | `#000000` | Dark measured; others derived |
+| `colors.tag` | `#a191f2` | `#4a35c4` | `#c9bdff` | `#2a10a0` | follows link |
+| `colors.graph_node` | `#aaaab2` | `#6b6e86` | `#ffffff` | `#000000` | Dark measured; others derived |
+| `colors.graph_node_unresolved` | `#414141` | `#c4c7d8` | `#8a8a9a` | `#8a8a9a` | Dark measured; others derived |
+| `colors.graph_link` | `#3f3f3f` | `#c4c7d8` | `#9a9ab0` | `#6a6a80` | Dark measured; others derived |
+| `colors.graph_focus` | `#a190ea` | `#5b3fd1` | `#d0c4ff` | `#2a1090` | Dark measured; others derived |
+| `colors.canvas_grid` | `#323343` | `#dfe2ee` | `#4a4a60` | `#c8c8d8` | follows border |
+| `colors.callout_note` | `#89a4f2` | `#3556c8` | `#a9c0ff` | `#1a3a9a` | derived |
+| `colors.callout_abstract` | `#7fc8e8` | `#1d7a99` | `#9fe0ff` | `#005a78` | derived |
+| `colors.callout_info` | `#7fb5f2` | `#2a6fc0` | `#9fd0ff` | `#0a4a98` | derived |
+| `colors.callout_todo` | `#7fb5f2` | `#2a6fc0` | `#9fd0ff` | `#0a4a98` | derived |
+| `colors.callout_tip` | `#7fe0d0` | `#14766a` | `#9ff5e8` | `#005548` | derived |
+| `colors.callout_success` | `#a6d9a0` | `#2e7d32` | `#9dffb0` | `#00602a` | derived |
+| `colors.callout_question` | `#e8d27f` | `#8a6d00` | `#fff09f` | `#6a5200` | derived |
+| `colors.callout_warning` | `#e8b58d` | `#9a5a10` | `#ffc78f` | `#7a3f00` | derived |
+| `colors.callout_failure` | `#dc91a8` | `#b3304f` | `#ff9fb8` | `#a0002a` | derived |
+| `colors.callout_danger` | `#e87f8f` | `#b01f3a` | `#ff9fa8` | `#900020` | derived |
+| `colors.callout_bug` | `#e87fb0` | `#b01f6a` | `#ff9fd0` | `#900050` | derived |
+| `colors.callout_example` | `#b99ff2` | `#6a40c0` | `#d0baff` | `#4a1a98` | derived |
+| `colors.callout_quote` | `#9196b1` | `#5d6180` | `#c8cbe8` | `#3a3a52` | derived |
+
+In Dark, `background_alt`, `surface` and `code_background` share the darker `#181924` (cards, inputs and the title strip), and `background` is the lighter `#1e1f2d`. These values replace "from the built-in theme" in the token table below; a theme file overrides any of them.
+
 ### Theme tokens
 
 | Name | Type | Default | Since |
 | --- | --- | --- | --- |
-| `colors.background` | color | from the built-in theme | 0.1.0 |
-| `colors.background_alt` | color | from the built-in theme | 0.1.0 |
-| `colors.surface` | color | from the built-in theme | 0.1.0 |
-| `colors.surface_hover` | color | from the built-in theme | 0.1.0 |
-| `colors.border` | color | from the built-in theme | 0.1.0 |
-| `colors.text` | color | from the built-in theme | 0.1.0 |
-| `colors.text_muted` | color | from the built-in theme | 0.1.0 |
-| `colors.text_faint` | color | from the built-in theme | 0.1.0 |
-| `colors.accent` | color | from the built-in theme | 0.1.0 |
-| `colors.accent_hover` | color | from the built-in theme | 0.1.0 |
-| `colors.link` | color | from the built-in theme | 0.1.0 |
-| `colors.link_unresolved` | color | from the built-in theme | 0.1.0 |
-| `colors.selection` | color | from the built-in theme | 0.1.0 |
-| `colors.cursor` | color | from the built-in theme | 0.1.0 |
-| `colors.highlight` | color | from the built-in theme | 0.1.0 |
-| `colors.error` | color | from the built-in theme | 0.1.0 |
-| `colors.warning` | color | from the built-in theme | 0.1.0 |
-| `colors.success` | color | from the built-in theme | 0.1.0 |
-| `colors.code_background` | color | from the built-in theme | 0.1.0 |
-| `colors.code_text` | color | from the built-in theme | 0.1.0 |
-| `colors.tag` | color | from the built-in theme | 0.1.0 |
-| `colors.graph_node` | color | from the built-in theme | 0.1.0 |
-| `colors.graph_node_unresolved` | color | from the built-in theme | 0.1.0 |
-| `colors.graph_link` | color | from the built-in theme | 0.1.0 |
-| `colors.graph_focus` | color | from the built-in theme | 0.1.0 |
-| `colors.canvas_grid` | color | from the built-in theme | 0.1.0 |
-| `colors.callout_note` | color | from the built-in theme | 0.1.0 |
-| `colors.callout_abstract` | color | from the built-in theme | 0.1.0 |
-| `colors.callout_info` | color | from the built-in theme | 0.1.0 |
-| `colors.callout_todo` | color | from the built-in theme | 0.1.0 |
-| `colors.callout_tip` | color | from the built-in theme | 0.1.0 |
-| `colors.callout_success` | color | from the built-in theme | 0.1.0 |
-| `colors.callout_question` | color | from the built-in theme | 0.1.0 |
-| `colors.callout_warning` | color | from the built-in theme | 0.1.0 |
-| `colors.callout_failure` | color | from the built-in theme | 0.1.0 |
-| `colors.callout_danger` | color | from the built-in theme | 0.1.0 |
-| `colors.callout_bug` | color | from the built-in theme | 0.1.0 |
-| `colors.callout_example` | color | from the built-in theme | 0.1.0 |
-| `colors.callout_quote` | color | from the built-in theme | 0.1.0 |
+| `colors.background` | color | see Palette | 0.1.0 |
+| `colors.background_alt` | color | see Palette | 0.1.0 |
+| `colors.surface` | color | see Palette | 0.1.0 |
+| `colors.surface_hover` | color | see Palette | 0.1.0 |
+| `colors.border` | color | see Palette | 0.1.0 |
+| `colors.text` | color | see Palette | 0.1.0 |
+| `colors.text_muted` | color | see Palette | 0.1.0 |
+| `colors.text_faint` | color | see Palette | 0.1.0 |
+| `colors.accent` | color | see Palette | 0.1.0 |
+| `colors.accent_hover` | color | see Palette | 0.1.0 |
+| `colors.link` | color | see Palette | 0.1.0 |
+| `colors.link_unresolved` | color | see Palette | 0.1.0 |
+| `colors.selection` | color | see Palette | 0.1.0 |
+| `colors.cursor` | color | see Palette | 0.1.0 |
+| `colors.highlight` | color | see Palette | 0.1.0 |
+| `colors.error` | color | see Palette | 0.1.0 |
+| `colors.warning` | color | see Palette | 0.1.0 |
+| `colors.success` | color | see Palette | 0.1.0 |
+| `colors.code_background` | color | see Palette | 0.1.0 |
+| `colors.code_text` | color | see Palette | 0.1.0 |
+| `colors.tag` | color | see Palette | 0.1.0 |
+| `colors.graph_node` | color | see Palette | 0.1.0 |
+| `colors.graph_node_unresolved` | color | see Palette | 0.1.0 |
+| `colors.graph_link` | color | see Palette | 0.1.0 |
+| `colors.graph_focus` | color | see Palette | 0.1.0 |
+| `colors.canvas_grid` | color | see Palette | 0.1.0 |
+| `colors.callout_note` | color | see Palette | 0.1.0 |
+| `colors.callout_abstract` | color | see Palette | 0.1.0 |
+| `colors.callout_info` | color | see Palette | 0.1.0 |
+| `colors.callout_todo` | color | see Palette | 0.1.0 |
+| `colors.callout_tip` | color | see Palette | 0.1.0 |
+| `colors.callout_success` | color | see Palette | 0.1.0 |
+| `colors.callout_question` | color | see Palette | 0.1.0 |
+| `colors.callout_warning` | color | see Palette | 0.1.0 |
+| `colors.callout_failure` | color | see Palette | 0.1.0 |
+| `colors.callout_danger` | color | see Palette | 0.1.0 |
+| `colors.callout_bug` | color | see Palette | 0.1.0 |
+| `colors.callout_example` | color | see Palette | 0.1.0 |
+| `colors.callout_quote` | color | see Palette | 0.1.0 |
 | `fonts.interface` | string | see `settings.ini` | 0.1.0 |
 | `fonts.text` | string | see `settings.ini` | 0.1.0 |
 | `fonts.mono` | string | see `settings.ini` | 0.1.0 |
