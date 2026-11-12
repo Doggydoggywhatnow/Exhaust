@@ -81,6 +81,8 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 | --- | --- | --- | --- |
 | `default_file` | enum(last_opened|...) | `last_opened` (*TODO-verify*: the other values) | 0.1.0 |
 | `always_focus_new_tabs` | bool | `true` | 0.1.0 |
+| `sort_by` | enum(name\|modified\|created) | `name` | 0.1.0 |
+| `sort_descending` | bool | `false` | 0.1.0 |
 | `new_note_location` | enum(vault|folder|same_folder|subfolder) | `vault` | 0.1.0 |
 | `new_note_folder` | path | empty | 0.1.0 |
 | `attachment_location` | enum(vault|folder|same_folder|subfolder) | `vault` | 0.1.0 |

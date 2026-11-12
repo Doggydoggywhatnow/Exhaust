@@ -6,7 +6,7 @@ Reference screenshots of the layout Exhaust aims for.
 
 ![Graph view](graph-view.webp)
 
-On the far left, a bar of utilities. Next to it, the files as a tree of the vault's real folders on disk, as the README describes. In the middle, a graph view showing the links between notes. On the right, an open note for reference.
+On the far left, a bar of utilities. Next to it, the files as a tree of the vault's real folders, but sorting and grouping happen inside the app and never change anything on disk. In the middle, a graph view showing the links between notes. On the right, an open note for reference.
 
 ## Editing
 
