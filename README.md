@@ -41,7 +41,7 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 - **Multiple cursors**.
 - **Editing shortcuts**: the usual text-editing keys, plus smart list continuation and indent.
 - **Spell check** and a **word count** in the status bar.
-- **Embedded content**: notes, headings, blocks, images, audio, video, PDFs and web pages.
+- **Embedded content**: notes, headings, blocks, images, audio, video and PDFs. Web links open in the system browser; Exhaust has no embedded browser.
 - **HTML** in notes, displayed safely.
 - **Slash commands**: type `/` for a menu of commands.
 - **Audio recorder**: record straight into a note *(later)*.
@@ -78,7 +78,7 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 
 ## Organizing and structure
 
-- **Canvas**: an infinite board for notes, images, web pages, text cards and groups, joined by labeled arrows. Saved as `.canvas` in the open JSON Canvas format.
+- **Canvas**: an infinite board for notes, images, web links, text cards and groups, joined by labeled arrows. Saved as `.canvas` in the open JSON Canvas format.
 - **Bases**: database-style views of your notes and their properties, with filters, sorting, formulas and functions. Table, list, cards, kanban and map layouts. Saved as `.base` files, or embedded in a note.
 - **Daily notes**: a note per day from a template, with an optional calendar.
 - **Templates**: insert a template with date, time and title variables.
@@ -109,7 +109,6 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 ## Extending
 
 - **Plugins**: an open API for new commands, panes, views and file types, with a community directory *(later)*. Plugins are off until you allow them and declare what they can touch.
-- **Web viewer**: open links in a tab, with a reader view and save to vault *(later)*.
 - **Web clipper**: save pages into the vault from a browser *(later)*.
 
 ## Sync, sharing and publishing *(optional, later)*
@@ -118,6 +117,45 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 - **Shared vaults**: invite collaborators with owner and editor roles.
 - **Publish**: turn chosen notes into a website with themes, custom domains, permalinks, passwords and SEO controls.
 - Because plain files are the format, **any** file-sync tool can already sync a vault. These features are a convenience, not a requirement.
+
+## Technical design
+
+Exhaust is written in C (C11). There is no web browser or web view anywhere in it. Other languages are used only where they make a feature far easier or reach parity: Lua for plugins and Rust for the screen reader bridge. All dependencies must be compatible with the Unlicense; prefer public domain or permissive libraries, and never add GPL or AGPL code. Record each dependency and its license in this README.
+
+| Area | Choice |
+| --- | --- |
+| Window, input, IME, clipboard | SDL3 |
+| UI | Own widget tree, with Clay for layout, built around accessibility from the start |
+| Accessibility | AccessKit (Rust) behind a small C wrapper; the only Rust in the build |
+| Text | HarfBuzz, FreeType, SheenBidi and libgrapheme; Atkinson Hyperlegible as the default font; font fallback and color emoji |
+| Text buffer | Piece table with an undo tree |
+| Markdown | Own tokenizer with source ranges for live preview; md4c for reading mode and exports |
+| Properties | Read with libyaml; edited as text so files are never reformatted |
+| Index | SQLite with FTS5 for links, tags, properties and search; always rebuildable from the files |
+| File watching | efsw or per-OS watchers, to notice edits made outside Exhaust |
+| Search regex | PCRE2 |
+| JSON | yyjson |
+| Images | stb_image, with WebP and AVIF decoders |
+| Audio and video embeds | lib-Peep and runtime-loaded libmpv, as in THC |
+| PDF | PDFium prebuilt binaries |
+| Plugins | Lua, sandboxed, with Exhaust's own API |
+| Math | Own LaTeX-subset renderer |
+| Diagrams | Own renderer: flowchart and sequence first, other types later |
+| Spell check | Own dictionary checker using Hunspell-format word lists, identical on all three OSes |
+| Sync *(later)* | libsodium |
+
+Build order (finish and commit each slice before the next):
+
+1. Window, text rendering, buffer and accessibility tree, together
+2. Vault, tabs, file tree and saving
+3. Tokenizer and live preview
+4. Index: links, backlinks, tags, properties and search
+5. Graph view
+6. Canvas, bases, templates and daily notes
+7. Settings, hotkeys and themes
+8. Plugins, then the optional network features
+
+Exhaust must run on Windows, Linux (Wayland and X11) and macOS, with no display-server-specific code.
 
 ## Screenshots
 
