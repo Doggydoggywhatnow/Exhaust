@@ -37,6 +37,13 @@ typedef struct ExClipboard {
 
 typedef struct ExEditor ExEditor;
 
+/* How the text is shown. PLAIN is one font and one color (what fields and diffs use). SOURCE shows the
+ * Markdown unchanged, with its syntax in quieter colors and headings, code and links styled. LIVE
+ * (live preview) also hides the syntax of every construct the cursor is not in and shows bullets,
+ * checkboxes and quote bars in its place; math, embeds, images and tables stay as source until they
+ * have renderers. The text itself is never changed by the mode. */
+typedef enum ExEditorMode { EX_EDITOR_PLAIN, EX_EDITOR_SOURCE, EX_EDITOR_LIVE } ExEditorMode;
+
 /* The editor edits doc but does not own it. */
 ExEditor *ex_editor_create(ExDoc *doc);
 void ex_editor_free(ExEditor *e);
@@ -76,6 +83,13 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
  * primary selection in pixels (window coordinates), after the last draw or layout. */
 void ex_editor_caret_rect(ExEditor *e, ExRenderer *r, float *x, float *y, float *w, float *h);
 float ex_editor_scroll_y(const ExEditor *e);
+void ex_editor_set_mode(ExEditor *e, ExEditorMode mode);
+ExEditorMode ex_editor_mode(const ExEditor *e);
+/* The text a line shows in the current mode (hidden syntax left out, stand-ins written as the characters they
+ * look like: a bullet, a box), for tests and for screen readers. Returns the length. */
+size_t ex_editor_line_display(ExEditor *e, ExRenderer *r, size_t line, char *out, size_t cap);
+/* The Markdown tokens of the document as the editor last saw them (NULL in plain mode). */
+const struct ExMd *ex_editor_tokens(ExEditor *e);
 /* The primary caret as a line and the byte offset in that line (both 0-based), and the scroll
  * position, for the session file. Setting clamps to the text and never lands inside a character:
  * a note that changed since the session was saved still opens near the same place. */

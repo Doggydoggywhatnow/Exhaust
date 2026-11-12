@@ -4,7 +4,9 @@
 
 #include <hb.h>
 
+#include "editor_layout.h"
 #include "exhaust_editor.h"
+#include "exhaust_markdown.h"
 #include "exhaust_platform.h"
 #include "exhaust_shape.h"
 
@@ -39,6 +41,11 @@ struct ExEditor {
     int dragging;
     unsigned long caret_dirty;
     int readonly;
+    ExEditorMode mode;
+    ExMd *md;                    /* tokens of the document, for the modes that style it */
+    const ExDoc *md_doc;
+    unsigned long md_version;
+    int md_valid;
 };
 
 /* ---- clipboard default ---- */
@@ -65,6 +72,7 @@ static void clear_cache(ExEditor *e) {
 
 void ex_editor_free(ExEditor *e) {
     if (!e) return;
+    ex_md_free(e->md);
     clear_cache(e);
     free(e->goal);
     free(e);
@@ -74,6 +82,7 @@ ExDoc *ex_editor_doc(ExEditor *e) { return e->doc; }
 void ex_editor_set_readonly(ExEditor *e, int readonly) { e->readonly = readonly != 0; }
 int ex_editor_readonly(const ExEditor *e) { return e->readonly; }
 void ex_editor_set_doc(ExEditor *e, ExDoc *doc) {
+    e->md_valid = 0;
     clear_cache(e);
     e->doc = doc;
     e->scroll_y = 0;
@@ -160,9 +169,75 @@ static const ExShaped *shaped(ExEditor *e, ExRenderer *r, const char *text, size
     return &c->sh;
 }
 
+/* ---- Markdown tokens and line layouts (source mode and live preview) ---- */
+
+/* Brings the tokens up to date with the document: the edits since the last call become one edit for the
+ * incremental update (or the whole text is tokenized when the log does not reach back far enough). */
+static void ensure_md(ExEditor *e) {
+    ExDocEdit edits[EX_DOC_EDIT_LOG];
+    int n;
+    char *text;
+    size_t len = 0, lo_off = 0, hi_old = 0, hi_new = 0, i;
+    unsigned long version;
+    if (e->mode == EX_EDITOR_PLAIN) return;
+    version = ex_doc_version(e->doc);
+    if (e->md && e->md_valid && e->md_doc == e->doc && e->md_version == version) return;
+    text = ex_buffer_text(buf(e), &len);
+    if (!text) return;
+    if (!e->md) e->md = ex_md_create();
+    n = (e->md && e->md_valid && e->md_doc == e->doc) ? ex_doc_edits_since(e->doc, e->md_version, edits, EX_DOC_EDIT_LOG) : -1;
+    if (n > 0) {
+        for (i = 0; i < (size_t)n; i++) {                       /* combine the edits into one that covers them all */
+            size_t o = edits[i].offset, rm = edits[i].removed, ins = edits[i].inserted;
+            if (i == 0) { lo_off = o; hi_old = o + rm; hi_new = o + ins; }
+            else {
+                size_t nlo = o < lo_off ? o : lo_off, cur_end = o + rm, nhi = cur_end > hi_new ? cur_end : hi_new;
+                hi_old += nhi - hi_new;
+                lo_off = nlo;
+                hi_new = nhi - rm + ins;
+            }
+        }
+        ex_md_update(e->md, text, len, lo_off, hi_old - lo_off, hi_new - lo_off);
+    } else if (n == 0) {
+        /* nothing changed in the text */
+    } else {
+        ex_md_tokenize(e->md, text, len);
+    }
+    free(text);
+    e->md_doc = e->doc;
+    e->md_version = version;
+    e->md_valid = 1;
+}
+
+/* The layout of one line, or NULL in plain mode. The caller frees it. */
+static LLine *layout_of(ExEditor *e, ExRenderer *r, size_t line, size_t *ls_out, size_t *le_out) {
+    LEnv env;
+    size_t len, s, en, n;
+    char *t;
+    LLine *l;
+    if (e->mode == EX_EDITOR_PLAIN || !e->font) return NULL;
+    ensure_md(e);
+    t = line_text(e, line, &len);
+    if (!t) return NULL;
+    line_range(e, line, &s, &en, &n);
+    env.r = r; env.size = e->size; env.live = e->mode == EX_EDITOR_LIVE; env.md = e->md; env.doc = e->doc; env.line = t; env.ls = s; env.le = en;
+    l = ll_build(&env);
+    free(t);              /* the runs point into the text: keep a copy that lives as long as the layout */
+    if (ls_out) *ls_out = s;
+    if (le_out) *le_out = en;
+    return l;
+}
+
 static float x_of(ExEditor *e, ExRenderer *r, size_t line, size_t offset) {
     size_t len, s, en, n;
-    char *t = line_text(e, line, &len);
+    char *t;
+    if (e->mode != EX_EDITOR_PLAIN) {
+        LLine *l = layout_of(e, r, line, &s, &en);
+        float x = 0;
+        if (l) { if (offset < s) offset = s; if (offset > en) offset = en; x = ll_x_of(l, offset); ll_free(l); }
+        return x;
+    }
+    t = line_text(e, line, &len);
     float x = 0.0f;
     const ExShaped *sh;
     line_range(e, line, &s, &en, &n);
@@ -175,7 +250,14 @@ static float x_of(ExEditor *e, ExRenderer *r, size_t line, size_t offset) {
 
 static size_t offset_at_x(ExEditor *e, ExRenderer *r, size_t line, float x) {
     size_t len, s, en, n, off = 0;
-    char *t = line_text(e, line, &len);
+    char *t;
+    if (e->mode != EX_EDITOR_PLAIN) {
+        LLine *l = layout_of(e, r, line, &s, &en);
+        size_t o = s;
+        if (l) { o = ll_offset_at(l, x, s, en); ll_free(l); }
+        return o;
+    }
+    t = line_text(e, line, &len);
     const ExShaped *sh;
     line_range(e, line, &s, &en, &n);
     if (t && (sh = shaped(e, r, t, len)) != NULL) off = ex_shaped_offset_for_x(sh, x, len);
@@ -662,6 +744,106 @@ void ex_editor_caret_rect(ExEditor *e, ExRenderer *r, float *x, float *y, float 
     if (h) *h = (float)lh;
 }
 
+void ex_editor_set_mode(ExEditor *e, ExEditorMode mode) { e->mode = mode; e->md_valid = 0; clear_cache(e); }
+ExEditorMode ex_editor_mode(const ExEditor *e) { return e->mode; }
+
+size_t ex_editor_line_display(ExEditor *e, ExRenderer *r, size_t line, char *out, size_t cap) {
+    size_t n = 0, len, s, en, nx;
+    LLine *l = layout_of(e, r, line, NULL, NULL);
+    if (l) { n = ll_display(l, out, cap); ll_free(l); return n; }
+    {
+        char *t = line_text(e, line, &len);
+        if (!t) { if (cap) out[0] = 0; return 0; }
+        line_range(e, line, &s, &en, &nx);
+        n = len < cap ? len : (cap ? cap - 1 : 0);
+        if (cap) { memcpy(out, t, n); out[n] = 0; }
+        free(t);
+        return n;
+    }
+}
+
+const struct ExMd *ex_editor_tokens(ExEditor *e) {
+    if (e->mode == EX_EDITOR_PLAIN) return NULL;
+    ensure_md(e);
+    return e->md;
+}
+
+/* Draws one line in source mode or live preview from its layout. */
+static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_t line, size_t nl, float y, int lh, const ExFontMetrics *fm,
+                             int focused, int blink_on, ExColor sel_c, ExColor cur_c, ExColor comp_c) {
+    size_t st, en, nx, si, nsel = ex_doc_sel_count(e->doc), i;
+    LLine *ll = layout_of(e, r, line, &st, &en);
+    float left = e->vx + (float)ex_px(r, 8);
+    int base_ascent = fm->ascent;
+    if (!ll) return;
+    line_range(e, line, &st, &en, &nx);
+    if (ll->callout) {                                   /* a tint behind a callout's lines */
+        ExColor c = ex_theme_color(t, (ExColorToken)(EX_COLOR_CALLOUT_NOTE + (ll->callout - 1 < EX_CALLOUT_COUNT ? ll->callout - 1 : 0)));
+        c.a = 34;
+        ex_fill_rect(r, e->vx, y, e->vw, (float)lh, c);
+    } else if (ll->code) {
+        ex_fill_rect(r, e->vx, y, e->vw, (float)lh, ex_theme_color(t, EX_COLOR_CODE_BACKGROUND));
+    }
+    /* selections behind the text */
+    for (si = 0; si < nsel; si++) {
+        ExSel s = ex_doc_sel(e->doc, si);
+        size_t a = lo(s), b = hi(s), la, lb;
+        float x0, x1;
+        if (a == b || b <= st || (a > en && a >= nx)) continue;
+        la = a > st ? a : st;
+        lb = b < en ? b : en;
+        x0 = ll_x_of(ll, la);
+        x1 = ll_x_of(ll, lb);
+        if (x1 < x0) { float tmp = x0; x0 = x1; x1 = tmp; }
+        if (b > en && line + 1 < nl) x1 += (float)ex_px(r, 6);
+        ex_fill_rect(r, left + x0, y, x1 - x0, (float)lh, sel_c);
+    }
+    if (ll->rule) {
+        ExColor c = ex_theme_color(t, EX_COLOR_BORDER);
+        ex_fill_rect(r, left, y + (float)lh / 2.0f, e->vw - 2.0f * (float)ex_px(r, 8), (float)ex_px(r, 1.5f), c);
+    }
+    for (i = 0; i < ll->n; i++) {
+        LRun *run = &ll->runs[i];
+        float x = left + run->x;
+        if (run->kind == LRUN_HIDDEN) continue;
+        if (run->bg >= 0 && run->w > 0) ex_fill_rect(r, x, y, run->w, (float)lh, ex_theme_color(t, (ExColorToken)run->bg));
+        if (run->kind == LRUN_TEXT || run->kind == LRUN_SUBST) {
+            ExFontMetrics m;
+            ExColor col = ex_theme_color(t, (ExColorToken)run->fg);
+            float ty = y + (float)(lh - fm->line_height) / 2.0f;
+            if (ex_text_metrics(r, run->font, run->size, &m) == 0) ty += (float)(base_ascent - m.ascent);
+            ex_text_draw(r, run->font, run->size, x, ty, run->text, run->tlen, col);
+            if (run->flags & LF_UNDERLINE) ex_fill_rect(r, x, y + (float)(lh + fm->line_height) / 2.0f - (float)ex_px(r, 1), run->w, (float)ex_px(r, 1), col);
+            if (run->flags & LF_STRIKE) ex_fill_rect(r, x, y + (float)lh / 2.0f, run->w, (float)ex_px(r, 1), col);
+        } else if (run->kind == LRUN_BAR) {
+            ex_fill_rect(r, x + run->w * 0.3f, y, (float)ex_px(r, 2), (float)lh, ex_theme_color(t, (ExColorToken)run->fg));
+        } else if (run->kind == LRUN_CHECKBOX) {
+            float side = (float)fm->line_height * 0.7f, bx = x + (run->w - side) / 2.0f, by = y + ((float)lh - side) / 2.0f, th = (float)ex_px(r, 1.5f);
+            ExColor col = ex_theme_color(t, (ExColorToken)run->fg);
+            ex_fill_rect(r, bx, by, side, th, col);
+            ex_fill_rect(r, bx, by + side - th, side, th, col);
+            ex_fill_rect(r, bx, by, th, side, col);
+            ex_fill_rect(r, bx + side - th, by, th, side, col);
+            if (run->checked) ex_fill_rect(r, bx + side * 0.25f, by + side * 0.25f, side * 0.5f, side * 0.5f, col);
+        }
+    }
+    /* carets and the IME composition */
+    for (si = 0; si < nsel; si++) {
+        ExSel s = ex_doc_sel(e->doc, si);
+        float cx;
+        if (s.head < st || s.head > en || !(s.head < nx || line + 1 == nl)) continue;
+        cx = left + ll_x_of(ll, s.head);
+        if (si == ex_doc_primary(e->doc) && e->composition[0]) {
+            float ty = y + (float)(lh - fm->line_height) / 2.0f;
+            float w = ex_text_draw(r, e->font, e->size, cx, ty, e->composition, strlen(e->composition), comp_c);
+            ex_fill_rect(r, cx, y + (float)lh - (float)ex_px(r, 2), w, (float)ex_px(r, 1), comp_c);
+            cx += w;
+        }
+        if (focused && blink_on) ex_fill_rect(r, cx, y, (float)ex_px(r, 1.5f), (float)lh, cur_c);
+    }
+    ll_free(ll);
+}
+
 void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, int blink_on) {
     int lh, px, pad;
     size_t nl = line_count(e), first, last, line, nsel = ex_doc_sel_count(e->doc), si;
@@ -679,10 +861,12 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
     if (last >= nl) last = nl - 1;
     for (line = first; line <= last && line < nl; line++) {
         size_t len, st, en, nx;
-        char *txt = line_text(e, line, &len);
+        char *txt;
         const ExShaped *sh;
         float y = e->vy + (float)line * (float)lh - e->scroll_y;
         float ty = y + (float)(lh - fm.line_height) / 2.0f;
+        if (e->mode != EX_EDITOR_PLAIN) { draw_layout_line(e, r, t, line, nl, y, lh, &fm, focused, blink_on, sel_c, cur_c, comp_c); continue; }
+        txt = line_text(e, line, &len);
         if (!txt) continue;
         line_range(e, line, &st, &en, &nx);
         sh = shaped(e, r, txt, len);

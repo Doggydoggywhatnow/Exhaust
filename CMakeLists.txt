@@ -265,9 +265,9 @@ if(EXHAUST_A11Y)
   target_link_libraries(exhaust_a11y PUBLIC accesskit)
 endif()
 
-add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/ui.c src/ui/panes.c src/ui/vault_screen.c ${THEME_C})
+add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/editor_layout.c src/ui/ui.c src/ui/panes.c src/ui/vault_screen.c ${THEME_C})
 target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
-target_link_libraries(exhaust_ui PUBLIC exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace clay_impl)
+target_link_libraries(exhaust_ui PUBLIC exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace exhaust_markdown clay_impl)
 if(NOT MSVC)
   target_link_libraries(exhaust_ui PUBLIC m)
 endif()
@@ -427,6 +427,14 @@ add_test(NAME tokenizer_incremental COMMAND test_tokenizer_incremental ${CMAKE_C
 add_executable(test_html tests/test_html.c)
 target_link_libraries(test_html PRIVATE exhaust_markdown)
 add_test(NAME html COMMAND test_html ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/regression_html_depth.bin)
+
+add_executable(test_live_preview tests/test_live_preview.c)
+target_link_libraries(test_live_preview PRIVATE exhaust_ui exhaust_markdown)
+add_test(NAME live_preview COMMAND test_live_preview ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/sample_note.md)
+
+add_executable(test_incremental_tokenize tests/test_incremental_tokenize.c)
+target_link_libraries(test_incremental_tokenize PRIVATE exhaust_ui exhaust_markdown)
+add_test(NAME incremental_tokenize COMMAND test_incremental_tokenize ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/sample_note.md)
 
 add_executable(settings_child tests/settings_child.c)
 target_link_libraries(settings_child PRIVATE exhaust_settings)

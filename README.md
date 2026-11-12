@@ -53,6 +53,8 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 - **Markdown**: headings, bold, italic, strikethrough, highlight, lists, task lists, quotes, code blocks, tables, horizontal rules, footnotes, comments, math, and Mermaid diagrams (flowchart, sequence, class, state, ER, pie and gantt).
 - **Callouts**: typed, titled and foldable (`+` or `-`) blocks, nestable. The types, each with its own color and icon, are `note`, `abstract` (aliases `summary`, `tldr`), `info`, `todo`, `tip` (`hint`, `important`), `success` (`check`, `done`), `question` (`help`, `faq`), `warning` (`caution`, `attention`), `failure` (`fail`, `missing`), `danger` (`error`), `bug`, `example` and `quote` (`cite`). The type is not case-sensitive and unknown types show as `note`. Custom callouts, with your own color and icon, are made with style snippets.
 - **Live preview**: formatting shows as you type, with the syntax revealed under the cursor.
+
+*Build status (sub-slice 3b):* source mode and live preview work in the note editor (the `Md` ribbon button and the *Toggle Live Preview/Source mode* command switch a tab). Headings are scaled inside the normal row height (up to 1.3 times; rows do not yet change height), lines do not wrap yet, and math, embeds, images, tables and HTML are shown as source until their renderers (6c, 6d) exist. Reading mode and folding come with 3c.
 - **Source mode and reading mode**: switch per note.
 - **Folding** of headings and lists.
 - **Find and replace** inside a note, with regular expressions.

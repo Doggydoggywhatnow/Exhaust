@@ -28,6 +28,8 @@ struct ExDoc {
     Node *nodes; size_t nnodes, capnodes;
     size_t cur;
     ExEditFn listener; void *listener_user;
+    unsigned long version;                 /* grows with every change of the text */
+    ExDocEdit log[EX_DOC_EDIT_LOG];        /* the most recent changes, a ring indexed by version */
 };
 
 /* ---- helpers ---- */
@@ -180,6 +182,10 @@ void ex_doc_seal(ExDoc *d) { d->nodes[d->cur].sealed = 1; }
 /* ---- applying changes ---- */
 
 static void emit(ExDoc *d, size_t offset, size_t removed, const char *ins, size_t ins_len) {
+    d->log[d->version % EX_DOC_EDIT_LOG].offset = offset;
+    d->log[d->version % EX_DOC_EDIT_LOG].removed = removed;
+    d->log[d->version % EX_DOC_EDIT_LOG].inserted = ins_len;
+    d->version++;
     if (d->listener) d->listener(d->listener_user, offset, removed, ins, ins_len);
 }
 
@@ -378,4 +384,15 @@ int ex_doc_goto_node(ExDoc *d, size_t node) {
     }
     free(path);
     return 0;
+}
+
+unsigned long ex_doc_version(const ExDoc *d) { return d->version; }
+
+int ex_doc_edits_since(const ExDoc *d, unsigned long since, ExDocEdit *out, size_t max) {
+    unsigned long n, i;
+    if (since > d->version) return -1;
+    n = d->version - since;
+    if (n > EX_DOC_EDIT_LOG || n > max) return -1;
+    for (i = 0; i < n; i++) out[i] = d->log[(since + i) % EX_DOC_EDIT_LOG];
+    return (int)n;
 }

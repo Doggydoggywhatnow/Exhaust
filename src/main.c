@@ -125,11 +125,19 @@ static void banner_for_note(App *a, ExNote *n) {
     else show_banner(a, BANNER_NONE, "", NULL, NULL, NULL);
 }
 
+/* The editing mode a tab asks for ("live" is live preview, "source" is source mode; "reading" waits for sub-slice 3c). */
+static ExEditorMode editor_mode_for(const char *mode) { return mode && strcmp(mode, "source") == 0 ? EX_EDITOR_SOURCE : EX_EDITOR_LIVE; }
+
 static void stop_showing_diff(App *a) {
     if (a->diff_doc) {
         if (a->editor && a->editor->editor) {
             ex_editor_set_doc(a->editor->editor, a->shown_before_diff);
             ex_editor_set_readonly(a->editor->editor, a->note == NULL);
+            {
+                ExId tab = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+                const ExTab *tt = tab ? ex_ws_tab(a->ws, tab) : NULL;
+                ex_editor_set_mode(a->editor->editor, editor_mode_for(tt ? tt->mode : NULL));
+            }
         }
         ex_doc_free(a->diff_doc);
         a->diff_doc = NULL;
@@ -166,6 +174,7 @@ static void banner_c_click(ExWidget *w, void *user) { /* "Show differences" */
     a->shown_before_diff = ex_note_doc(a->note);
     ex_editor_set_doc(a->editor->editor, a->diff_doc);
     ex_editor_set_readonly(a->editor->editor, 1);
+    ex_editor_set_mode(a->editor->editor, EX_EDITOR_PLAIN);              /* a diff is shown as it is, not as Markdown */
 }
 
 /* ---- tabs and notes ---- */
@@ -220,6 +229,7 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
     ed = ex_widget_editor(a->ui, ex_note_doc(n), t->path);
     if (!ed) return NULL;
     ex_editor_set_state(ed->editor, t->cursor_line, t->cursor_column, t->scroll_y);
+    ex_editor_set_mode(ed->editor, editor_mode_for(t->mode));
     remember_tab_note(a, t->id, n);
     if (res == EX_OPEN_RECOVERED) show_banner(a, BANNER_RECOVERED, "Exhaust closed unexpectedly. The text you typed was restored from the recovery journal.", "OK", NULL, NULL);
     else if (res == EX_OPEN_CONFLICT && ex_note_has_conflict(n)) show_conflict_banner(a);
@@ -257,6 +267,7 @@ static void open_path(App *a, ExId group, const char *rel) {
     ExId t = ex_ws_find_tab(a->ws, rel);
     if (t) { ex_ws_activate(a->ws, t); a->focus_tab = t; return; }
     t = ex_ws_new_tab(a->ws, group, rel, "note");
+    if (t && strcmp(ex_settings_get(a->settings, "editor", "default_mode"), "source") == 0) ex_ws_set_tab_mode(a->ws, t, "source");
     a->focus_tab = t;
 }
 
@@ -315,6 +326,7 @@ static void toggle_side(App *a, ExSide side) {
     ex_ws_set_sidebar(a->ws, side, !ex_ws_sidebar_visible(a->ws, side), ex_ws_sidebar_width(a->ws, side));
 }
 static void on_toggle_left(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "app.toggle-left-sidebar"); }
+static void on_toggle_mode_button(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "app.toggle-live-preview-source-mode"); }
 static void on_toggle_right(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "app.toggle-right-sidebar"); }
 
 /* ---- commands ---- */
@@ -324,6 +336,17 @@ static void cmd_toggle_right(void *u) { toggle_side(u, EX_SIDE_RIGHT); }
 static void cmd_change_theme(void *u) { on_toggle_theme(NULL, u); }   /* until the picker exists: switches light and dark */
 static void spawn_self(const char *arg);
 static void cmd_change_vault(void *u) { (void)u; spawn_self("--vaults"); }
+static void cmd_toggle_mode(void *u) {
+    App *a = u;
+    ExId tab = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+    const ExTab *t = tab ? ex_ws_tab(a->ws, tab) : NULL;
+    const char *next;
+    if (!t) return;
+    next = strcmp(t->mode, "source") == 0 ? "live" : "source";
+    ex_ws_set_tab_mode(a->ws, tab, next);
+    if (a->editor && a->editor->editor && !a->diff_doc) ex_editor_set_mode(a->editor->editor, editor_mode_for(next));
+}
+static int has_editor(void *u) { return ((App *)u)->editor != NULL; }
 static void cmd_new_note(void *u) { on_new_note(NULL, "", u); }
 static int has_notes(void *u) { return ((App *)u)->notes != NULL && ((App *)u)->vault != NULL; }
 static void cmd_close_tab(void *u) {
@@ -348,6 +371,7 @@ static void register_features_and_commands(App *a) {
     ex_commands_bind(a->commands, "app.toggle-right-sidebar", cmd_toggle_right, NULL, a);
     ex_commands_bind(a->commands, "app.change-theme", cmd_change_theme, NULL, a);
     ex_commands_bind(a->commands, "app.change-vault", cmd_change_vault, NULL, a);
+    ex_commands_bind(a->commands, "app.toggle-live-preview-source-mode", cmd_toggle_mode, has_editor, a);
     ex_commands_bind(a->commands, "app.create-new-note", cmd_new_note, has_notes, a);
     ex_commands_bind(a->commands, "app.close-current-tab", cmd_close_tab, has_tab, a);
 }
@@ -738,6 +762,7 @@ int main(int argc, char **argv) {
     ex_widget_add(ribbon, ribbon_button(&app, "Aa", "Switch light and dark theme", on_toggle_theme));
     ex_widget_add(ribbon, ribbon_button(&app, "\xC2\xAB", "Show or hide the left sidebar", on_toggle_left));
     ex_widget_add(ribbon, ribbon_button(&app, "\xC2\xBB", "Show or hide the right sidebar", on_toggle_right));
+    ex_widget_add(ribbon, ribbon_button(&app, "Md", "Switch between live preview and source mode", on_toggle_mode_button));
     ex_widget_add(row, ribbon);
 
     left_content = app.vault ? ex_explorer_sidebar(app.ui, app.vault, on_open_file, &app, &app.tree) : info_label(&app, "No vault is open.");

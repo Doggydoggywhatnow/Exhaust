@@ -61,6 +61,16 @@ void ex_doc_free(ExDoc *d);
 const ExBuffer *ex_doc_buffer(const ExDoc *d);
 void ex_doc_set_edit_listener(ExDoc *d, ExEditFn fn, void *user);
 
+/* A short log of the latest changes for readers that keep something derived from the text (the
+ * editor's Markdown tokens) and want to update it instead of starting over. Nothing is registered, so
+ * a reader never outlives or outlasts the document in a way that matters. */
+#define EX_DOC_EDIT_LOG 128
+typedef struct ExDocEdit { size_t offset, removed, inserted; } ExDocEdit;   /* bytes removed at offset, then inserted */
+unsigned long ex_doc_version(const ExDoc *d);                                /* grows with every change of the text */
+/* The changes made after `since` (a value of ex_doc_version), oldest first. Returns how many, or -1 if
+ * there are more than `max` or more than the log holds. */
+int ex_doc_edits_since(const ExDoc *d, unsigned long since, ExDocEdit *out, size_t max);
+
 /* Selections are kept sorted, within the text, and merged when they overlap or
  * when two carets coincide. There is always at least one. */
 size_t ex_doc_sel_count(const ExDoc *d);
