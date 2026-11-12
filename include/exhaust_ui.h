@@ -64,6 +64,17 @@ struct ExWidget {
     float tree_scroll;            /* pixels */
     void (*on_tree_open)(ExWidget *w, const char *rel, void *user); /* Enter or double click on a file */
     void *on_tree_open_user;
+    /* Mouse hook: called with press, drag and release for a press that started on this widget or a
+     * descendant that has no hook of its own. `under` is the widget below the pointer. Returning
+     * non-zero on the press takes it: the widget then gets the drag and the release too, and the
+     * normal handling (focus, buttons, editors) is skipped. */
+    int (*on_mouse)(ExWidget *w, ExMouse kind, float x, float y, ExWidget *under, void *user);
+    void *on_mouse_user;
+    /* Drop hook for files and text dropped from the desktop onto this widget or a descendant. */
+    int (*on_drop)(ExWidget *w, int is_file, const char *data, float x, float y, void *user);
+    void *on_drop_user;
+    uint32_t tag;                 /* for the application: the pane or tab id a widget stands for */
+    int selected;                 /* drawn as the current item (an active tab) */
     void *owned;                  /* anything the widget owns besides itself; freed with it */
     void (*free_owned)(void *);
 
@@ -112,6 +123,8 @@ ExAxis ex_size_grow(void);
 ExAxis ex_size_fit(void);
 ExAxis ex_size_token(int size_token, float multiple);
 ExAxis ex_size_percent(float fraction);
+/* A size in pixels at 100% zoom, for data the user sets (a sidebar's width); everything else uses theme tokens. */
+ExAxis ex_size_px(const ExUi *ui, float px);
 
 /* Layout and drawing. width and height are the window's pixel size. */
 void ex_ui_layout(ExUi *ui, ExWidget *root, float width, float height);
@@ -131,6 +144,12 @@ void ex_ui_key(ExUi *ui, ExKey key, int mods);
  * the tree last laid out; returns the newly focused widget or NULL. */
 ExWidget *ex_ui_focus_move(ExUi *ui, int dir);
 void ex_ui_text_input(ExUi *ui, const char *utf8, size_t len);
+/* Files (is_file, a path) or text dropped from the desktop at a window position: handed to the
+ * deepest widget under the point that has an on_drop hook (a widget further up is asked when the
+ * one below returns 0). Returns 1 when some hook took it. */
+int ex_ui_drop(ExUi *ui, ExWidget *root, int is_file, const char *data, float x, float y);
+/* Call before freeing or detaching a subtree: the UI forgets it as focus, pressed or captured widget. */
+void ex_ui_release(ExUi *ui, ExWidget *subtree);
 ExWidget *ex_ui_focus(const ExUi *ui);
 void ex_ui_set_focus(ExUi *ui, ExWidget *w);
 

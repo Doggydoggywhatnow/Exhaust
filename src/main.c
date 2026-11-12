@@ -10,12 +10,15 @@
 #include "exhaust_fontdb.h"
 #include "exhaust_input.h"
 #include "exhaust_notes.h"
+#include "exhaust_panes.h"
 #include "exhaust_platform.h"
 #include "exhaust_render.h"
+#include "exhaust_session.h"
 #include "exhaust_theme.h"
 #include "exhaust_ui.h"
 #include "exhaust_vault.h"
 #include "exhaust_worker.h"
+#include "exhaust_workspace.h"
 
 /* The system font scan runs on a worker thread and hands its result to the UI
  * thread as a message; the queue wakes the UI loop with an SDL event. */
@@ -41,24 +44,37 @@ static void worker_job(ExWorker *self, const ExMessage *job, void *unused) {
 
 typedef enum Banner { BANNER_NONE, BANNER_RECOVERED, BANNER_CONFLICT, BANNER_ERROR } Banner;
 
+typedef struct TabNote { ExId tab; ExNote *note; } TabNote;
+
 typedef struct App {
     ExRenderer *r;
     ExUi *ui;
     ExTheme theme;
-    ExWidget *root, *editor, *tree, *status;
+    ExWidget *root, *editor, *tree, *status;     /* editor: the editor of the active tab, or NULL */
     ExWidget *banner, *banner_text, *banner_a, *banner_b, *banner_c;
-    ExDoc *demo_doc;           /* shown when no note is open */
+    ExWidget *left_sb, *right_sb;
+    ExDoc *demo_doc;           /* shown when there is no vault */
     ExDoc *diff_doc;           /* the conflict diff, while it is shown */
+    ExDoc *shown_before_diff;
     ExVault *vault;
     ExNotes *notes;
-    ExNote *note;
+    ExNote *note;              /* the note of the active tab */
+    ExNote *banner_note;       /* the note the banner was last computed for */
+    ExWorkspace *ws;
+    ExPanes *panes;
+    ExSession *session;
+    TabNote *tabnotes; size_t ntabnotes, captabnotes;
+    ExId focus_tab;            /* the tab whose editor should get the focus when it exists */
     Banner banner_kind;
     int blink_on;
     float zoom;
 } App;
 
+static void sync_ui(App *a);
+
 static void relayout_and_draw(App *a) {
     int w, h;
+    sync_ui(a);
     ex_renderer_size(a->r, &w, &h);
     ex_ui_layout(a->ui, a->root, (float)w, (float)h);
     ex_renderer_clear(a->r, ex_theme_color(&a->theme, EX_COLOR_BACKGROUND));
@@ -66,35 +82,49 @@ static void relayout_and_draw(App *a) {
     ex_renderer_present(a->r);
 }
 
-/* ---- the banner above the editor ---- */
+static void set_label(ExWidget *w, const char *text) {
+    ex_widget_set_text(w, text);
+    free(w->name);
+    w->name = malloc(strlen(text) + 1);
+    if (w->name) strcpy(w->name, text);
+}
+
+/* ---- the banner above the panes ---- */
 
 static void show_banner(App *a, Banner kind, const char *text, const char *a_label, const char *b_label, const char *c_label) {
     a->banner_kind = kind;
     a->banner->hidden = kind == BANNER_NONE;
     if (kind == BANNER_NONE) return;
-    ex_widget_set_text(a->banner_text, text);
-    free(a->banner_text->name);
-    a->banner_text->name = malloc(strlen(text) + 1);
-    if (a->banner_text->name) strcpy(a->banner_text->name, text);
-    a->banner_a->hidden = !a_label; if (a_label) { ex_widget_set_text(a->banner_a, a_label); free(a->banner_a->name); a->banner_a->name = malloc(strlen(a_label) + 1); if (a->banner_a->name) strcpy(a->banner_a->name, a_label); }
-    a->banner_b->hidden = !b_label; if (b_label) { ex_widget_set_text(a->banner_b, b_label); free(a->banner_b->name); a->banner_b->name = malloc(strlen(b_label) + 1); if (a->banner_b->name) strcpy(a->banner_b->name, b_label); }
-    a->banner_c->hidden = !c_label; if (c_label) { ex_widget_set_text(a->banner_c, c_label); free(a->banner_c->name); a->banner_c->name = malloc(strlen(c_label) + 1); if (a->banner_c->name) strcpy(a->banner_c->name, c_label); }
+    set_label(a->banner_text, text);
+    a->banner_a->hidden = !a_label; if (a_label) set_label(a->banner_a, a_label);
+    a->banner_b->hidden = !b_label; if (b_label) set_label(a->banner_b, b_label);
+    a->banner_c->hidden = !c_label; if (c_label) set_label(a->banner_c, c_label);
 }
 
 static void set_status(App *a, const char *text) { if (a->status) ex_widget_set_text(a->status, text); }
 
-static void show_note(App *a, ExNote *n) {
-    a->note = n;
-    ex_editor_set_doc(a->editor->editor, n ? ex_note_doc(n) : a->demo_doc);
-    ex_editor_set_readonly(a->editor->editor, n == NULL);
-    ex_ui_set_focus(a->ui, a->editor);
+static void show_conflict_banner(App *a) {
+    show_banner(a, BANNER_CONFLICT, "This note was changed on disk while you have unsaved edits. Both versions are kept. Which one should be saved?",
+                "Keep my version", "Use the version on disk", "Show differences");
+}
+
+/* The banner follows the note of the active tab. */
+static void banner_for_note(App *a, ExNote *n) {
+    a->banner_note = n;
+    if (n && ex_note_has_conflict(n)) show_conflict_banner(a);
+    else if (n && ex_note_error(n)) show_banner(a, BANNER_ERROR, ex_note_error(n), NULL, NULL, NULL);
+    else show_banner(a, BANNER_NONE, "", NULL, NULL, NULL);
 }
 
 static void stop_showing_diff(App *a) {
     if (a->diff_doc) {
-        show_note(a, a->note);
+        if (a->editor && a->editor->editor) {
+            ex_editor_set_doc(a->editor->editor, a->shown_before_diff);
+            ex_editor_set_readonly(a->editor->editor, a->note == NULL);
+        }
         ex_doc_free(a->diff_doc);
         a->diff_doc = NULL;
+        a->shown_before_diff = NULL;
     }
 }
 
@@ -118,39 +148,128 @@ static void banner_c_click(ExWidget *w, void *user) { /* "Show differences" */
     App *a = user;
     char *diff;
     (void)w;
-    if (!a->note || a->banner_kind != BANNER_CONFLICT) return;
+    if (!a->note || a->banner_kind != BANNER_CONFLICT || !a->editor) return;
     if (a->diff_doc) { stop_showing_diff(a); return; }
     diff = ex_note_conflict_diff(a->note);
     if (!diff) return;
     a->diff_doc = ex_doc_create(diff[0] ? diff : "(the two versions have the same text)\n", diff[0] ? strlen(diff) : 38);
     free(diff);
+    a->shown_before_diff = ex_note_doc(a->note);
     ex_editor_set_doc(a->editor->editor, a->diff_doc);
     ex_editor_set_readonly(a->editor->editor, 1);
 }
 
-/* ---- opening notes ---- */
+/* ---- tabs and notes ---- */
 
-static void open_note(App *a, ExNote *n, ExOpenResult res) {
-    char msg[600];
-    stop_showing_diff(a);
-    show_note(a, n);
-    if (res == EX_OPEN_RECOVERED) {
-        show_banner(a, BANNER_RECOVERED, "Exhaust closed unexpectedly. The text you typed was restored from the recovery journal.", "OK", NULL, NULL);
-    } else if (res == EX_OPEN_CONFLICT && ex_note_has_conflict(n)) {
-        show_banner(a, BANNER_CONFLICT, "This note was changed on disk after your unsaved edits. Both versions are kept. Which one should be saved?", "Keep my version", "Use the version on disk", "Show differences");
-    } else if (ex_note_error(n)) {
-        show_banner(a, BANNER_ERROR, ex_note_error(n), NULL, NULL, NULL);
-    } else {
-        show_banner(a, BANNER_NONE, "", NULL, NULL, NULL);
+static ExNote *note_for_tab(App *a, ExId tab) {
+    size_t i;
+    for (i = 0; i < a->ntabnotes; i++) if (a->tabnotes[i].tab == tab) return a->tabnotes[i].note;
+    return NULL;
+}
+
+static void remember_tab_note(App *a, ExId tab, ExNote *n) {
+    if (a->ntabnotes == a->captabnotes) {
+        size_t nc = a->captabnotes ? a->captabnotes * 2 : 8;
+        TabNote *nt = realloc(a->tabnotes, nc * sizeof *nt);
+        if (!nt) return;
+        a->tabnotes = nt;
+        a->captabnotes = nc;
     }
+    a->tabnotes[a->ntabnotes].tab = tab;
+    a->tabnotes[a->ntabnotes].note = n;
+    a->ntabnotes++;
+}
+
+static ExWidget *info_label(App *a, const char *text) {
+    ExWidget *l = ex_widget_label(a->ui, text);
+    if (l) { l->text_token = EX_COLOR_TEXT_MUTED; l->pad_x = 2; l->pad_y = 2; }
+    return l;
+}
+
+/* What a tab shows. Notes open here (not when the session is restored), so a note that is not on
+ * screen costs nothing, and a missing file only shows a message: its tab stays in the session. */
+static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
+    App *a = user;
+    char msg[600];
+    ExOpenResult res = EX_OPEN_OK;
+    ExNote *n;
+    ExWidget *ed;
+    (void)p;
+    if (!a->vault) {
+        ed = ex_widget_editor(a->ui, a->demo_doc, "Welcome");
+        return ed;
+    }
+    if (strcmp(t->view, "graph") == 0) return info_label(a, "The graph view arrives in a later sub-slice.");
+    if (!t->path[0]) return info_label(a, "An empty tab. Open a note from the file explorer, or create one with New note.");
+    if (!a->notes) return info_label(a, "Notes cannot be edited because the recovery journal could not be opened.");
+    n = ex_notes_open(a->notes, t->path, &res);
+    if (!n) {
+        snprintf(msg, sizeof msg, res == EX_OPEN_INVALID_UTF8 ? "%s is not a UTF-8 text file, so Exhaust will not open or change it."
+                                 : res == EX_OPEN_NOT_FOUND ? "%s does not exist any more. Close this tab, or restore the file." : "%s could not be opened.", t->path);
+        return info_label(a, msg);
+    }
+    ed = ex_widget_editor(a->ui, ex_note_doc(n), t->path);
+    if (!ed) return NULL;
+    ex_editor_set_state(ed->editor, t->cursor_line, t->cursor_column, t->scroll_y);
+    remember_tab_note(a, t->id, n);
+    if (res == EX_OPEN_RECOVERED) show_banner(a, BANNER_RECOVERED, "Exhaust closed unexpectedly. The text you typed was restored from the recovery journal.", "OK", NULL, NULL);
+    else if (res == EX_OPEN_CONFLICT && ex_note_has_conflict(n)) show_conflict_banner(a);
+    a->banner_note = n;
     snprintf(msg, sizeof msg, "%s%s", ex_note_path(n), ex_note_exists_on_disk(n) ? "" : " (new: it is written when you type something)");
     set_status(a, msg);
+    return ed;
+}
+
+static void content_closed(ExPanes *p, ExId tab, ExWidget *content, void *user) {
+    App *a = user;
+    size_t i;
+    ExNote *n = NULL;
+    (void)p;
+    for (i = 0; i < a->ntabnotes; i++) if (a->tabnotes[i].tab == tab) { n = a->tabnotes[i].note; a->tabnotes[i] = a->tabnotes[--a->ntabnotes]; break; }
+    if (!n) return;
+    if (a->editor == content) a->editor = NULL;
+    for (i = 0; i < a->ntabnotes; i++) if (a->tabnotes[i].note == n) return;      /* another tab still shows it */
+    if (a->note == n) a->note = NULL;
+    if (a->banner_note == n) { a->banner_note = NULL; show_banner(a, BANNER_NONE, "", NULL, NULL, NULL); }
+    stop_showing_diff(a);
+    ex_notes_close(a->notes, n);                                                    /* saves it first */
+}
+
+static void tab_shown(ExPanes *p, ExId tab, void *user) { App *a = user; (void)p; a->focus_tab = tab; }
+
+static void new_empty_tab(ExPanes *p, ExId group, void *user) {
+    App *a = user;
+    ExId t = ex_ws_new_tab(a->ws, group, "", "empty");
+    (void)p;
+    a->focus_tab = t;
+}
+
+static void open_path(App *a, ExId group, const char *rel) {
+    ExId t = ex_ws_find_tab(a->ws, rel);
+    if (t) { ex_ws_activate(a->ws, t); a->focus_tab = t; return; }
+    t = ex_ws_new_tab(a->ws, group, rel, "note");
+    a->focus_tab = t;
+}
+
+static int drop_file(ExPanes *p, ExId group, const char *path, void *user) {
+    App *a = user;
+    const char *root = a->vault ? ex_vault_path(a->vault) : NULL;
+    size_t rl = root ? strlen(root) : 0;
+    (void)p;
+    if (root && strncmp(path, root, rl) == 0 && (path[rl] == '/' || path[rl] == '\\') && path[rl + 1]) {
+        char *rel = malloc(strlen(path + rl + 1) + 1), *c;
+        if (!rel) return 0;
+        strcpy(rel, path + rl + 1);
+        for (c = rel; *c; c++) if (*c == '\\') *c = '/';
+        if (ex_file_kind(rel) == EX_KIND_MARKDOWN) { open_path(a, group, rel); free(rel); return 1; }
+        free(rel);
+    }
+    set_status(a, "Dropped files from outside the vault are imported by the importers (a later sub-slice); nothing was copied.");
+    return 0;
 }
 
 static void on_open_file(ExWidget *w, const char *rel, void *user) {
     App *a = user;
-    ExOpenResult res;
-    ExNote *n;
     (void)w;
     if (ex_file_kind(rel) != EX_KIND_MARKDOWN && ex_file_kind(rel) != EX_KIND_BASE && ex_file_kind(rel) != EX_KIND_CANVAS) {
         char msg[400];
@@ -158,25 +277,16 @@ static void on_open_file(ExWidget *w, const char *rel, void *user) {
         set_status(a, msg);
         return;
     }
-    if (a->note && ex_note_dirty(a->note)) ex_note_save_now(a->note); /* switching notes saves the one we leave */
-    n = ex_notes_open(a->notes, rel, &res);
-    if (!n) {
-        char msg[400];
-        snprintf(msg, sizeof msg, res == EX_OPEN_INVALID_UTF8 ? "%s is not a UTF-8 text file, so Exhaust will not open or change it."
-                                                               : "%s could not be opened.", rel);
-        show_banner(a, BANNER_ERROR, msg, NULL, NULL, NULL);
-        return;
-    }
-    open_note(a, n, res);
+    open_path(a, 0, rel);
 }
 
 static void on_new_note(ExWidget *w, const char *parent_rel, void *user) {
     App *a = user;
     ExNote *n;
     (void)w;
-    if (a->note && ex_note_dirty(a->note)) ex_note_save_now(a->note);
+    if (!a->notes) return;
     n = ex_notes_new(a->notes, parent_rel, "Untitled");
-    if (n) open_note(a, n, EX_OPEN_OK);
+    if (n) open_path(a, 0, ex_note_path(n));
 }
 
 static void on_toggle_theme(ExWidget *w, void *user) {
@@ -187,6 +297,44 @@ static void on_toggle_theme(ExWidget *w, void *user) {
         ex_theme_free(&a->theme);
         a->theme = next;
         ex_ui_set_theme(a->ui, &a->theme);
+    }
+}
+
+static void toggle_side(App *a, ExSide side) {
+    ex_ws_set_sidebar(a->ws, side, !ex_ws_sidebar_visible(a->ws, side), ex_ws_sidebar_width(a->ws, side));
+}
+static void on_toggle_left(ExWidget *w, void *user) { (void)w; toggle_side(user, EX_SIDE_LEFT); }
+static void on_toggle_right(ExWidget *w, void *user) { (void)w; toggle_side(user, EX_SIDE_RIGHT); }
+
+/* Which tab, note and editor are active; called before every layout. */
+static void sync_ui(App *a) {
+    ExId g, t;
+    ExWidget *c;
+    ex_sidebar_sync(a->left_sb);
+    ex_sidebar_sync(a->right_sb);
+    ex_panes_update(a->panes);
+    g = ex_ws_active_group(a->ws);
+    t = ex_ws_group_active(a->ws, g);
+    c = t ? ex_panes_content(a->panes, t) : NULL;
+    a->editor = c && c->type == EX_WIDGET_EDITOR ? c : NULL;
+    a->note = t ? note_for_tab(a, t) : NULL;
+    if (a->note != a->banner_note && !a->diff_doc) banner_for_note(a, a->note);
+    if (a->focus_tab && a->focus_tab == t && a->editor) { ex_ui_set_focus(a->ui, a->editor); a->focus_tab = 0; }
+    else if (a->focus_tab && !ex_ws_tab(a->ws, a->focus_tab)) a->focus_tab = 0;
+}
+
+/* Cursor and scroll positions of the tabs that are showing a note go into the workspace (and so the session file). */
+static void capture_tab_state(App *a) {
+    size_t i;
+    for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
+        ExId t = ex_ws_tab_at(a->ws, i);
+        ExWidget *c = ex_panes_content(a->panes, t);
+        int line, col;
+        float sc;
+        if (!c || c->type != EX_WIDGET_EDITOR || !c->editor || (c == a->editor && a->diff_doc)) continue;
+        if (!note_for_tab(a, t)) continue;
+        ex_editor_get_state(c->editor, &line, &col, &sc);
+        ex_ws_set_tab_state(a->ws, t, line, col, sc);
     }
 }
 
@@ -205,9 +353,7 @@ static void handle_note_events(App *a) {
             if (ev.note == a->note) set_status(a, "This note was changed outside Exhaust; the new text is shown (Undo goes back).");
             break;
         case EX_NOTE_EVENT_CONFLICT:
-            if (ev.note == a->note)
-                show_banner(a, BANNER_CONFLICT, "This note was changed on disk while you have unsaved edits. Both versions are kept. Which one should be saved?",
-                            "Keep my version", "Use the version on disk", "Show differences");
+            if (ev.note == a->note) show_conflict_banner(a);
             break;
         case EX_NOTE_EVENT_TREE_CHANGED:
             ex_vault_rescan(a->vault);
@@ -216,13 +362,23 @@ static void handle_note_events(App *a) {
     }
 }
 
+static ExWidget *ribbon_button(App *a, const char *text, const char *name, ExClickFn fn) {
+    ExWidget *b = ex_widget_button(a->ui, text, fn, a);
+    if (!b) return NULL;
+    free(b->name);
+    b->name = malloc(strlen(name) + 1);
+    if (b->name) strcpy(b->name, name);
+    return b;
+}
+
 int main(int argc, char **argv) {
     App app;
     SDL_Event e;
     ExQueue *results;
     ExWorker *worker;
     ExMessage job;
-    ExWidget *row, *col;
+    ExWidget *row, *col, *ribbon, *status, *left_content;
+    ExPanesHooks hooks;
     float zoom = 1.0f;
     int running = 1, clicks = 0;
     Uint64 last_click = 0;
@@ -240,7 +396,7 @@ int main(int argc, char **argv) {
     memset(&app, 0, sizeof app);
     app.zoom = 1.0f;
     app.blink_on = 1;
-    app.r = ex_renderer_create("Exhaust", 960, 600);
+    app.r = ex_renderer_create("Exhaust", 1100, 700);
     if (!app.r) {
         fprintf(stderr, "exhaust: cannot open a window: %s\n", ex_render_error());
         return 1;
@@ -249,11 +405,72 @@ int main(int argc, char **argv) {
     ex_renderer_set_display_scale(app.r, ex_renderer_detect_display_scale(app.r));
     app.ui = ex_ui_create(app.r, &app.theme, 16.0f);
     app.demo_doc = ex_doc_create(intro, strlen(intro));
-    app.root = ex_sample_window(app.ui, app.demo_doc, on_toggle_theme, &app, &app.editor);
-    app.status = app.root->last_child;
-    row = app.root->first_child;
+    app.ws = ex_ws_create();
 
-    /* the banner: a message with up to three buttons, above the editor */
+    if (argc > 1) {
+        app.vault = ex_vault_open(argv[1]);
+        if (!app.vault) fprintf(stderr, "exhaust: cannot open %s as a vault\n", argv[1]);
+    }
+    if (app.vault) {
+        ExRegistry *reg = ex_registry_load(NULL);
+        ExNotesConfig nc;
+        int loaded;
+        if (reg) { /* remember the vault, and which one was opened last */
+            const char *id = ex_registry_add(reg, ex_vault_path(app.vault));
+            if (id) ex_registry_touch(reg, id, (int64_t)time(NULL));
+            ex_registry_save(reg);
+            ex_registry_free(reg);
+        }
+        memset(&nc, 0, sizeof nc);
+        app.notes = ex_notes_create(app.vault, &nc);
+        app.session = ex_session_create(app.vault, NULL, 300);
+        loaded = app.session ? ex_session_load(app.session, app.ws) : 0;
+        (void)loaded;
+        /* Pop-out windows cannot be opened as operating-system windows yet: their tabs come back to the main window
+         * (as they would when such a window is closed), so no tab is ever out of reach. */
+        while (ex_ws_window_count(app.ws) > 1) {
+            ExId w = ex_ws_window_at(app.ws, 0) == ex_ws_main_window(app.ws) ? ex_ws_window_at(app.ws, 1) : ex_ws_window_at(app.ws, 0);
+            if (ex_ws_close_window(app.ws, w) != 0) break;
+        }
+    } else {
+        ex_ws_new_tab(app.ws, 0, "", "welcome");   /* no vault: one tab with the welcome text */
+    }
+
+    memset(&hooks, 0, sizeof hooks);
+    hooks.make_content = make_content;
+    hooks.content_closed = content_closed;
+    hooks.tab_shown = tab_shown;
+    hooks.new_tab = app.vault ? new_empty_tab : NULL;
+    hooks.drop_file = drop_file;
+    app.panes = ex_panes_create(app.ui, app.ws, &hooks, &app);
+
+    /* window: ribbon | left sidebar | banner above the panes | right sidebar, and a status line */
+    app.root = ex_widget_box(app.ui, 1, "Exhaust");
+    app.root->role = EX_ROLE_WINDOW;
+    app.root->width = ex_size_grow(); app.root->height = ex_size_grow();
+    app.root->bg_token = EX_COLOR_BACKGROUND;
+    row = ex_widget_box(app.ui, 0, "workspace");
+    row->width = ex_size_grow(); row->height = ex_size_grow();
+    ribbon = ex_widget_box(app.ui, 1, "ribbon");
+    ribbon->width = ex_size_token(EX_SIZE_RIBBON_WIDTH, 1.0f);
+    ribbon->height = ex_size_grow();
+    ribbon->bg_token = EX_COLOR_BACKGROUND_ALT;
+    ribbon->pad_x = 0.5f; ribbon->pad_y = 1.0f; ribbon->gap = 0.5f;
+    ex_widget_add(ribbon, ribbon_button(&app, "Aa", "Switch light and dark theme", on_toggle_theme));
+    ex_widget_add(ribbon, ribbon_button(&app, "\xC2\xAB", "Show or hide the left sidebar", on_toggle_left));
+    ex_widget_add(ribbon, ribbon_button(&app, "\xC2\xBB", "Show or hide the right sidebar", on_toggle_right));
+    ex_widget_add(row, ribbon);
+
+    left_content = app.vault ? ex_explorer_sidebar(app.ui, app.vault, on_open_file, &app, &app.tree) : info_label(&app, "No vault is open.");
+    if (left_content) {
+        left_content->width = ex_size_grow();
+        left_content->height = ex_size_grow();
+        left_content->bg_token = EX_COLOR_BACKGROUND_ALT;
+    }
+    if (app.vault && left_content) ex_explorer_set_new_note_handler(left_content, on_new_note, &app);
+    app.left_sb = ex_sidebar_create(app.ui, app.ws, EX_SIDE_LEFT, left_content, "Left sidebar");
+    ex_widget_add(row, app.left_sb);
+
     col = ex_widget_box(app.ui, 1, "Note");
     col->width = ex_size_grow(); col->height = ex_size_grow();
     app.banner = ex_widget_box(app.ui, 0, "Notice");
@@ -271,39 +488,34 @@ int main(int argc, char **argv) {
     ex_widget_add(app.banner, app.banner_a);
     ex_widget_add(app.banner, app.banner_b);
     ex_widget_add(app.banner, app.banner_c);
-    ex_widget_remove(row, app.editor);
     ex_widget_add(col, app.banner);
-    ex_widget_add(col, app.editor);
+    ex_widget_add(col, ex_panes_root(app.panes));
     ex_widget_add(row, col);
 
-    if (argc > 1) {
-        app.vault = ex_vault_open(argv[1]);
-        if (!app.vault) fprintf(stderr, "exhaust: cannot open %s as a vault\n", argv[1]);
+    {
+        ExWidget *right_content = info_label(&app, "Backlinks, outline and tags arrive in later sub-slices.");
+        if (right_content) { right_content->bg_token = EX_COLOR_BACKGROUND_ALT; right_content->width = ex_size_grow(); right_content->height = ex_size_grow(); }
+        app.right_sb = ex_sidebar_create(app.ui, app.ws, EX_SIDE_RIGHT, right_content, "Right sidebar");
+        ex_widget_add(row, app.right_sb);
     }
-    if (app.vault) {
-        ExRegistry *reg = ex_registry_load(NULL);
-        ExNotesConfig nc;
-        ExWidget *side = ex_explorer_sidebar(app.ui, app.vault, on_open_file, &app, &app.tree);
-        if (reg) { /* remember the vault, and which one was opened last */
-            const char *id = ex_registry_add(reg, ex_vault_path(app.vault));
-            if (id) ex_registry_touch(reg, id, (int64_t)time(NULL));
-            ex_registry_save(reg);
-            ex_registry_free(reg);
-        }
-        if (side) {
-            ex_widget_insert_before(row, side, col);
-            ex_explorer_set_new_note_handler(side, on_new_note, &app);
-        }
-        memset(&nc, 0, sizeof nc);
-        app.notes = ex_notes_create(app.vault, &nc);
-        if (!app.notes) set_status(&app, "Warning: the recovery journal could not be opened, so notes cannot be edited safely. They are shown read-only.");
-        else if (ex_notes_unsaved_count(app.notes) > 0) {
-            char msg[200];
-            snprintf(msg, sizeof msg, "%zu note(s) have text restored from the recovery journal: open them to see it.", ex_notes_unsaved_count(app.notes));
-            set_status(&app, msg);
-        }
-        ex_editor_set_readonly(app.editor->editor, 1); /* until a note is open */
+    status = ex_widget_label(app.ui, app.vault ? "Typing, selecting, several cursors (Ctrl+Alt+Up or Down, Alt+click), undo and redo work. Ctrl+Plus and Ctrl+Minus zoom."
+                                                : "No vault is open. Start with:  exhaust FOLDER");
+    status->text_token = EX_COLOR_TEXT_MUTED;
+    status->text_scale = 0.85f;
+    status->width = ex_size_grow();
+    status->pad_x = 1.0f; status->pad_y = 0.5f;
+    status->bg_token = EX_COLOR_BACKGROUND_ALT;
+    ex_widget_add(app.root, row);
+    ex_widget_add(app.root, status);
+    app.status = status;
+
+    if (app.vault && !app.notes) set_status(&app, "Warning: the recovery journal could not be opened, so notes cannot be edited safely.");
+    else if (app.notes && ex_notes_unsaved_count(app.notes) > 0) {
+        char msg[200];
+        snprintf(msg, sizeof msg, "%zu note(s) have text restored from the recovery journal: open them to see it.", ex_notes_unsaved_count(app.notes));
+        set_status(&app, msg);
     }
+    app.focus_tab = ex_ws_group_active(app.ws, ex_ws_active_group(app.ws));
 
     signal(SIGTERM, on_signal);
 #ifdef SIGHUP
@@ -334,7 +546,7 @@ int main(int argc, char **argv) {
         } else if (ex_text_event_decode(&e, &te)) {
             app.blink_on = 1;
             if (te.kind == EX_TEXT_COMMIT) ex_ui_text_input(app.ui, te.text, strlen(te.text));
-            else if (app.editor->editor) ex_editor_set_composition(app.editor->editor, te.text);
+            else if (app.editor && app.editor->editor) ex_editor_set_composition(app.editor->editor, te.text);
         } else if (ex_key_from_sdl(&e, &key, &mods)) {
             app.blink_on = 1;
             ex_ui_key(app.ui, key, mods);
@@ -348,6 +560,12 @@ int main(int argc, char **argv) {
             case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
                 ex_renderer_set_display_scale(app.r, ex_renderer_detect_display_scale(app.r));
                 break;
+            case SDL_EVENT_DROP_FILE:
+            case SDL_EVENT_DROP_TEXT: {
+                float density = SDL_GetWindowPixelDensity(ex_renderer_window(app.r));
+                if (e.drop.data) ex_ui_drop(app.ui, app.root, e.type == SDL_EVENT_DROP_FILE, e.drop.data, e.drop.x * density, e.drop.y * density);
+                break;
+            }
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
             case SDL_EVENT_MOUSE_BUTTON_UP:
             case SDL_EVENT_MOUSE_MOTION: {
@@ -367,14 +585,20 @@ int main(int argc, char **argv) {
                 }
                 break;
             }
-            case SDL_EVENT_MOUSE_WHEEL:
-                if (app.editor->editor) ex_editor_scroll(app.editor->editor, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
+            case SDL_EVENT_MOUSE_WHEEL: {
+                float density = SDL_GetWindowPixelDensity(ex_renderer_window(app.r));
+                ExWidget *under = ex_ui_widget_at(app.root, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
+                while (under && under->type != EX_WIDGET_EDITOR) under = under->parent;   /* the editor under the pointer, not only the active one */
+                if (!under) under = app.editor;
+                if (under && under->editor) ex_editor_scroll(under->editor, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 break;
+            }
             case SDL_EVENT_KEY_DOWN:
                 if (ex_mods_from_sdl() & EX_MOD_PRIMARY) {
                     if (e.key.key == SDLK_EQUALS || e.key.key == SDLK_PLUS) zoom *= 1.1f;
                     else if (e.key.key == SDLK_MINUS) zoom /= 1.1f;
                     else if (e.key.key == SDLK_0) zoom = 1.0f;
+                    else if (e.key.key == SDLK_BACKSLASH) toggle_side(&app, EX_SIDE_LEFT);
                     ex_renderer_set_zoom(app.r, zoom);
                 }
                 break;
@@ -382,9 +606,13 @@ int main(int argc, char **argv) {
             }
         }
         if (app.notes) { ex_notes_tick(app.notes); handle_note_events(&app); }
-        if (app.editor->editor) {
+        if (timed_out || e.type == g_wake_event) {
+            capture_tab_state(&app);
+            if (app.session) ex_session_tick(app.session, app.ws, (int64_t)SDL_GetTicks());
+        }
+        relayout_and_draw(&app);
+        if (app.editor && app.editor->editor) {
             float cx, cy, cw, ch;
-            relayout_and_draw(&app);
             ex_editor_caret_rect(app.editor->editor, app.r, &cx, &cy, &cw, &ch);
             ex_text_input_set_area(ex_renderer_window(app.r), (int)cx, (int)cy, 1, (int)ch);
         }
@@ -394,6 +622,9 @@ int main(int argc, char **argv) {
         int unsaved = ex_notes_flush(app.notes);
         if (unsaved) fprintf(stderr, "exhaust: %d note(s) could not be written; their text is kept in the recovery journal.\n", unsaved);
     }
+    capture_tab_state(&app);
+    if (app.session) ex_session_destroy(app.session, app.ws);       /* the last layout is on disk before anything is torn down */
+    app.session = NULL;
     ex_worker_stop(worker);
     {
         ExMessage m;
@@ -402,9 +633,12 @@ int main(int argc, char **argv) {
     }
     ex_queue_destroy(results);
     stop_showing_diff(&app);
+    ex_panes_free(app.panes);                                          /* contents are detached and closed; their notes are closed too */
     ex_notes_destroy(app.notes);
     ex_widget_free(app.root);
+    free(app.tabnotes);
     ex_doc_free(app.demo_doc);
+    ex_ws_free(app.ws);
     ex_vault_close(app.vault);
     ex_ui_free(app.ui);
     ex_theme_free(&app.theme);

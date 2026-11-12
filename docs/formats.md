@@ -549,16 +549,33 @@ Rules:
 | `[window.<n>]` `x`, `y`, `width`, `height` | int | the last position and size | 0.1.0 |
 | `[window.<n>]` `maximized` | bool | `false` | 0.1.0 |
 | `[layout]` `left_visible`, `right_visible` | bool | `true` | 0.1.0 |
-| `[layout]` `left_width`, `right_width` | int | `260`, `300` | 0.1.0 |
-| `[layout]` `open_panels` | list | empty | 0.1.0 |
-| `[layout]` `active_tab` | string | empty (a tab id) | 0.1.0 |
+| `[layout]` `left_width`, `right_width` | int (pixels at 100% zoom, kept between 120 and 1200) | `260`, `300` | 0.1.0 |
+| `[layout]` `open_panels` | list of `left:<name>` or `right:<name>` | empty | 0.1.0 |
+| `[layout]` `active_tab` | int | empty (the active tab of the active group; written for readers, the group's own `active` is what is restored) | 0.1.0 |
+| `[layout]` `active_group` | int | the first group of the main window | 0.1.0 (added with 2c) |
 | `[tab.<id>]` `path`, `view`, `mode` | string | required | 0.1.0 |
 | `[tab.<id>]` `pinned`, `stacked` | bool | `false` | 0.1.0 |
 | `[tab.<id>]` `group` | int | `0` (the split it is in) | 0.1.0 |
-| `[tab.<id>]` `cursor_line`, `cursor_column` | int | `0` | 0.1.0 |
-| `[tab.<id>]` `scroll_y` | int | `0` | 0.1.0 |
+| `[tab.<id>]` `cursor_line`, `cursor_column` | int | `0` | 0.1.0; `cursor_line` counts from 0, `cursor_column` is the byte offset in that line (from 0); both are clamped to the text on restore and never land inside a character |
+| `[tab.<id>]` `scroll_y` | float (pixels at 100% zoom, one decimal) | `0` | 0.1.0 |
 | `[graph]` | keys of the graph settings, plus `open` (bool) | the last state | 0.1.0 |
 | `[search]` `text` | string | empty | 0.1.0 |
+
+**Layout tree (added with sub-slice 2c, since 0.1.0).** The window's panes form a tree of *groups* (a strip of tabs with one active tab) and *splits* (a row or a column of groups and splits). Ids are positive integers, written in values as `g<id>` for a group and `s<id>` for a split.
+
+| Name | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `[window.<n>]` `main` | bool | `false` | exactly one window is the main window; the others are pop-out windows |
+| `[window.<n>]` `root` | node | required | the top of the window's layout tree, for example `s1` |
+| `[split.<id>]` `direction` | enum(horizontal\|vertical) | `horizontal` | `horizontal` places the children side by side, `vertical` stacks them |
+| `[split.<id>]` `children` | list of nodes | required | in order, at least two |
+| `[split.<id>]` `ratios` | list of float | equal shares | one share for each child; they are normalized when read |
+| `[group.<id>]` `tabs` | list of ints | empty | tab ids in display order (pinned tabs come first) |
+| `[group.<id>]` `active` | int | the first tab | id of the active tab |
+| `[group.<id>]` `linked` | list of groups | empty | linked panes follow each other: opening a note in one opens it in the others |
+| `[tab.<id>]` `group` | int | required | the group the tab is in (replaces the earlier "the split it is in") |
+
+A file without a layout tree (an older session file) opens as one group holding all its tabs. Unknown sections and keys are kept.
 
 Settings changes are not stored here: they are written to `settings.ini` at once (see slice 2d). Unknown keys are kept and written back unchanged.
 

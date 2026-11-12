@@ -14,6 +14,7 @@ struct ExUi {
     Clay_Context *clay;
     ExWidget *focus;
     ExWidget *pressed;
+    ExWidget *captured;      /* took the press through on_mouse; gets the drag and release */
     uint32_t next_id;
     ExWidget *last_root;
     int clay_errors;
@@ -86,6 +87,14 @@ static char *dup_str(const char *s) {
 ExAxis ex_size_grow(void) { ExAxis a = {EX_SIZING_GROW, -1, 0}; return a; }
 ExAxis ex_size_fit(void) { ExAxis a = {EX_SIZING_FIT, -1, 0}; return a; }
 ExAxis ex_size_token(int token, float multiple) { ExAxis a; a.mode = EX_SIZING_FIXED; a.size_token = token; a.value = multiple; return a; }
+ExAxis ex_size_px(const ExUi *ui, float px) {
+    ExAxis a;
+    float unit = (float)ex_theme_size(ui->theme, EX_SIZE_SPACING);
+    a.mode = EX_SIZING_FIXED;
+    a.size_token = -1;
+    a.value = unit > 0 ? px / unit : px;
+    return a;
+}
 ExAxis ex_size_percent(float f) { ExAxis a; a.mode = EX_SIZING_PERCENT; a.size_token = -1; a.value = f; return a; }
 
 static ExWidget *new_widget(ExUi *ui, ExWidgetType type, ExRole role, const char *name) {
@@ -474,6 +483,7 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
     if (w->bg_token >= 0) {
         int token = w->bg_token;
         if (w->type == EX_WIDGET_BUTTON) token = w->pressed ? EX_COLOR_ACCENT : (w->hover ? EX_COLOR_SURFACE_HOVER : w->bg_token);
+        if (w->selected && !w->pressed) token = EX_COLOR_BACKGROUND;
         ex_fill_round_rect(r, w->x, w->y, w->w, w->h, rad, ex_theme_color(t, (ExColorToken)token));
     }
     if (w->border_token >= 0) {
@@ -525,8 +535,38 @@ static void clear_hover(ExWidget *w) {
     for (; w; w = w->next) { w->hover = 0; clear_hover(w->first_child); }
 }
 
+static int inside(const ExWidget *root, const ExWidget *w) {
+    for (; w; w = w->parent) if (w == root) return 1;
+    return 0;
+}
+
+void ex_ui_release(ExUi *ui, ExWidget *subtree) {
+    if (ui->focus && inside(subtree, ui->focus)) ui->focus = NULL;
+    if (ui->pressed && inside(subtree, ui->pressed)) ui->pressed = NULL;
+    if (ui->captured && inside(subtree, ui->captured)) ui->captured = NULL;
+    if (ui->last_root && inside(subtree, ui->last_root)) ui->last_root = NULL;
+}
+
+int ex_ui_drop(ExUi *ui, ExWidget *root, int is_file, const char *data, float x, float y) {
+    ExWidget *w = ex_ui_widget_at(root, x, y);
+    (void)ui;
+    for (; w; w = w->parent)
+        if (w->on_drop && w->on_drop(w, is_file, data, x, y, w->on_drop_user)) return 1;
+    return 0;
+}
+
 void ex_ui_mouse(ExUi *ui, ExWidget *root, ExMouse kind, float x, float y, int mods, int clicks) {
-    ExWidget *hit = ex_ui_widget_at(root, x, y), *target = hit;
+    ExWidget *hit = ex_ui_widget_at(root, x, y), *target = hit, *hook;
+    if (kind == EX_MOUSE_DOWN) {
+        ui->captured = NULL;
+        for (hook = hit; hook; hook = hook->parent)
+            if (hook->on_mouse && hook->on_mouse(hook, kind, x, y, hit, hook->on_mouse_user)) { ui->captured = hook; return; }
+    } else if (ui->captured) {
+        ExWidget *c = ui->captured;
+        if (kind == EX_MOUSE_UP) ui->captured = NULL;
+        c->on_mouse(c, kind, x, y, hit, c->on_mouse_user);
+        return;
+    }
     while (target && !target->focusable && target->type != EX_WIDGET_BUTTON) target = target->parent;
     clear_hover(root);
     if (target && target->type == EX_WIDGET_BUTTON) target->hover = 1;

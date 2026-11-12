@@ -95,6 +95,7 @@ void ex_editor_set_font(ExEditor *e, ExFont *font, float size, int line_height_p
 void ex_editor_set_viewport(ExEditor *e, float x, float y, float w, float h) { e->vx = x; e->vy = y; e->vw = w; e->vh = h; }
 float ex_editor_scroll_y(const ExEditor *e) { return e->scroll_y; }
 
+
 /* ---- lines ---- */
 
 static const ExBuffer *buf(const ExEditor *e) { return ex_doc_buffer(e->doc); }
@@ -601,6 +602,46 @@ void ex_editor_mouse(ExEditor *e, ExRenderer *r, ExMouse kind, float x, float y,
         e->dragging = 0;
     }
     ensure_visible(e, r);
+}
+
+void ex_editor_get_state(const ExEditor *e, int *line, int *column, float *scroll_y) {
+    ExSel p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
+    size_t l = ex_buffer_line_of_offset(ex_doc_buffer(e->doc), p.head);
+    if (line) *line = (int)l;
+    if (column) *column = (int)(p.head - ex_buffer_line_start(ex_doc_buffer(e->doc), l));
+    if (scroll_y) *scroll_y = e->scroll_y;
+}
+
+void ex_editor_set_state(ExEditor *e, int line, int column, float scroll_y) {
+    const ExBuffer *b = ex_doc_buffer(e->doc);
+    size_t lines = ex_buffer_line_count(b), l = line < 0 ? 0 : (size_t)line, start, end, off;
+    if (l >= lines) l = lines - 1;
+    start = ex_buffer_line_start(b, l);
+    end = l + 1 < lines ? ex_buffer_line_start(b, l + 1) : ex_buffer_size(b);
+    off = start + (column < 0 ? 0 : (size_t)column);
+    if (off > end) off = end;
+    /* never between the bytes of one character: step back to the start of the grapheme */
+    {
+        size_t len, cand;
+        char *t = line_text(e, l, &len);
+        if (t) {
+            size_t rel = off - start;
+            if (rel > len) rel = len;
+            cand = 0;
+            while (cand < len) { size_t nx = ex_grapheme_next(t, len, cand); if (nx > rel || nx <= cand) break; cand = nx; }
+            off = start + (rel == len ? len : cand);
+            free(t);
+        }
+    }
+    ex_doc_set_caret(e->doc, off);
+    e->scroll_y = scroll_y < 0 ? 0 : scroll_y;
+}
+
+void ex_editor_drop_text(ExEditor *e, ExRenderer *r, float x, float y, const char *utf8, size_t len) {
+    if (e->readonly || !utf8 || len == 0) return;
+    ex_editor_mouse(e, r, EX_MOUSE_DOWN, x, y, 0, 1);
+    ex_editor_mouse(e, r, EX_MOUSE_UP, x, y, 0, 1);
+    ex_editor_text_input(e, utf8, len);
 }
 
 void ex_editor_scroll(ExEditor *e, float dy) {

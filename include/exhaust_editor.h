@@ -76,6 +76,14 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
  * primary selection in pixels (window coordinates), after the last draw or layout. */
 void ex_editor_caret_rect(ExEditor *e, ExRenderer *r, float *x, float *y, float *w, float *h);
 float ex_editor_scroll_y(const ExEditor *e);
+/* The primary caret as a line and the byte offset in that line (both 0-based), and the scroll
+ * position, for the session file. Setting clamps to the text and never lands inside a character:
+ * a note that changed since the session was saved still opens near the same place. */
+void ex_editor_get_state(const ExEditor *e, int *line, int *column, float *scroll_y);
+void ex_editor_set_state(ExEditor *e, int line, int column, float scroll_y);
+/* Text dropped at a window position: the caret goes there, then the text is typed (one undo step).
+ * A read-only editor ignores it. */
+void ex_editor_drop_text(ExEditor *e, ExRenderer *r, float x, float y, const char *utf8, size_t len);
 
 #ifdef __cplusplus
 }

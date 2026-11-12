@@ -125,6 +125,8 @@ PDFs open in a tab and embed in notes (needs the optional PDF library).
 - **Drag and drop** files and text.
 - **Session state**: saved as it changes, not only on exit, and restored on launch: open tabs, splits, pop-out windows, pinned and stacked tabs, sidebar sizes and open panels, cursor and scroll positions, the open graph and its settings, the active search text, and every settings change.
 - **Hotkeys**: every command is bindable, with conflicts shown.
+
+*Build status (sub-slice 2c):* tabs, splits, linked panes, pinning, sidebars (resizable, hideable), drag and drop and session restore work. A tab dragged out of the window, and a pop-out window restored from the session, exist in the workspace model and the session file; opening a real operating-system window for them (until then a restored pop-out window's tabs return to the main window), and drawing *stacked* tabs differently from ordinary ones, are not built yet (a stacked tab is remembered and shown normally). Saved workspaces (`workspaces.ini`) arrive with the settings in 2d.
 - **File recovery**: automatic snapshots (every 5 minutes, kept 7 days by default, both adjustable) with restore and diff.
 - **Command line** and a **URI scheme** to open notes, search and create from other programs *(later)*.
 

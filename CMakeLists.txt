@@ -192,6 +192,10 @@ add_library(exhaust_notes STATIC src/notes/note_codec.c src/notes/diff.c src/not
 target_include_directories(exhaust_notes PUBLIC include)
 target_link_libraries(exhaust_notes PUBLIC exhaust_vault exhaust_buffer exhaust_platform)
 
+add_library(exhaust_workspace STATIC src/workspace/workspace.c src/workspace/session.c src/util/ini.c)
+target_include_directories(exhaust_workspace PUBLIC include)
+target_link_libraries(exhaust_workspace PUBLIC exhaust_vault exhaust_buffer exhaust_platform SDL3::SDL3-static)
+
 add_library(exhaust_vault STATIC src/vault/vault.c src/vault/registry.c)
 target_include_directories(exhaust_vault PUBLIC include)
 target_link_libraries(exhaust_vault PUBLIC exhaust_platform exhaust_buffer)
@@ -237,9 +241,9 @@ if(EXHAUST_A11Y)
   target_link_libraries(exhaust_a11y PUBLIC accesskit)
 endif()
 
-add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/ui.c ${THEME_C})
+add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/ui.c src/ui/panes.c ${THEME_C})
 target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
-target_link_libraries(exhaust_ui PUBLIC exhaust_render exhaust_buffer exhaust_vault exhaust_a11y clay_impl)
+target_link_libraries(exhaust_ui PUBLIC exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace clay_impl m)
 
 add_executable(exhaust src/main.c)
 target_link_libraries(exhaust PRIVATE exhaust_core exhaust_render exhaust_ui exhaust_notes)
@@ -338,6 +342,19 @@ add_test(NAME a11y_dump COMMAND test_a11y_dump ${CMAKE_CURRENT_SOURCE_DIR}/tests
 add_executable(test_keyboard_nav tests/test_keyboard_nav.c)
 target_link_libraries(test_keyboard_nav PRIVATE exhaust_ui)
 add_test(NAME keyboard_nav COMMAND test_keyboard_nav ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/focus_order.txt)
+
+add_executable(test_workspace_layout tests/test_workspace_layout.c)
+target_link_libraries(test_workspace_layout PRIVATE exhaust_workspace m)
+add_test(NAME workspace_layout COMMAND test_workspace_layout layout)
+add_test(NAME session_restore COMMAND test_workspace_layout session)
+
+add_executable(test_session tests/test_session.c)
+target_link_libraries(test_session PRIVATE exhaust_workspace)
+add_test(NAME session_restore_files COMMAND test_session)
+
+add_executable(test_panes tests/test_panes.c)
+target_link_libraries(test_panes PRIVATE exhaust_ui)
+add_test(NAME workspace_layout_panes COMMAND test_panes)
 
 add_executable(test_vault_tree tests/test_vault_tree.c)
 target_link_libraries(test_vault_tree PRIVATE exhaust_vault)
