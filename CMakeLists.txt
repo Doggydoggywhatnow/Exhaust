@@ -38,7 +38,10 @@ if(NOT MSVC)
   add_compile_options(-Wall -Wextra -fstack-protector-strong
     $<$<NOT:$<CONFIG:Debug>>:-D_FORTIFY_SOURCE=2>)
 else()
+  # MSVC flags the standard C library (fopen, getenv, fscanf) as "unsafe"; the
+  # portable C calls are intended, so the deprecation noise is switched off.
   add_compile_options(/W3 /GS)
+  add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 endif()
 
 configure_file(include/exhaust_version.h.in include/exhaust_version.h)
