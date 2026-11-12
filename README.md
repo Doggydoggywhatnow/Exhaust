@@ -2,7 +2,7 @@
 
 A robust and personable notepad that doesn't get in your way. Notes, journals, knowledge bases and project plans, linked together.
 
-Exhaust's goal is feature parity with Obsidian's documented feature set, in a private, native program. This README is the spec. Features marked *(later)* may be stubs in the first demo. Items marked *(optional)* use the network and are off by default.
+Exhaust's goal is feature parity with Obsidian's documented feature set, in a private, native program. This README is the spec. Features marked *(later)* may be stubs in the first demo. Items marked *(optional)* use the network and are off by default. The technical design is at the end.
 
 ## Values:
 
@@ -16,7 +16,7 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 
 - Notes are plain Markdown files in a folder you choose. Exhaust never moves, renames or reorganizes them behind your back.
 - No network requests, telemetry or accounts unless you turn on an *(optional)* feature.
-- Every feature below can be switched off. Core plugins are separate toggles in Settings.
+- Every feature below can be switched off. Built-in features such as Graph, Canvas and Bases are separate toggles in Settings.
 
 ## Vaults and files
 
@@ -24,7 +24,7 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 - **File explorer**: a tree of folders and notes. Create, rename, move, delete and sort. Folders shown here are the real folders on disk.
 - **Open anything**: Markdown, plain text, images, audio, video, PDFs, canvases and bases. Other file types are left alone.
 - **Excluded files**: patterns that hide files from search, links and the graph.
-- **Link-safe renames**: renaming or moving a note updates every link to it, or asks first, as you choose.
+- **Link-safe renames**: renaming or moving a note updates every link to it. It asks first by default; you can make it automatic or off.
 - **Symbolic links**: followed, with loops detected.
 - **Configuration folder**: settings live in a `.exhaust` folder inside the vault, in plain text.
 - **Import**: Markdown and plain text folders, HTML, CSV and Textbundle. Other apps' exports are *(later)*.
@@ -32,7 +32,7 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 
 ## Writing
 
-- **Markdown**: headings, bold, italic, strikethrough, highlight, lists, task lists, quotes, code blocks, tables, horizontal rules, footnotes, comments, math, and Mermaid diagrams.
+- **Markdown**: headings, bold, italic, strikethrough, highlight, lists, task lists, quotes, code blocks, tables, horizontal rules, footnotes, comments, math, and Mermaid diagrams (the common types).
 - **Callouts**: typed, titled and foldable blocks, nestable.
 - **Live preview**: formatting shows as you type, with the syntax revealed under the cursor.
 - **Source mode and reading mode**: switch per note.
@@ -40,9 +40,9 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 - **Find and replace** inside a note, with regular expressions.
 - **Multiple cursors**.
 - **Editing shortcuts**: the usual text-editing keys, plus smart list continuation and indent.
-- **Spell check** and a **word count** in the status bar.
+- **Spell check** (own dictionary checker) and a **word count** in the status bar.
 - **Embedded content**: notes, headings, blocks, images, audio, video and PDFs. Web links open in the system browser; Exhaust has no embedded browser.
-- **HTML** in notes, displayed safely.
+- **HTML** in notes: a safe subset of tags, drawn by Exhaust itself.
 - **Slash commands**: type `/` for a menu of commands.
 - **Audio recorder**: record straight into a note *(later)*.
 - **Vim mode**, optional.
@@ -101,15 +101,15 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 ## Look and feel
 
 - **Themes**: light, dark and your own. Accent color, fonts, font size and interface zoom.
-- **CSS snippets** to restyle anything, hot reloaded.
+- **Style snippets**: small text files in Exhaust's own style format that restyle any part of the interface, reloaded as you save.
 - **Languages**: interface translations *(later)*.
-- **Accessibility**: full keyboard use, scalable text, high contrast and screen reader support *(later)*.
+- **Accessibility**: full keyboard use, scalable text, high contrast and screen reader support, designed in from the first slice.
 - **Window**: set the default size of a new Exhaust window.
 
 ## Extending
 
-- **Plugins**: an open API for new commands, panes, views and file types, with a community directory *(later)*. Plugins are off until you allow them and declare what they can touch.
-- **Web clipper**: save pages into the vault from a browser *(later)*.
+- **Plugins**: an open API for new commands, panes, views and file types, written in Lua *(later)*. Plugins are off until you allow them and declare what they can touch. A community directory *(optional, later)* needs the network.
+- **Web clipper** *(later)*: a small extension for your own browser that saves pages into the vault. Exhaust itself has no browser.
 
 ## Sync, sharing and publishing *(optional, later)*
 
@@ -120,29 +120,30 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 
 ## Technical design
 
-Exhaust is written in C (C11). There is no web browser or web view anywhere in it. Other languages are used only where they make a feature far easier or reach parity: Lua for plugins and Rust for the screen reader bridge. All dependencies must be compatible with the Unlicense; prefer public domain or permissive libraries, and never add GPL or AGPL code. Record each dependency and its license in this README.
+Exhaust is written in C (C11). There is no web browser or web view anywhere in it. Other languages are used only where they make a feature far easier or reach parity: Lua for plugins and Rust for the screen reader bridge. All dependencies must be compatible with the Unlicense; prefer public domain or permissive libraries, and never add GPL or AGPL code. Each dependency and its license is recorded in the table below; confirm the license when the dependency is added.
 
-| Area | Choice |
-| --- | --- |
-| Window, input, IME, clipboard | SDL3 |
-| UI | Own widget tree, with Clay for layout, built around accessibility from the start |
-| Accessibility | AccessKit (Rust) behind a small C wrapper; the only Rust in the build |
-| Text | HarfBuzz, FreeType, SheenBidi and libgrapheme; Atkinson Hyperlegible as the default font; font fallback and color emoji |
-| Text buffer | Piece table with an undo tree |
-| Markdown | Own tokenizer with source ranges for live preview; md4c for reading mode and exports |
-| Properties | Read with libyaml; edited as text so files are never reformatted |
-| Index | SQLite with FTS5 for links, tags, properties and search; always rebuildable from the files |
-| File watching | efsw or per-OS watchers, to notice edits made outside Exhaust |
-| Search regex | PCRE2 |
-| JSON | yyjson |
-| Images | stb_image, with WebP and AVIF decoders |
-| Audio and video embeds | lib-Peep and runtime-loaded libmpv, as in THC |
-| PDF | PDFium prebuilt binaries |
-| Plugins | Lua, sandboxed, with Exhaust's own API |
-| Math | Own LaTeX-subset renderer |
-| Diagrams | Own renderer: flowchart and sequence first, other types later |
-| Spell check | Own dictionary checker using Hunspell-format word lists, identical on all three OSes |
-| Sync *(later)* | libsodium |
+| Area | Choice | License |
+| --- | --- | --- |
+| Window, input, IME, clipboard | SDL3 | zlib |
+| UI | Own widget tree, with Clay for layout, built around accessibility from the start | Unlicense (own), zlib (Clay) |
+| Accessibility | AccessKit (Rust) behind a small C wrapper; the only Rust in the build | MIT or Apache-2.0 |
+| Text | HarfBuzz, FreeType, SheenBidi and libgrapheme; font fallback and color emoji | MIT, FreeType License, Apache-2.0, ISC |
+| Default font | Atkinson Hyperlegible | SIL Open Font License 1.1 |
+| Text buffer | Piece table with an undo tree | Unlicense (own) |
+| Markdown | Own tokenizer with source ranges for live preview; md4c for reading mode and exports | Unlicense (own), MIT |
+| Properties | Read with libyaml; edited as text so files are never reformatted | MIT |
+| Index | SQLite with FTS5 for links, tags, properties and search; always rebuildable from the files | Public domain |
+| File watching | efsw or per-OS watchers, to notice edits made outside Exhaust | MIT |
+| Search regex | PCRE2 | BSD |
+| JSON | yyjson | MIT |
+| Images | stb_image, with WebP and AVIF decoders | Public domain, BSD |
+| Audio and video embeds | lib-Peep and runtime-loaded libmpv, as in THC | Unlicense, LGPL or GPL (loaded at run time, never linked) |
+| PDF | PDFium prebuilt binaries | BSD-3 or Apache-2.0 |
+| Plugins | Lua, sandboxed, with Exhaust's own API | MIT |
+| Math | Own LaTeX-subset renderer | Unlicense (own) |
+| Diagrams | Own renderer: flowchart and sequence first, other types later | Unlicense (own) |
+| Spell check | Own dictionary checker using Hunspell-format word lists, identical on all three OSes | Unlicense (own); each word list keeps its own license |
+| Sync *(later)* | libsodium | ISC |
 
 Build order (finish and commit each slice before the next):
 
