@@ -13,3 +13,7 @@ On the far left, a bar of utilities. Next to it, the files as a tree of folders 
 ![Editing](editing.webp)
 
 Everything is the same, except the graph view is now an active note being edited, and the note on the right serves as a reference.
+
+## Vaults
+
+The vault button at the bottom left of the file tree lets the user switch between which set of Markdown files to use.
