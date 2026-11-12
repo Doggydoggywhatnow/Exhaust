@@ -51,6 +51,14 @@ typedef struct ExShaped {
 int ex_shape(ExFontLib *lib, ExFont *primary, int px, const char *utf8, size_t len, ExShaped *out);
 void ex_shaped_free(ExShaped *s);
 
+/* Caret geometry for a shaped line. offset is a byte offset at a cluster
+ * boundary (0 to the text length). The x of a caret is the leading edge of the
+ * cluster that starts there, or the trailing edge of the last cluster at the end
+ * of the text, so carets in right-to-left runs sit on the right of their cluster. */
+float ex_shaped_x_for_offset(const ExShaped *s, size_t offset, size_t text_len);
+/* The cluster boundary nearest to x (pixels from the line's left edge). */
+size_t ex_shaped_offset_for_x(const ExShaped *s, float x, size_t text_len);
+
 #define EX_TAG(a, b, c, d) (((uint32_t)(unsigned char)(a) << 24) | ((uint32_t)(unsigned char)(b) << 16) | \
                             ((uint32_t)(unsigned char)(c) << 8) | (uint32_t)(unsigned char)(d))
 

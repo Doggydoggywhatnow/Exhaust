@@ -9,138 +9,207 @@
 #include "exhaust_input.h"
 #include "exhaust_platform.h"
 #include "exhaust_render.h"
+#include "exhaust_theme.h"
+#include "exhaust_ui.h"
+#include "exhaust_worker.h"
 
-/* TEMPORARY (sub-slice 1a-i): the demo window needs two colors before theme
- * tokens exist. Sub-slice 1a-iv replaces these with tokens from the built-in
- * theme files and the no_color_literals test then forbids literals here. */
-static const ExColor DEMO_BACKGROUND = {0x1e, 0x1f, 0x2d, 0xff};
-static const ExColor DEMO_TEXT = {0xca, 0xd1, 0xf2, 0xff};
+/* The system font scan runs on a worker thread and hands its result to the UI
+ * thread as a message; the queue wakes the UI loop with an SDL event. */
+enum { MSG_FONTS_READY = 1 };
+static Uint32 g_wake_event;
 
-/* The system font scan runs on a worker thread; it hands the result to the UI
- * thread with a custom SDL event, so the UI never waits for the disk. */
-static Uint32 g_fonts_ready_event;
-
-static int font_scan_thread(void *unused) {
+static void wake_ui(void *unused) {
     SDL_Event e;
-    ExFontDb *db = ex_fontdb_scan(NULL, 0, NULL, NULL);
     (void)unused;
     SDL_zero(e);
-    e.type = g_fonts_ready_event;
-    e.user.data1 = db;
-    if (!SDL_PushEvent(&e)) ex_fontdb_free(db);
-    return 0;
+    e.type = g_wake_event;
+    SDL_PushEvent(&e);
 }
 
-typedef struct Demo {
-    char typed[4096];
-    char composing[512];
-} Demo;
+static void worker_job(ExWorker *self, const ExMessage *job, void *unused) {
+    (void)unused;
+    if (job->type == MSG_FONTS_READY) /* the job's name; the result carries the same type */
+        ex_worker_send(self, MSG_FONTS_READY, ex_fontdb_scan(NULL, 0, NULL, NULL), 0, NULL);
+}
 
-static void draw(ExRenderer *r, const Demo *d) {
-    ExFontLib *lib = ex_renderer_fonts(r);
-    ExFont *ui = ex_font_builtin(lib, EX_FONT_UI_REGULAR);
-    ExFont *bold = ex_font_builtin(lib, EX_FONT_UI_BOLD);
-    ExFont *mono = ex_font_builtin(lib, EX_FONT_MONO_REGULAR);
-    float s = ex_renderer_scale(r);
-    char line[600];
-    const char *hint = "Type, paste with Ctrl+V; Ctrl+Plus, Ctrl+Minus and Ctrl+0 change the zoom.";
-    const char *code = "int main(void) { return 0; }";
-    const char *sample = "English, \xD8\xB9\xD8\xB1\xD8\xA8\xD9\x8A (Arabic), \xD7\xA2\xD7\x91\xD7\xA8\xD7\x99\xD7\xAA (Hebrew), "
-                         "\xE4\xBD\xA0\xE5\xA5\xBD (Chinese), \xF0\x9F\x98\x80";
-    float w;
+typedef struct App {
+    ExRenderer *r;
+    ExUi *ui;
+    ExTheme theme;
+    ExWidget *root, *editor;
+    ExDoc *doc;
+    int blink_on;
+    float zoom;
+} App;
 
-    snprintf(line, sizeof line, "Exhaust %s", exhaust_version());
-    ex_renderer_clear(r, DEMO_BACKGROUND);
-    ex_text_draw(r, bold, 24, 24 * s, 24 * s, line, strlen(line), DEMO_TEXT);
-    ex_text_draw(r, ui, 16, 24 * s, 64 * s, hint, strlen(hint), DEMO_TEXT);
-    ex_text_draw(r, mono, 14, 24 * s, 96 * s, code, strlen(code), DEMO_TEXT);
-    ex_text_draw(r, ui, 16, 24 * s, 128 * s, sample, strlen(sample), DEMO_TEXT);
-    w = ex_text_draw(r, ui, 18, 24 * s, 168 * s, d->typed, strlen(d->typed), DEMO_TEXT);
-    ex_text_draw(r, ui, 18, 24 * s + w, 168 * s, d->composing, strlen(d->composing), DEMO_TEXT);
-    ex_renderer_present(r);
+static void relayout_and_draw(App *a) {
+    int w, h;
+    ex_renderer_size(a->r, &w, &h);
+    ex_ui_layout(a->ui, a->root, (float)w, (float)h);
+    ex_renderer_clear(a->r, ex_theme_color(&a->theme, EX_COLOR_BACKGROUND));
+    ex_ui_draw(a->ui, a->root, a->blink_on);
+    ex_renderer_present(a->r);
+}
+
+static void on_toggle_theme(ExWidget *w, void *user) {
+    App *a = user;
+    ExTheme next;
+    (void)w;
+    if (ex_theme_init_builtin(&next, a->theme.is_dark ? EX_THEME_LIGHT : EX_THEME_DARK) == 0) {
+        ex_theme_free(&a->theme);
+        a->theme = next;
+        ex_ui_set_theme(a->ui, &a->theme);
+    }
+}
+
+static void build_ui(App *a) {
+    ExWidget *row, *ribbon, *toggle, *status;
+    a->root = ex_widget_box(a->ui, 1, "Exhaust");
+    a->root->role = EX_ROLE_WINDOW;
+    a->root->width = ex_size_grow();
+    a->root->height = ex_size_grow();
+    a->root->bg_token = EX_COLOR_BACKGROUND;
+    row = ex_widget_box(a->ui, 0, "workspace");
+    row->width = ex_size_grow();
+    row->height = ex_size_grow();
+    ribbon = ex_widget_box(a->ui, 1, "ribbon");
+    ribbon->width = ex_size_token(EX_SIZE_RIBBON_WIDTH, 1.0f);
+    ribbon->height = ex_size_grow();
+    ribbon->bg_token = EX_COLOR_BACKGROUND_ALT;
+    ribbon->pad_x = 0.5f;
+    ribbon->pad_y = 1.0f;
+    toggle = ex_widget_button(a->ui, "Aa", on_toggle_theme, a);
+    free(toggle->name);
+    toggle->name = malloc(32);
+    if (toggle->name) strcpy(toggle->name, "Switch light and dark theme");
+    a->editor = ex_widget_editor(a->ui, a->doc, "Note text");
+    status = ex_widget_label(a->ui, "Typing, selecting, several cursors (Ctrl+Alt+Up or Down, Alt+click), undo and redo work. Ctrl+Plus and Ctrl+Minus zoom.");
+    status->text_token = EX_COLOR_TEXT_MUTED;
+    status->text_scale = 0.85f;
+    status->width = ex_size_grow();
+    status->pad_x = 1.0f;
+    status->pad_y = 0.5f;
+    status->bg_token = EX_COLOR_BACKGROUND_ALT;
+    ex_widget_add(ribbon, toggle);
+    ex_widget_add(row, ribbon);
+    ex_widget_add(row, a->editor);
+    ex_widget_add(a->root, row);
+    ex_widget_add(a->root, status);
 }
 
 int main(int argc, char **argv) {
-    ExRenderer *r;
+    App app;
     SDL_Event e;
-    Demo demo;
-    float zoom = 1.0f;
-    int running = 1;
+    ExQueue *results;
+    ExWorker *worker;
+    ExMessage job;
+    int running = 1, clicks = 0;
+    Uint64 last_click = 0;
+    const char *intro = "Welcome to Exhaust.\n\nType here. English, \xD8\xB9\xD8\xB1\xD8\xA8\xD9\x8A (Arabic), "
+                        "\xD7\xA2\xD7\x91\xD7\xA8\xD7\x99\xD7\xAA (Hebrew), \xE4\xBD\xA0\xE5\xA5\xBD (Chinese), \xF0\x9F\x98\x80.\n";
 
     if (argc > 1 && strcmp(argv[1], "--version") == 0) {
         printf("Exhaust %s\n", exhaust_version());
         return 0;
     }
-    memset(&demo, 0, sizeof demo);
-    r = ex_renderer_create("Exhaust", 960, 600);
-    if (!r) {
+    memset(&app, 0, sizeof app);
+    app.zoom = 1.0f;
+    app.blink_on = 1;
+    app.r = ex_renderer_create("Exhaust", 960, 600);
+    if (!app.r) {
         fprintf(stderr, "exhaust: cannot open a window: %s\n", ex_render_error());
         return 1;
     }
-    ex_renderer_set_display_scale(r, ex_renderer_detect_display_scale(r));
-    g_fonts_ready_event = SDL_RegisterEvents(1);
-    {
-        SDL_Thread *t = SDL_CreateThread(font_scan_thread, "font scan", NULL);
-        if (t) SDL_DetachThread(t);
-    }
-    ex_text_input_start(ex_renderer_window(r));
-    draw(r, &demo);
-    while (running && SDL_WaitEvent(&e)) { /* sleeps until something happens */
+    if (ex_theme_init_builtin(&app.theme, EX_THEME_DARK) != 0) return 1;
+    ex_renderer_set_display_scale(app.r, ex_renderer_detect_display_scale(app.r));
+    app.ui = ex_ui_create(app.r, &app.theme, 16.0f);
+    app.doc = ex_doc_create(intro, strlen(intro));
+    build_ui(&app);
+    ex_ui_set_focus(app.ui, app.editor);
+
+    g_wake_event = SDL_RegisterEvents(1);
+    results = ex_queue_create(wake_ui, NULL);
+    worker = ex_worker_start("font scan", 1, worker_job, NULL, results);
+    memset(&job, 0, sizeof job);
+    job.type = MSG_FONTS_READY;
+    if (worker) ex_worker_post(worker, &job);
+
+    ex_text_input_start(ex_renderer_window(app.r));
+    relayout_and_draw(&app);
+    while (running) {
         ExTextEvent te;
-        if (e.type == g_fonts_ready_event) {
-            ex_renderer_set_font_db(r, (ExFontDb *)e.user.data1);
-            draw(r, &demo);
-            continue;
-        }
-        if (ex_text_event_decode(&e, &te)) {
-            if (te.kind == EX_TEXT_COMMIT) {
-                size_t n = strlen(demo.typed), m = strlen(te.text);
-                if (n + m < sizeof demo.typed) memcpy(demo.typed + n, te.text, m + 1);
-                demo.composing[0] = 0;
-            } else {
-                memcpy(demo.composing, te.text, strlen(te.text) + 1);
+        ExKey key;
+        int mods;
+        int timed_out = !SDL_WaitEventTimeout(&e, 530); /* sleeps until something happens or the caret blinks */
+        if (timed_out) {
+            /* nothing happened: blink the caret */
+        } else if (e.type == g_wake_event) {
+            ExMessage m;
+            while (ex_queue_pop(results, &m))
+                if (m.type == MSG_FONTS_READY) ex_renderer_set_font_db(app.r, (ExFontDb *)m.payload);
+        } else if (ex_text_event_decode(&e, &te)) {
+            if (te.kind == EX_TEXT_COMMIT) ex_ui_text_input(app.ui, te.text, strlen(te.text));
+            else if (app.editor->editor) ex_editor_set_composition(app.editor->editor, te.text);
+        } else if (ex_key_from_sdl(&e, &key, &mods)) {
+            ex_ui_key(app.ui, key, mods);
+        } else {
+            switch (e.type) {
+            case SDL_EVENT_QUIT: running = 0; break;
+            case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
+                ex_renderer_set_display_scale(app.r, ex_renderer_detect_display_scale(app.r));
+                break;
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            case SDL_EVENT_MOUSE_BUTTON_UP:
+            case SDL_EVENT_MOUSE_MOTION: {
+                float x = e.type == SDL_EVENT_MOUSE_MOTION ? e.motion.x : e.button.x;
+                float y = e.type == SDL_EVENT_MOUSE_MOTION ? e.motion.y : e.button.y;
+                float density = SDL_GetWindowPixelDensity(ex_renderer_window(app.r));
+                x *= density; y *= density; /* window coordinates to output pixels */
+                if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+                    Uint64 now = SDL_GetTicks();
+                    clicks = now - last_click < 400 ? clicks + 1 : 1;
+                    last_click = now;
+                    ex_ui_mouse(app.ui, app.root, EX_MOUSE_DOWN, x, y, ex_mods_from_sdl(), clicks);
+                } else if (e.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+                    ex_ui_mouse(app.ui, app.root, EX_MOUSE_UP, x, y, ex_mods_from_sdl(), clicks);
+                } else if (e.motion.state & SDL_BUTTON_LMASK) {
+                    ex_ui_mouse(app.ui, app.root, EX_MOUSE_DRAG, x, y, ex_mods_from_sdl(), clicks);
+                }
+                break;
             }
-            draw(r, &demo);
-            continue;
-        }
-        switch (e.type) {
-        case SDL_EVENT_QUIT: running = 0; break;
-        case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
-            ex_renderer_set_display_scale(r, ex_renderer_detect_display_scale(r));
-            draw(r, &demo);
-            break;
-        case SDL_EVENT_WINDOW_EXPOSED:
-        case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: draw(r, &demo); break;
-        case SDL_EVENT_KEY_DOWN:
-            if (e.key.mod & SDL_KMOD_CTRL) {
-                if (e.key.key == SDLK_EQUALS || e.key.key == SDLK_PLUS) zoom *= 1.1f;
-                else if (e.key.key == SDLK_MINUS) zoom /= 1.1f;
-                else if (e.key.key == SDLK_0) zoom = 1.0f;
-                else if (e.key.key == SDLK_V) {
-                    char *t = ex_clipboard_get_text();
-                    if (t) {
-                        size_t n = strlen(demo.typed), m = strlen(t);
-                        if (n + m < sizeof demo.typed) memcpy(demo.typed + n, t, m + 1);
-                        free(t);
-                    }
-                    draw(r, &demo);
-                    break;
-                } else break;
-                ex_renderer_set_zoom(r, zoom);
-                draw(r, &demo);
-            } else if (e.key.key == SDLK_ESCAPE) {
-                running = 0;
-            } else if (e.key.key == SDLK_BACKSPACE) {
-                size_t n = strlen(demo.typed);
-                while (n > 0 && ((unsigned char)demo.typed[n - 1] & 0xC0) == 0x80) n--;
-                if (n > 0) n--;
-                demo.typed[n] = 0;
-                draw(r, &demo);
+            case SDL_EVENT_MOUSE_WHEEL:
+                if (app.editor->editor) ex_editor_scroll(app.editor->editor, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
+                break;
+            case SDL_EVENT_KEY_DOWN:
+                if (ex_mods_from_sdl() & EX_MOD_PRIMARY) {
+                    if (e.key.key == SDLK_EQUALS || e.key.key == SDLK_PLUS) app.zoom *= 1.1f;
+                    else if (e.key.key == SDLK_MINUS) app.zoom /= 1.1f;
+                    else if (e.key.key == SDLK_0) app.zoom = 1.0f;
+                    ex_renderer_set_zoom(app.r, app.zoom);
+                }
+                break;
+            default: break;
             }
-            break;
-        default: break;
+        }
+        app.blink_on = timed_out ? !app.blink_on : 1;
+        if (app.editor->editor) {
+            float cx, cy, cw, ch;
+            relayout_and_draw(&app);
+            ex_editor_caret_rect(app.editor->editor, app.r, &cx, &cy, &cw, &ch);
+            ex_text_input_set_area(ex_renderer_window(app.r), (int)cx, (int)cy, 1, (int)ch);
         }
     }
-    ex_renderer_destroy(r);
+    ex_worker_stop(worker);
+    {
+        ExMessage m;
+        while (ex_queue_pop(results, &m))
+            if (m.type == MSG_FONTS_READY) ex_fontdb_free((ExFontDb *)m.payload);
+    }
+    ex_queue_destroy(results);
+    ex_widget_free(app.root);
+    ex_doc_free(app.doc);
+    ex_ui_free(app.ui);
+    ex_theme_free(&app.theme);
+    ex_renderer_destroy(app.r);
     return 0;
 }

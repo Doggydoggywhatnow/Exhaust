@@ -80,3 +80,11 @@ size_t ex_grapheme_next(const char *s, size_t len, size_t pos) {
     }
     return i;
 }
+
+size_t ex_grapheme_prev(const char *s, size_t len, size_t pos) {
+    size_t b = 0, n;
+    if (pos == 0) return 0;
+    if (pos > len) pos = len;
+    while ((n = ex_grapheme_next(s, len, b)) < pos && n > b) b = n;
+    return b;
+}

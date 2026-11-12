@@ -62,6 +62,12 @@ int ex_px(const ExRenderer *r, float size_at_100); /* rounded, at least 1 if siz
 void ex_renderer_clear(ExRenderer *r, ExColor c);
 void ex_fill_rect(ExRenderer *r, float x, float y, float w, float h, ExColor c);
 void ex_renderer_present(ExRenderer *r);
+/* Rounded rectangle, filled or as an outline of the given thickness drawn inside
+ * its bounds. radius is clamped to half the shorter side. */
+void ex_fill_round_rect(ExRenderer *r, float x, float y, float w, float h, float radius, ExColor c);
+void ex_stroke_round_rect(ExRenderer *r, float x, float y, float w, float h, float radius, float thickness, ExColor c);
+/* Clips drawing to a rectangle until the next call; w < 0 removes the clip. */
+void ex_set_clip(ExRenderer *r, int x, int y, int w, int h);
 
 /* Copies the current output (call after drawing, before present) into RGB24,
  * 3 bytes per pixel, rows top to bottom. Returns a malloc'ed buffer or NULL. */

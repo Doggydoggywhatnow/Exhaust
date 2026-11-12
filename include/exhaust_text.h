@@ -32,6 +32,9 @@ int ex_utf8_encode(uint32_t cp, char *out);
  * len when no boundary follows. Invalid UTF-8 bytes count as one character
  * each, as U+FFFD. */
 size_t ex_grapheme_next(const char *s, size_t len, size_t pos);
+/* The cluster boundary before pos (pos > 0), scanning from the start of the
+ * text; a line, not a whole document, should be passed. Returns 0 for pos == 0. */
+size_t ex_grapheme_prev(const char *s, size_t len, size_t pos);
 int ex_is_extended_pictographic(uint32_t cp);
 int ex_is_emoji_presentation(uint32_t cp); /* emoji by default, not text */
 

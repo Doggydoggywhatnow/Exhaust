@@ -121,6 +121,95 @@ void ex_fill_rect(ExRenderer *r, float x, float y, float w, float h, ExColor c) 
     SDL_RenderFillRect(r->renderer, &rect);
 }
 
+/* ---- rounded rectangles ---- */
+
+#define RR_MAX_POINTS 128
+
+/* Outline of a rounded rectangle, clockwise from the top-left corner's end. */
+static int rr_points(float x, float y, float w, float h, float rad, SDL_FPoint *pts) {
+    int seg = (int)(rad / 2.0f), n = 0, corner, k;
+    float cx[4], cy[4];
+    static const float start[4] = {180.0f, 270.0f, 0.0f, 90.0f};
+    if (seg < 3) seg = 3;
+    if (seg > 24) seg = 24;
+    if (rad <= 0.0f) {
+        pts[0].x = x; pts[0].y = y; pts[1].x = x + w; pts[1].y = y;
+        pts[2].x = x + w; pts[2].y = y + h; pts[3].x = x; pts[3].y = y + h;
+        return 4;
+    }
+    cx[0] = x + rad;     cy[0] = y + rad;
+    cx[1] = x + w - rad; cy[1] = y + rad;
+    cx[2] = x + w - rad; cy[2] = y + h - rad;
+    cx[3] = x + rad;     cy[3] = y + h - rad;
+    for (corner = 0; corner < 4; corner++)
+        for (k = 0; k <= seg; k++) {
+            float a = (start[corner] + 90.0f * (float)k / (float)seg) * 3.14159265f / 180.0f;
+            pts[n].x = cx[corner] + cosf(a) * rad;
+            pts[n].y = cy[corner] + sinf(a) * rad;
+            n++;
+        }
+    return n;
+}
+
+static SDL_FColor fcolor(ExColor c) {
+    SDL_FColor f;
+    f.r = c.r / 255.0f; f.g = c.g / 255.0f; f.b = c.b / 255.0f; f.a = c.a / 255.0f;
+    return f;
+}
+
+void ex_fill_round_rect(ExRenderer *r, float x, float y, float w, float h, float rad, ExColor c) {
+    SDL_FPoint pts[RR_MAX_POINTS];
+    SDL_Vertex v[RR_MAX_POINTS + 1];
+    int idx[RR_MAX_POINTS * 3], n, i;
+    float lim = (w < h ? w : h) / 2.0f;
+    if (w <= 0 || h <= 0) return;
+    if (rad > lim) rad = lim;
+    if (rad < 1.0f) { ex_fill_rect(r, x, y, w, h, c); return; }
+    n = rr_points(x, y, w, h, rad, pts);
+    v[0].position.x = x + w / 2.0f; v[0].position.y = y + h / 2.0f; v[0].color = fcolor(c);
+    v[0].tex_coord.x = v[0].tex_coord.y = 0;
+    for (i = 0; i < n; i++) {
+        v[i + 1].position = pts[i]; v[i + 1].color = v[0].color; v[i + 1].tex_coord = v[0].tex_coord;
+        idx[i * 3] = 0; idx[i * 3 + 1] = i + 1; idx[i * 3 + 2] = (i + 1) % n + 1;
+    }
+    SDL_RenderGeometry(r->renderer, NULL, v, n + 1, idx, n * 3);
+}
+
+void ex_stroke_round_rect(ExRenderer *r, float x, float y, float w, float h, float rad, float t, ExColor c) {
+    SDL_FPoint outer[RR_MAX_POINTS], inner[RR_MAX_POINTS];
+    SDL_Vertex v[RR_MAX_POINTS * 2];
+    int idx[RR_MAX_POINTS * 6], n, n2, i;
+    float lim = (w < h ? w : h) / 2.0f;
+    if (w <= 0 || h <= 0 || t <= 0) return;
+    if (t > lim) t = lim;
+    if (rad > lim) rad = lim;
+    n = rr_points(x, y, w, h, rad, outer);
+    n2 = rr_points(x + t, y + t, w - 2 * t, h - 2 * t, rad > t ? rad - t : 0.0f, inner);
+    if (n != n2) { /* the inner corner became square: pad by repeating its corner points */
+        float cx[4] = {x + t, x + w - t, x + w - t, x + t}, cy[4] = {y + t, y + t, y + h - t, y + h - t};
+        int per = n / 4, corner, k;
+        n2 = 0;
+        for (corner = 0; corner < 4; corner++)
+            for (k = 0; k < per; k++) { inner[n2].x = cx[corner]; inner[n2].y = cy[corner]; n2++; }
+    }
+    for (i = 0; i < n; i++) {
+        v[i].position = outer[i]; v[i].color = fcolor(c); v[i].tex_coord.x = v[i].tex_coord.y = 0;
+        v[n + i].position = inner[i]; v[n + i].color = v[i].color; v[n + i].tex_coord = v[i].tex_coord;
+        idx[i * 6 + 0] = i; idx[i * 6 + 1] = (i + 1) % n; idx[i * 6 + 2] = n + i;
+        idx[i * 6 + 3] = (i + 1) % n; idx[i * 6 + 4] = n + (i + 1) % n; idx[i * 6 + 5] = n + i;
+    }
+    SDL_RenderGeometry(r->renderer, NULL, v, n * 2, idx, n * 6);
+}
+
+void ex_set_clip(ExRenderer *r, int x, int y, int w, int h) {
+    if (w < 0) { SDL_SetRenderClipRect(r->renderer, NULL); return; }
+    {
+        SDL_Rect rect;
+        rect.x = x; rect.y = y; rect.w = w; rect.h = h;
+        SDL_SetRenderClipRect(r->renderer, &rect);
+    }
+}
+
 void ex_renderer_present(ExRenderer *r) {
     SDL_RenderPresent(r->renderer);
     /* Between frames no glyph pointer is held, so the atlas may be emptied. */
@@ -242,8 +331,9 @@ float ex_text_draw(ExRenderer *r, ExFont *font, float size, float x, float y, co
 }
 
 float ex_text_measure(ExRenderer *r, ExFont *font, float size, const char *utf8, size_t len) {
-    ExColor none = {0, 0, 0, 0};
-    return layout(r, font, size, 0, 0, utf8, len, none, 0);
+    ExColor unused; /* measuring draws nothing, so the color is never read */
+    memset(&unused, 0, sizeof unused);
+    return layout(r, font, size, 0, 0, utf8, len, unused, 0);
 }
 
 int ex_text_metrics(ExRenderer *r, ExFont *font, float size, ExFontMetrics *out) {

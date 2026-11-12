@@ -14,6 +14,7 @@ and what was left out of the vendored copy.
 | SheenBidi | 3.0.0 (commit `cfe430e7375a7845b679adae9d51dac6deaa8858`) | https://github.com/Tehreer/SheenBidi | `SheenBidi/LICENSE` | Apache-2.0 |
 | zlib | 1.3.1 (commit `51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf`) | https://github.com/madler/zlib | `zlib/LICENSE` | zlib |
 | libpng | 1.6.59 (commit `cd952f49f95bb27154ae77dbb103032d95f6e580`) | https://github.com/pnggroup/libpng | `libpng/LICENSE` | libpng License |
+| Clay (layout engine, single header) | commit `e6cc36941ab2af5d81107617039d6f527a1c660b` (no release tag; main branch, May 2026) | https://github.com/nicbarker/clay | `clay/LICENSE.md` | zlib/libpng license |
 | Unicode data (grapheme break, emoji, Indic conjunct break) | 17.0.0 | https://github.com/unicode-org/unicodetools (`unicodetools/data/ucd/17.0.0`) | `unicode/LICENSE.txt` | Unicode License v3 |
 | Test fonts (Noto subsets, tests only) | see `tests/fonts/README.md` | notofonts, googlefonts/noto-emoji | `tests/fonts/OFL-Noto.txt` | SIL Open Font License 1.1 |
 
@@ -53,3 +54,6 @@ and what was left out of the vendored copy.
   libgrapheme (ISC) was not vendored because its hosts were unreachable.
 - Licenses of HarfBuzz, SheenBidi, zlib, libpng and the Unicode data are
   installed with the program under `share/exhaust/licenses/`.
+- **Clay**: `clay.h` and its license only. It is compiled once, in `src/ui/clay_impl.c`,
+  without Exhaust's warning flags. Exhaust uses Clay through its own widget tree
+  (`include/exhaust_ui.h`); only `src/ui/ui.c` calls Clay.

@@ -1,0 +1,58 @@
+# Built-in theme: Exhaust High Contrast Dark.
+# Values from the Palette table in docs/formats.md. This file is the only place
+# colors are defined; the program reads them through the token loader.
+
+[theme]
+name = Exhaust High Contrast Dark
+author = Exhaust
+base = dark
+
+[colors]
+background = #000000
+background_alt = #000000
+surface = #0b0b14
+surface_hover = #1c1c2e
+border = #ffffff
+text = #ffffff
+text_muted = #e6e8ff
+text_faint = #c8cbe8
+accent = #b6a5ff
+accent_hover = #d0c4ff
+link = #c9bdff
+link_unresolved = #a99fe0
+selection = #b6a5ff80
+cursor = #ffffff
+highlight = #ffd23f80
+error = #ff9fb8
+warning = #ffc78f
+success = #9dffb0
+code_background = #0b0b14
+code_text = #ffffff
+tag = #c9bdff
+graph_node = #ffffff
+graph_node_unresolved = #8a8a9a
+graph_link = #9a9ab0
+graph_focus = #d0c4ff
+canvas_grid = #4a4a60
+callout_note = #a9c0ff
+callout_abstract = #9fe0ff
+callout_info = #9fd0ff
+callout_todo = #9fd0ff
+callout_tip = #9ff5e8
+callout_success = #9dffb0
+callout_question = #fff09f
+callout_warning = #ffc78f
+callout_failure = #ff9fb8
+callout_danger = #ff9fa8
+callout_bug = #ff9fd0
+callout_example = #d0baff
+callout_quote = #c8cbe8
+
+[sizes]
+radius = 6
+radius_large = 12
+spacing = 8
+border_width = 1
+ribbon_width = 44
+tab_height = 36
+line_height = 150

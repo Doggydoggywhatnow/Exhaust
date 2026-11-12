@@ -1,0 +1,58 @@
+# Built-in theme: Exhaust Light.
+# Values from the Palette table in docs/formats.md. This file is the only place
+# colors are defined; the program reads them through the token loader.
+
+[theme]
+name = Exhaust Light
+author = Exhaust
+base = light
+
+[colors]
+background = #f7f8fc
+background_alt = #eceef6
+surface = #ffffff
+surface_hover = #e3e6f2
+border = #cfd3e4
+text = #1e1f2d
+text_muted = #4b4f6b
+text_faint = #5d6180
+accent = #5b3fd1
+accent_hover = #4a2fb8
+link = #4a35c4
+link_unresolved = #7a6fb8
+selection = #5b3fd140
+cursor = #1e1f2d
+highlight = #e8a16466
+error = #b3304f
+warning = #9a5a10
+success = #2e7d32
+code_background = #eceef6
+code_text = #1e1f2d
+tag = #4a35c4
+graph_node = #6b6e86
+graph_node_unresolved = #c4c7d8
+graph_link = #c4c7d8
+graph_focus = #5b3fd1
+canvas_grid = #dfe2ee
+callout_note = #3556c8
+callout_abstract = #1d7a99
+callout_info = #2a6fc0
+callout_todo = #2a6fc0
+callout_tip = #14766a
+callout_success = #2e7d32
+callout_question = #8a6d00
+callout_warning = #9a5a10
+callout_failure = #b3304f
+callout_danger = #b01f3a
+callout_bug = #b01f6a
+callout_example = #6a40c0
+callout_quote = #5d6180
+
+[sizes]
+radius = 6
+radius_large = 12
+spacing = 8
+border_width = 1
+ribbon_width = 44
+tab_height = 36
+line_height = 150

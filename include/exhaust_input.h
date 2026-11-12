@@ -6,6 +6,7 @@
 #define EXHAUST_INPUT_H
 
 #include <stddef.h>
+#include "exhaust_editor.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,6 +38,12 @@ void ex_text_input_set_area(struct SDL_Window *window, int x, int y, int w, int 
 /* Turns an SDL text input or text editing event into an ExTextEvent. Returns 1
  * if the event was one, else 0. */
 int ex_text_event_decode(const union SDL_Event *event, ExTextEvent *out);
+
+/* Maps an SDL key-down event to the editor's key and modifier bits (EX_MOD_PRIMARY
+ * is Ctrl, or Cmd on macOS). Returns 1 if the key is one the editor knows. */
+int ex_key_from_sdl(const union SDL_Event *event, ExKey *key, int *mods);
+/* Maps SDL's modifier state to EX_MOD_* bits. */
+int ex_mods_from_sdl(void);
 
 #ifdef __cplusplus
 }

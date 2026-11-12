@@ -1,0 +1,58 @@
+# Built-in theme: Exhaust High Contrast Light.
+# Values from the Palette table in docs/formats.md. This file is the only place
+# colors are defined; the program reads them through the token loader.
+
+[theme]
+name = Exhaust High Contrast Light
+author = Exhaust
+base = light
+
+[colors]
+background = #ffffff
+background_alt = #ffffff
+surface = #ffffff
+surface_hover = #e8e8f4
+border = #000000
+text = #000000
+text_muted = #1a1a2e
+text_faint = #3a3a52
+accent = #3a1fb0
+accent_hover = #2a1090
+link = #2a10a0
+link_unresolved = #5a4a9a
+selection = #3a1fb040
+cursor = #000000
+highlight = #ffd23f99
+error = #a0002a
+warning = #7a3f00
+success = #00602a
+code_background = #f0f0f8
+code_text = #000000
+tag = #2a10a0
+graph_node = #000000
+graph_node_unresolved = #8a8a9a
+graph_link = #6a6a80
+graph_focus = #2a1090
+canvas_grid = #c8c8d8
+callout_note = #1a3a9a
+callout_abstract = #005a78
+callout_info = #0a4a98
+callout_todo = #0a4a98
+callout_tip = #005548
+callout_success = #00602a
+callout_question = #6a5200
+callout_warning = #7a3f00
+callout_failure = #a0002a
+callout_danger = #900020
+callout_bug = #900050
+callout_example = #4a1a98
+callout_quote = #3a3a52
+
+[sizes]
+radius = 6
+radius_large = 12
+spacing = 8
+border_width = 1
+ribbon_width = 44
+tab_height = 36
+line_height = 150

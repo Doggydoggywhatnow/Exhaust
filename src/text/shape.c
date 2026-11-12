@@ -292,3 +292,84 @@ done:
     free(off);
     return rc;
 }
+
+/* ---- caret geometry ---- */
+
+typedef struct Span { uint32_t cluster; float x0, x1; int rtl; } Span;
+
+/* One span per cluster in visual order, from the glyph list. */
+static size_t make_spans(const ExShaped *s, Span **out) {
+    Span *sp = malloc((s->nglyphs + 1) * sizeof *sp);
+    size_t i, n = 0, g;
+    float pen = 0.0f;
+    if (!sp) { *out = NULL; return 0; }
+    for (g = 0; g < s->nglyphs; g++) {
+        const ExGlyph *gl = &s->glyphs[g];
+        int rtl = (s->runs[gl->run].level & 1) != 0;
+        float x0 = pen, x1 = pen + gl->advance;
+        for (i = n; i-- > 0 && i + 3 > n;)  /* join with a recent span of the same cluster (marks, ligature parts) */
+            if (sp[i].cluster == gl->cluster && sp[i].rtl == rtl) {
+                if (x0 < sp[i].x0) sp[i].x0 = x0;
+                if (x1 > sp[i].x1) sp[i].x1 = x1;
+                goto joined;
+            }
+        sp[n].cluster = gl->cluster; sp[n].x0 = x0; sp[n].x1 = x1; sp[n].rtl = rtl;
+        n++;
+    joined:
+        pen += gl->advance;
+    }
+    *out = sp;
+    return n;
+}
+
+float ex_shaped_x_for_offset(const ExShaped *s, size_t offset, size_t text_len) {
+    Span *sp;
+    size_t n = make_spans(s, &sp), i, best = (size_t)-1;
+    float x = 0.0f;
+    uint32_t best_cluster = 0;
+    int have = 0;
+    if (!sp || n == 0) { free(sp); return s->base_rtl ? s->width : 0.0f; }
+    for (i = 0; i < n; i++)
+        if (sp[i].cluster == offset) { /* leading edge of the cluster that starts here */
+            float cand = sp[i].rtl ? sp[i].x1 : sp[i].x0;
+            if (!have || (sp[i].rtl ? cand > x : cand < x)) x = cand;
+            have = 1;
+        }
+    if (!have) {
+        /* the end of the text, or inside a cluster: trailing edge of the last cluster before it */
+        for (i = 0; i < n; i++)
+            if (sp[i].cluster < offset || offset >= text_len) {
+                if (best == (size_t)-1 || sp[i].cluster >= best_cluster) { best = i; best_cluster = sp[i].cluster; }
+            }
+        if (best != (size_t)-1) x = sp[best].rtl ? sp[best].x0 : sp[best].x1;
+    }
+    free(sp);
+    return x;
+}
+
+size_t ex_shaped_offset_for_x(const ExShaped *s, float x, size_t text_len) {
+    Span *sp;
+    size_t n = make_spans(s, &sp), i, k, result = 0;
+    if (!sp || n == 0) { free(sp); return 0; }
+    /* the cluster that x is in, or the nearest one at either end */
+    {
+        size_t pick = 0;
+        float best = 1e30f;
+        for (i = 0; i < n; i++) {
+            float d = x < sp[i].x0 ? sp[i].x0 - x : (x > sp[i].x1 ? x - sp[i].x1 : 0.0f);
+            if (d < best) { best = d; pick = i; }
+        }
+        {
+            /* its end in the text: the smallest cluster start above it */
+            size_t start = sp[pick].cluster, end = text_len;
+            float mid = (sp[pick].x0 + sp[pick].x1) / 2.0f;
+            int second_half = x >= mid;
+            for (k = 0; k < n; k++)
+                if (sp[k].cluster > start && sp[k].cluster < end) end = sp[k].cluster;
+            /* in a left to right cluster the second half is nearer its end; right to left is the reverse */
+            result = (sp[pick].rtl ? !second_half : second_half) ? end : start;
+        }
+    }
+    free(sp);
+    return result;
+}

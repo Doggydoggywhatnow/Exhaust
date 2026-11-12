@@ -1,0 +1,58 @@
+# Built-in theme: Exhaust Dark.
+# Values from the Palette table in docs/formats.md. This file is the only place
+# colors are defined; the program reads them through the token loader.
+
+[theme]
+name = Exhaust Dark
+author = Exhaust
+base = dark
+
+[colors]
+background = #1e1f2d
+background_alt = #181924
+surface = #181924
+surface_hover = #2b2d3c
+border = #323343
+text = #cad1f2
+text_muted = #9196b1
+text_faint = #7f839b
+accent = #8167eb
+accent_hover = #9580f0
+link = #a191f2
+link_unresolved = #796eb2
+selection = #8167eb59
+cursor = #cad1f2
+highlight = #e8b58d40
+error = #dc91a8
+warning = #e8b58d
+success = #a6d9a0
+code_background = #181924
+code_text = #cad1f2
+tag = #a191f2
+graph_node = #aaaab2
+graph_node_unresolved = #414141
+graph_link = #3f3f3f
+graph_focus = #a190ea
+canvas_grid = #323343
+callout_note = #89a4f2
+callout_abstract = #7fc8e8
+callout_info = #7fb5f2
+callout_todo = #7fb5f2
+callout_tip = #7fe0d0
+callout_success = #a6d9a0
+callout_question = #e8d27f
+callout_warning = #e8b58d
+callout_failure = #dc91a8
+callout_danger = #e87f8f
+callout_bug = #e87fb0
+callout_example = #b99ff2
+callout_quote = #9196b1
+
+[sizes]
+radius = 6
+radius_large = 12
+spacing = 8
+border_width = 1
+ribbon_width = 44
+tab_height = 36
+line_height = 150

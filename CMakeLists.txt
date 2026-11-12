@@ -126,12 +126,23 @@ add_custom_command(OUTPUT ${FONTS_C}
   DEPENDS embed ${FONT_DEPS}
   COMMENT "Embedding built-in fonts")
 
+set(THEME_C ${CMAKE_CURRENT_BINARY_DIR}/themes_embedded.c)
+set(THEME_DIR ${CMAKE_CURRENT_SOURCE_DIR}/data/themes)
+add_custom_command(OUTPUT ${THEME_C}
+  COMMAND embed ${THEME_C}
+    ex_theme_dark ${THEME_DIR}/exhaust-dark.theme ex_theme_light ${THEME_DIR}/exhaust-light.theme
+    ex_theme_hc_dark ${THEME_DIR}/exhaust-hc-dark.theme ex_theme_hc_light ${THEME_DIR}/exhaust-hc-light.theme
+  DEPENDS embed ${THEME_DIR}/exhaust-dark.theme ${THEME_DIR}/exhaust-light.theme
+    ${THEME_DIR}/exhaust-hc-dark.theme ${THEME_DIR}/exhaust-hc-light.theme
+  COMMENT "Embedding built-in themes")
+
 # ---- Libraries ----
 add_library(exhaust_core STATIC src/version.c)
 target_include_directories(exhaust_core PUBLIC include ${CMAKE_CURRENT_BINARY_DIR}/include)
 
-add_library(exhaust_buffer STATIC src/buffer/buffer.c src/buffer/doc.c src/buffer/journal.c)
+add_library(exhaust_buffer STATIC src/buffer/buffer.c src/buffer/doc.c src/buffer/journal.c src/util/worker.c)
 target_include_directories(exhaust_buffer PUBLIC include)
+target_link_libraries(exhaust_buffer PUBLIC SDL3::SDL3-static)
 
 add_library(exhaust_platform STATIC src/platform/paths.c src/platform/input.c)
 target_include_directories(exhaust_platform PUBLIC include)
@@ -149,8 +160,19 @@ if(NOT MSVC)
   target_link_libraries(exhaust_render PUBLIC m)
 endif()
 
+# Clay (layout), compiled as its own unit without our warning flags.
+add_library(clay_impl STATIC src/ui/clay_impl.c)
+target_include_directories(clay_impl PUBLIC third_party/clay)
+if(NOT MSVC)
+  target_compile_options(clay_impl PRIVATE -w)
+endif()
+
+add_library(exhaust_ui STATIC src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/ui.c ${THEME_C})
+target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
+target_link_libraries(exhaust_ui PUBLIC exhaust_render exhaust_buffer clay_impl)
+
 add_executable(exhaust src/main.c)
-target_link_libraries(exhaust PRIVATE exhaust_core exhaust_render)
+target_link_libraries(exhaust PRIVATE exhaust_core exhaust_render exhaust_ui)
 install(TARGETS exhaust RUNTIME DESTINATION bin)
 # License texts of the code and fonts linked or embedded into the executable.
 install(FILES
@@ -158,6 +180,8 @@ install(FILES
   DESTINATION share/exhaust/licenses RENAME SDL3-LICENSE.txt)
 install(FILES third_party/freetype/docs/FTL.TXT
   DESTINATION share/exhaust/licenses RENAME FreeType-FTL.txt)
+install(FILES third_party/clay/LICENSE.md
+  DESTINATION share/exhaust/licenses RENAME Clay-LICENSE.txt)
 install(FILES third_party/harfbuzz/COPYING
   DESTINATION share/exhaust/licenses RENAME HarfBuzz-COPYING.txt)
 install(FILES third_party/SheenBidi/LICENSE
@@ -190,6 +214,22 @@ add_test(NAME buffer COMMAND test_buffer)
 add_executable(test_journal_replay tests/test_journal_replay.c)
 target_link_libraries(test_journal_replay PRIVATE exhaust_buffer)
 add_test(NAME journal_replay COMMAND test_journal_replay)
+
+add_executable(test_worker_queue tests/test_worker_queue.c)
+target_link_libraries(test_worker_queue PRIVATE exhaust_buffer)
+add_test(NAME worker_queue COMMAND test_worker_queue)
+
+add_executable(test_theme tests/test_theme.c)
+target_link_libraries(test_theme PRIVATE exhaust_ui)
+add_test(NAME theme COMMAND test_theme)
+
+add_executable(test_no_color_literals tests/test_no_color_literals.c)
+target_link_libraries(test_no_color_literals PRIVATE exhaust_platform)
+add_test(NAME no_color_literals COMMAND test_no_color_literals ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(test_editor_widget tests/test_editor_widget.c)
+target_link_libraries(test_editor_widget PRIVATE exhaust_ui)
+add_test(NAME editor_widget COMMAND test_editor_widget)
 
 add_executable(test_shaping tests/test_shaping.c)
 target_link_libraries(test_shaping PRIVATE exhaust_text)
