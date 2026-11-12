@@ -32,7 +32,7 @@ int main(void) {
 
     /* the list is exactly the editor commands of the table, in table order */
     for (i = 0; i < ex_command_table_count; i++) if (ex_command_table[i].editor) editor_commands++;
-    CHECK(editor_commands == 73);
+    CHECK(editor_commands == 75);
     CHECK(ex_slash_count(m) == editor_commands);
     for (i = 0, k = 0; i < ex_command_table_count; i++)
         if (ex_command_table[i].editor) {

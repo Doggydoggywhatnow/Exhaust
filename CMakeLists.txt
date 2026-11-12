@@ -252,6 +252,16 @@ add_library(exhaust_find STATIC src/find/find.c)
 target_include_directories(exhaust_find PUBLIC include)
 target_link_libraries(exhaust_find PUBLIC pcre2_8)
 
+set(DICT_C ${CMAKE_CURRENT_BINARY_DIR}/dictionaries_embedded.c)
+set(DICT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/dictionaries/en_US)
+add_custom_command(OUTPUT ${DICT_C}
+  COMMAND embed ${DICT_C} ex_dict_en_us_aff ${DICT_DIR}/en_US.aff ex_dict_en_us_dic ${DICT_DIR}/en_US.dic
+  DEPENDS embed ${DICT_DIR}/en_US.aff ${DICT_DIR}/en_US.dic
+  COMMENT "Embedding the English (US) dictionary")
+add_library(exhaust_spell STATIC src/spell/spell.c src/spell/words.c src/spell/builtin.c ${DICT_C})
+target_include_directories(exhaust_spell PUBLIC include)
+target_link_libraries(exhaust_spell PUBLIC pcre2_8 exhaust_markdown SDL3::SDL3-static)
+
 add_library(exhaust_markdown STATIC src/markdown/html.c src/markdown/markdown.c src/markdown/md_inline.c src/markdown/reading.c third_party/md4c/md4c.c)
 target_include_directories(exhaust_markdown PRIVATE src/markdown third_party/md4c)
 set_source_files_properties(third_party/md4c/md4c.c PROPERTIES COMPILE_OPTIONS "$<$<NOT:$<C_COMPILER_ID:MSVC>>:-w>")
@@ -291,7 +301,7 @@ endif()
 
 add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/editor_layout.c src/ui/editor_fold.c src/ui/editor_keys.c src/ui/editor_format.c src/ui/findbar.c src/ui/reading_view.c src/ui/ui.c src/ui/panes.c src/ui/vault_screen.c ${THEME_C})
 target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
-target_link_libraries(exhaust_ui PUBLIC exhaust_settings exhaust_find exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace exhaust_markdown clay_impl)
+target_link_libraries(exhaust_ui PUBLIC exhaust_spell exhaust_settings exhaust_find exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace exhaust_markdown clay_impl)
 if(NOT MSVC)
   target_link_libraries(exhaust_ui PUBLIC m)
 endif()
@@ -329,6 +339,8 @@ install(FILES third_party/pcre2/LICENCE
   DESTINATION share/exhaust/licenses RENAME PCRE2-LICENCE.txt)
 install(FILES third_party/md4c/LICENSE.md
   DESTINATION share/exhaust/licenses RENAME md4c-LICENSE.md)
+install(FILES third_party/dictionaries/en_US/README_en_US.txt
+  DESTINATION share/exhaust/licenses RENAME Dictionary-en_US-SCOWL.txt)
 install(FILES third_party/unicode/LICENSE.txt
   DESTINATION share/exhaust/licenses RENAME Unicode-LICENSE.txt)
 install(FILES third_party/fonts/atkinson-hyperlegible/OFL.txt
@@ -488,6 +500,12 @@ add_test(NAME editing_slash COMMAND test_slash)
 add_executable(test_slash_editor tests/test_slash_editor.c)
 target_link_libraries(test_slash_editor PRIVATE exhaust_ui exhaust_settings)
 add_test(NAME editing_slash_editor COMMAND test_slash_editor)
+add_executable(test_spell tests/test_spell.c)
+target_link_libraries(test_spell PRIVATE exhaust_spell)
+add_test(NAME spellcheck COMMAND test_spell)
+add_executable(test_spell_editor tests/test_spell_editor.c)
+target_link_libraries(test_spell_editor PRIVATE exhaust_ui exhaust_spell)
+add_test(NAME spellcheck_editor COMMAND test_spell_editor)
 add_test(NAME live_preview COMMAND test_live_preview ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/sample_note.md)
 
 add_executable(test_incremental_tokenize tests/test_incremental_tokenize.c)

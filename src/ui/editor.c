@@ -11,6 +11,7 @@
 #include "exhaust_markdown.h"
 #include "exhaust_platform.h"
 #include "exhaust_slash.h"
+#include "exhaust_spell.h"
 #include "exhaust_shape.h"
 
 #define CACHE_LINES 96
@@ -64,6 +65,8 @@ struct ExEditor {
     size_t slash_start;           /* offset of the "/" that opened the menu */
     float sp_x, sp_y, sp_w, sp_rowh;   /* the popup as last drawn, for clicks */
     size_t sp_first, sp_rows;
+    ExSpell *spell;               /* not owned */
+    struct { unsigned long h; char w[32]; signed char ok; } scache[256];   /* results for words seen lately: 1 correct, 0 wrong */
     struct ExFind *find;         /* matches to highlight (not owned) */
     struct { size_t s, e; } *hl;  /* the matches in the lines drawn last */
     size_t nhl, caphl;
@@ -1287,6 +1290,8 @@ const struct ExMd *ex_editor_tokens(ExEditor *e) {
     return e->md;
 }
 
+static size_t misspelled_in_line(ExEditor *e, size_t st, size_t en, size_t out_s[], size_t out_e[], size_t max);
+
 /* Draws one line in source mode or live preview from its layout. */
 static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_t line, size_t nl, float y, int lh, const ExFontMetrics *fm,
                              int focused, int blink_on, ExColor sel_c, ExColor cur_c, ExColor comp_c) {
@@ -1351,6 +1356,20 @@ static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
             if (run->checked) ex_fill_rect(r, bx + side * 0.25f, by + side * 0.25f, side * 0.5f, side * 0.5f, col);
         }
     }
+    if (e->spell) {                                                      /* wavy lines under unknown words */
+        size_t ms[64], me[64], k, nm = misspelled_in_line(e, st, en, ms, me, 64);
+        ExColor ec = ex_theme_color(t, EX_COLOR_ERROR);
+        ExSel pr = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
+        for (k = 0; k < nm; k++) {
+            float x0, x1, x, by, step = (float)ex_px(r, 2);
+            int odd = 0;
+            if (focused && pr.head >= ms[k] && pr.head <= me[k]) continue;   /* the word being typed is left alone */
+            x0 = left + ll_x_of(ll, ms[k]);
+            x1 = left + ll_x_of(ll, me[k]);
+            by = y + (float)(lh + fm->line_height) / 2.0f - (float)ex_px(r, 2);
+            for (x = x0; x < x1; x += step, odd ^= 1) ex_fill_rect(r, x, by + (odd ? (float)ex_px(r, 1.5f) : 0.0f), x + step > x1 ? x1 - x : step, (float)ex_px(r, 1), ec);
+        }
+    }
     /* carets and the IME composition */
     for (si = 0; si < nsel; si++) {
         ExSel s = ex_doc_sel(e->doc, si);
@@ -1405,6 +1424,68 @@ static void collect_matches(ExEditor *e, size_t first_line, size_t last_line) {
         pos = en > s ? en : s + 1;
     }
     free(text);
+}
+
+/* ---- spell check ---- */
+
+void ex_editor_set_spell(ExEditor *e, ExSpell *spell) { if (e->spell != spell) { e->spell = spell; memset(e->scache, 0, sizeof e->scache); } }
+void ex_editor_spell_changed(ExEditor *e) { memset(e->scache, 0, sizeof e->scache); }
+
+static int word_ok(ExEditor *e, const char *w, size_t n) {
+    unsigned long h = 1469598103934665603ul;
+    size_t i;
+    if (n >= 32) return ex_spell_check(e->spell, w, n);
+    for (i = 0; i < n; i++) { h ^= (unsigned char)w[i]; h *= 1099511628211ul; }
+    i = h & 255;
+    if (e->scache[i].ok != 0 && e->scache[i].h == h && strlen(e->scache[i].w) == n && memcmp(e->scache[i].w, w, n) == 0) return e->scache[i].ok > 0;
+    e->scache[i].h = h;
+    memcpy(e->scache[i].w, w, n);
+    e->scache[i].w[n] = 0;
+    e->scache[i].ok = ex_spell_check(e->spell, w, n) ? 1 : -1;
+    return e->scache[i].ok > 0;
+}
+
+typedef struct SkipCtx { size_t s[64], e[64]; size_t n; } SkipCtx;
+static int skip_span(const ExMdSpan *sp, void *user) {
+    SkipCtx *c = user;
+    switch (sp->kind) {
+    case EX_MD_FRONTMATTER: case EX_MD_CODE_BLOCK: case EX_MD_CODE_SPAN: case EX_MD_MATH_BLOCK: case EX_MD_MATH_INLINE: case EX_MD_LINK_DEST:
+    case EX_MD_AUTOLINK: case EX_MD_TAG: case EX_MD_LINK_TARGET: case EX_MD_LINK_BLOCK: case EX_MD_LINK_HEADING: case EX_MD_EMBED: case EX_MD_IMAGE:
+    case EX_MD_HTML_INLINE: case EX_MD_HTML_BLOCK: case EX_MD_BLOCK_ID: case EX_MD_FOOTNOTE_REF: case EX_MD_COMMENT_INLINE: case EX_MD_COMMENT_BLOCK:
+        if (c->n < 64) { c->s[c->n] = sp->start; c->e[c->n] = sp->end; c->n++; }
+        break;
+    default: break;
+    }
+    return 0;
+}
+
+/* The misspelled words of a line as byte ranges (offsets in the document), skipping what is not prose. */
+static size_t misspelled_in_line(ExEditor *e, size_t st, size_t en, size_t out_s[], size_t out_e[], size_t max) {
+    char tb[1024];
+    size_t len, pos = 0, ws, we, n = 0, i;
+    SkipCtx sk;
+    if (!e->spell || !e->md || en <= st) return 0;
+    len = ex_buffer_read(buf(e), st, tb, en - st < sizeof tb ? en - st : sizeof tb);
+    sk.n = 0;
+    ex_md_visit(e->md, st, en, skip_span, &sk);
+    while (n < max && ex_words_next(tb, len, &pos, &ws, &we)) {
+        int skip = 0;
+        for (i = 0; i < sk.n; i++) if (st + ws < sk.e[i] && st + we > sk.s[i]) { skip = 1; break; }
+        if (skip || we - ws < 2) continue;
+        if (!word_ok(e, tb + ws, we - ws)) { out_s[n] = st + ws; out_e[n] = st + we; n++; }
+    }
+    return n;
+}
+
+int ex_editor_word_at_caret(ExEditor *e, size_t *start, size_t *end) {
+    ExSel p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
+    size_t line = ex_buffer_line_of_offset(buf(e), p.head), st, en, nx, len, pos = 0, ws, we;
+    char tb[1024];
+    line_range(e, line, &st, &en, &nx);
+    len = ex_buffer_read(buf(e), st, tb, en - st < sizeof tb ? en - st : sizeof tb);
+    while (ex_words_next(tb, len, &pos, &ws, &we))
+        if (st + ws <= p.head && p.head <= st + we) { *start = st + ws; *end = st + we; return 1; }
+    return 0;
 }
 
 /* The fold marker of a header line: a triangle in the gutter (pointing right when folded, down when open; open ones only

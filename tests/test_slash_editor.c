@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
 
     /* at the start of the note */
     type(e, "/");
-    CHECK(ex_editor_slash_open(e) && ex_slash_count(m) == 73);
+    CHECK(ex_editor_slash_open(e) && ex_slash_count(m) == 75);
     type(e, "bol");
     CHECK(strcmp(ex_slash_query(m), "bol") == 0 && ex_slash_count(m) >= 1 && strcmp(ex_slash_item(m, 0)->id, "editor.toggle-bold") == 0);
     ex_editor_key(e, r, EX_KEY_BACKSPACE, 0);

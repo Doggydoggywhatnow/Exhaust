@@ -104,6 +104,15 @@ struct ExSlashMenu;
 void ex_editor_set_slash(ExEditor *e, struct ExSlashMenu *menu);
 int ex_editor_slash_open(const ExEditor *e);
 
+/* Spell check: words the checker does not know get a wavy line under them in source mode and live preview (not in code,
+ * math, links' addresses, tags, front matter, HTML or the word the caret is in). NULL turns it off; the checker is not owned.
+ * Call ex_editor_spell_changed after words were added to it. */
+struct ExSpell;
+void ex_editor_set_spell(ExEditor *e, struct ExSpell *spell);
+void ex_editor_spell_changed(ExEditor *e);
+/* The word around the primary caret (letters and inner apostrophes and hyphens), as a byte range; 0 if the caret is not in one. */
+int ex_editor_word_at_caret(ExEditor *e, size_t *start, size_t *end);
+
 /* Find matches: the editor draws every match of `find` (not owned; NULL clears) in the highlight color. */
 struct ExFind;
 void ex_editor_set_find(ExEditor *e, struct ExFind *find);

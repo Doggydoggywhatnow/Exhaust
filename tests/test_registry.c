@@ -1,6 +1,6 @@
 /* registry: the feature-toggle registry and the command registry. Features read and write
  * `[features]` of settings.ini (write-through), call back on a change only, refuse unknown ids and stubs;
- * the generated command table matches docs/formats.md (203 commands), commands are only available when
+ * the generated command table matches docs/formats.md (205 commands), commands are only available when
  * bound and when their feature is on. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,7 +27,7 @@ static void test_table(void) {
     size_t i, j, editor = 0;
     char *doc = ex_platform_read_file(DOC_PATH, NULL);
     CHECK(doc != NULL);
-    CHECK(ex_command_table_count == 203);                        /* the count the document states */
+    CHECK(ex_command_table_count == 205);                        /* the count the document states */
     for (i = 0; i < ex_command_table_count; i++) {
         const ExCommandDef *d = &ex_command_table[i];
         const char *p;
@@ -90,7 +90,7 @@ int main(void) {
     free(t);
 
     /* commands: declared, bound, available */
-    CHECK(ex_commands_count(c) == 203 && ex_commands_at(c, 0) != NULL && ex_commands_at(c, 203) == NULL);
+    CHECK(ex_commands_count(c) == 205 && ex_commands_at(c, 0) != NULL && ex_commands_at(c, 205) == NULL);
     CHECK(ex_commands_find(c, "app.close-current-tab") != NULL && strcmp(ex_commands_find(c, "app.close-current-tab")->default_keys, "Ctrl+W") == 0);
     CHECK(ex_commands_find(c, "app.no-such-thing") == NULL);
     CHECK(ex_commands_run(c, "app.no-such-thing") == -1);

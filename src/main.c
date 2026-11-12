@@ -20,6 +20,7 @@
 #include "exhaust_theme.h"
 #include "exhaust_findbar.h"
 #include "exhaust_slash.h"
+#include "exhaust_spell.h"
 #include "exhaust_ui.h"
 #include "exhaust_vault.h"
 #include "exhaust_vaultmgr.h"
@@ -60,6 +61,15 @@ typedef struct App {
     ExWidget *root, *editor, *tree, *status;     /* editor: the editor of the active tab, or NULL */
     ExFindBar *findbar;
     ExSlashMenu *slash;
+    ExSpell *spell;
+    ExWidget *wordcount;          /* the word count at the right of the status line */
+    unsigned long wc_version;     /* what the count was computed for */
+    const void *wc_doc;
+    unsigned wc_tick;
+    size_t wc_sel;
+    char spell_orig[64];          /* the misspelled word the replace command is cycling suggestions for */
+    char spell_sug[8][EX_SPELL_WORD_MAX];
+    size_t spell_nsug, spell_idx;
     ExWidget *banner, *banner_text, *banner_a, *banner_b, *banner_c;
     ExWidget *left_sb, *right_sb;
     ExDoc *demo_doc;           /* shown when there is no vault */
@@ -466,6 +476,153 @@ static void cmd_fmt_add_tag(void *u) { format_cmd(u, EX_FMT_TAG); }
 static void cmd_fmt_clear_formatting(void *u) { format_cmd(u, EX_FMT_CLEAR); }
 static void cmd_cursor_above(void *u) { App *a = u; if (a->editor && a->editor->editor) ex_editor_perform(a->editor->editor, a->r, EX_ACT_ADD_CURSOR_ABOVE, 0); }
 static void cmd_cursor_below(void *u) { App *a = u; if (a->editor && a->editor->editor) ex_editor_perform(a->editor->editor, a->r, EX_ACT_ADD_CURSOR_BELOW, 0); }
+/* ---- spell check and word count ---- */
+
+static char *custom_words_path(App *a) {
+    char *p;
+    if (!a->vault) return NULL;
+    p = malloc(strlen(ex_vault_path(a->vault)) + 48);
+    if (p) sprintf(p, "%s/.exhaust/dictionaries/custom.txt", ex_vault_path(a->vault));
+    return p;
+}
+
+static void load_custom_words(App *a) {
+    char *path = custom_words_path(a), *text;
+    size_t len = 0, i = 0;
+    if (!path || !a->spell) { free(path); return; }
+    text = ex_platform_read_file(path, &len);
+    free(path);
+    if (!text) return;
+    while (i < len) {
+        size_t e = i;
+        while (e < len && text[e] != '\n' && text[e] != '\r') e++;
+        if (e > i) ex_spell_add_word(a->spell, text + i, e - i);
+        i = e + 1;
+    }
+    free(text);
+}
+
+/* The user's own words are kept in .exhaust/dictionaries/custom.txt, one on each line, so they travel with the vault. */
+static void remember_custom_word(App *a, const char *w, size_t n) {
+    char *path = custom_words_path(a), *old, *dir, *slash;
+    size_t olen = 0;
+    char *all;
+    if (!path) return;
+    old = ex_platform_read_file(path, &olen);
+    dir = malloc(strlen(path) + 1);
+    if (dir) memcpy(dir, path, strlen(path) + 1);
+    slash = dir ? strrchr(dir, '/') : NULL;
+    if (slash) { *slash = 0; ex_platform_make_dirs(dir); }
+    all = malloc(olen + n + 2);
+    if (all) {
+        if (old) memcpy(all, old, olen);
+        if (olen && all[olen - 1] != '\n') all[olen++] = '\n';
+        memcpy(all + olen, w, n);
+        all[olen + n] = '\n';
+        ex_platform_write_file_atomic(path, all, olen + n + 1);
+        free(all);
+    }
+    free(old);
+    free(dir);
+    free(path);
+}
+
+static void spell_changed_everywhere(App *a) {
+    size_t i;
+    for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
+        ExWidget *w = ex_panes_content(a->panes, ex_ws_tab_at(a->ws, i));
+        if (w && w->type == EX_WIDGET_EDITOR && w->editor) ex_editor_spell_changed(w->editor);
+    }
+}
+
+static void cmd_toggle_spellcheck(void *u) {
+    App *a = u;
+    ex_settings_set_bool(a->settings, "editor", "spellcheck", !ex_settings_get_bool(a->settings, "editor", "spellcheck"));
+    set_status(a, ex_settings_get_bool(a->settings, "editor", "spellcheck") ? "Spell check is on." : "Spell check is off.");
+}
+
+static void cmd_spell_add(void *u) {
+    App *a = u;
+    size_t ws, we;
+    char w[EX_SPELL_WORD_MAX], msg[160];
+    if (!a->spell || !a->editor || !a->editor->editor || !ex_editor_word_at_caret(a->editor->editor, &ws, &we) || we - ws >= sizeof w) { set_status(a, "Put the cursor in a word first."); return; }
+    ex_buffer_read(ex_doc_buffer(ex_editor_doc(a->editor->editor)), ws, w, we - ws);
+    w[we - ws] = 0;
+    if (ex_spell_add_word(a->spell, w, we - ws) == 0) {
+        remember_custom_word(a, w, we - ws);
+        spell_changed_everywhere(a);
+        snprintf(msg, sizeof msg, "Added \"%s\" to your dictionary (.exhaust/dictionaries/custom.txt).", w);
+        set_status(a, msg);
+    }
+}
+
+static void cmd_spell_replace(void *u) {
+    App *a = u;
+    ExEditor *e = a->editor && a->editor->editor ? a->editor->editor : NULL;
+    size_t ws, we;
+    char w[EX_SPELL_WORD_MAX], msg[400];
+    ExChange c;
+    ExSel after;
+    if (!a->spell || !e || ex_editor_readonly(e) || !ex_editor_word_at_caret(e, &ws, &we) || we - ws >= sizeof w) { set_status(a, "Put the cursor in a misspelled word first."); return; }
+    ex_buffer_read(ex_doc_buffer(ex_editor_doc(e)), ws, w, we - ws);
+    w[we - ws] = 0;
+    if (a->spell_nsug && a->spell_idx < a->spell_nsug && strcmp(w, a->spell_sug[a->spell_idx]) == 0) {
+        a->spell_idx = (a->spell_idx + 1) % a->spell_nsug;                   /* the word is the last suggestion: the next one */
+    } else {
+        a->spell_nsug = ex_spell_suggest(a->spell, w, we - ws, a->spell_sug, 8);
+        a->spell_idx = 0;
+        if (ex_spell_check(a->spell, w, we - ws)) { a->spell_nsug = 0; set_status(a, "This word is spelled correctly."); return; }
+        if (!a->spell_nsug) { set_status(a, "No suggestions for this word."); return; }
+    }
+    c.offset = ws; c.remove_len = we - ws; c.text = a->spell_sug[a->spell_idx]; c.text_len = strlen(c.text);
+    after.anchor = after.head = ws + c.text_len;
+    ex_doc_apply(ex_editor_doc(e), &c, 1, 0, &after, 1);
+    {
+        size_t i, n = 0;
+        n += (size_t)snprintf(msg, sizeof msg, "Suggestion %zu of %zu:", a->spell_idx + 1, a->spell_nsug);
+        for (i = 0; i < a->spell_nsug && n < sizeof msg - 80; i++) n += (size_t)snprintf(msg + n, sizeof msg - n, " %s%s", i == a->spell_idx ? "> " : "", a->spell_sug[i]);
+        set_status(a, msg);
+    }
+}
+
+/* The word count of the note being edited (or of the selection), at most about three times a second and only when something changed. */
+static void update_wordcount(App *a) {
+    ExEditor *e = a->editor ? a->editor->editor : NULL;
+    unsigned now = (unsigned)SDL_GetTicks();
+    char *text, buf[96];
+    size_t len = 0;
+    ExWordCount wc;
+    ExSel sel;
+    ExDoc *d;
+    if (!a->wordcount) return;
+    if (a->wordcount->hidden) return;
+    if (!e) { if (a->wc_doc) { ex_widget_set_text(a->wordcount, ""); a->wc_doc = NULL; } return; }
+    d = ex_editor_doc(e);
+    sel = ex_doc_sel(d, ex_doc_primary(d));
+    if (a->wc_doc == d && a->wc_version == ex_doc_version(d) && a->wc_sel == (sel.anchor != sel.head ? ((size_t)(sel.anchor ^ (sel.head << 1)) | 1u) : 0)) return;
+    if (a->wc_doc == d && now - a->wc_tick < 300) return;
+    a->wc_tick = now;
+    text = ex_buffer_text(ex_doc_buffer(d), &len);
+    if (!text) return;
+    wc = ex_wordcount(text, len, ex_editor_tokens(e));
+    if (sel.anchor != sel.head) {
+        size_t lo = sel.anchor < sel.head ? sel.anchor : sel.head, hi = sel.anchor < sel.head ? sel.head : sel.anchor;
+        ExWordCount ws = ex_wordcount(text + lo, hi - lo, NULL);
+        snprintf(buf, sizeof buf, "%zu of %zu words, %zu characters", ws.words, wc.words, wc.characters);
+    } else snprintf(buf, sizeof buf, "%zu words, %zu characters", wc.words, wc.characters);
+    free(text);
+    ex_widget_set_text(a->wordcount, buf);
+    a->wc_doc = d;
+    a->wc_version = ex_doc_version(d);
+    a->wc_sel = sel.anchor != sel.head ? ((size_t)(sel.anchor ^ (sel.head << 1)) | 1u) : 0;
+}
+
+static void on_wordcount_feature(const char *id, int enabled, void *user) {
+    App *a = user;
+    (void)id;
+    if (a->wordcount) { a->wordcount->hidden = !enabled; a->wc_doc = NULL; }
+}
+
 static int has_editor(void *u) { return ((App *)u)->editor != NULL; }
 static void cmd_new_note(void *u) { on_new_note(NULL, "", u); }
 static int has_notes(void *u) { return ((App *)u)->notes != NULL && ((App *)u)->vault != NULL; }
@@ -487,6 +644,7 @@ static void register_features_and_commands(App *a) {
     ex_features_register(a->features, "files", "Files", on_files_feature, a);
     on_files_feature("files", ex_features_enabled(a->features, "files"), a);
     ex_features_register(a->features, "slash_commands", "Slash commands", NULL, a);
+    ex_features_register(a->features, "word_count", "Word count", on_wordcount_feature, a);
     a->commands = ex_commands_create(a->features);
     ex_commands_bind(a->commands, "app.toggle-left-sidebar", cmd_toggle_left, NULL, a);
     ex_commands_bind(a->commands, "app.toggle-right-sidebar", cmd_toggle_right, NULL, a);
@@ -539,6 +697,9 @@ static void register_features_and_commands(App *a) {
     ex_commands_bind(a->commands, "editor.add-cursor-above", cmd_cursor_above, has_editor, a);
     ex_commands_bind(a->commands, "editor.add-cursor-below", cmd_cursor_below, has_editor, a);
     a->slash = ex_slash_create(a->commands);
+    ex_commands_bind(a->commands, "app.toggle-spellcheck", cmd_toggle_spellcheck, NULL, a);
+    ex_commands_bind(a->commands, "editor.spelling-add-word-to-dictionary", cmd_spell_add, has_editor, a);
+    ex_commands_bind(a->commands, "editor.spelling-replace-with-suggestion", cmd_spell_replace, has_editor, a);
     ex_commands_bind(a->commands, "app.toggle-reading-view", cmd_toggle_reading, has_note_tab, a);
     ex_commands_bind(a->commands, "app.create-new-note", cmd_new_note, has_notes, a);
     ex_commands_bind(a->commands, "app.close-current-tab", cmd_close_tab, has_tab, a);
@@ -602,14 +763,15 @@ static void sync_ui(App *a) {
     {                                                                                /* the fold and indent settings apply to every editor */
         int tabs = ex_settings_get_bool(a->settings, "editor", "indent_with_tabs"), width = ex_settings_get_int(a->settings, "editor", "indent_width");
         int fh = ex_settings_get_bool(a->settings, "editor", "fold_heading"), fi = ex_settings_get_bool(a->settings, "editor", "fold_indent");
-        int slash_on = ex_features_enabled(a->features, "slash_commands");
+        int slash_on = ex_features_enabled(a->features, "slash_commands"), spell_on = ex_settings_get_bool(a->settings, "editor", "spellcheck");
         size_t i;
         for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
             ExWidget *w = ex_panes_content(a->panes, ex_ws_tab_at(a->ws, i));
-            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); }
+            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); ex_editor_set_spell(w->editor, spell_on ? a->spell : NULL); }
         }
     }
     a->note = t ? note_for_tab(a, t) : NULL;
+    update_wordcount(a);
     if (a->findbar && ex_findbar_is_open(a->findbar)) { if (a->editor) ex_findbar_set_target(a->findbar, a->editor); ex_findbar_update(a->findbar); }
     if (a->note != a->banner_note && !a->diff_doc) banner_for_note(a, a->note);
     if (a->focus_tab && a->focus_tab == t && a->editor) { ex_ui_set_focus(a->ui, a->editor); a->focus_tab = 0; }
@@ -918,6 +1080,8 @@ int main(int argc, char **argv) {
     }
 
     register_features_and_commands(&app);
+    app.spell = ex_spell_create_en_us();                                    /* English (US), built in; the words you added come from the vault */
+    load_custom_words(&app);
     memset(&hooks, 0, sizeof hooks);
     hooks.make_content = make_content;
     hooks.content_closed = content_closed;
@@ -993,8 +1157,21 @@ int main(int argc, char **argv) {
     status->width = ex_size_grow();
     status->pad_x = 1.0f; status->pad_y = 0.5f;
     status->bg_token = EX_COLOR_BACKGROUND_ALT;
-    ex_widget_add(app.root, row);
-    ex_widget_add(app.root, status);
+    {
+        ExWidget *srow = ex_widget_box(app.ui, 0, "Status");
+        srow->width = ex_size_grow();
+        srow->bg_token = EX_COLOR_BACKGROUND_ALT;
+        status->bg_token = -1;
+        app.wordcount = ex_widget_label(app.ui, "");
+        app.wordcount->text_token = EX_COLOR_TEXT_MUTED;
+        app.wordcount->text_scale = 0.85f;
+        app.wordcount->pad_x = 1.0f; app.wordcount->pad_y = 0.5f;
+        ex_widget_add(srow, status);
+        ex_widget_add(srow, app.wordcount);
+        ex_widget_add(app.root, row);
+        ex_widget_add(app.root, srow);
+        on_wordcount_feature("word_count", ex_features_enabled(app.features, "word_count"), &app);
+    }
     app.status = status;
 
     if (app.vault && !app.notes) set_status(&app, "Warning: the recovery journal could not be opened, so notes cannot be edited safely.");
@@ -1131,6 +1308,7 @@ int main(int argc, char **argv) {
     stop_showing_diff(&app);
     ex_findbar_free(app.findbar);
     ex_slash_free(app.slash);
+    ex_spell_free(app.spell);
     ex_panes_free(app.panes);                                          /* contents are detached and closed; their notes are closed too */
     ex_notes_destroy(app.notes);
     ex_widget_free(app.root);

@@ -18,6 +18,7 @@ and what was left out of the vendored copy.
 | Clay (layout engine, single header) | commit `e6cc36941ab2af5d81107617039d6f527a1c660b` (no release tag; main branch, May 2026) | https://github.com/nicbarker/clay | `clay/LICENSE.md` | zlib/libpng license |
 | md4c (Markdown parser, for reading mode and exports) | 0.5.2 (tag `release-0.5.2`, commit `729e6b8b320caa96328968ab27d7db2235e4fb47`) | https://github.com/mity/md4c | `md4c/LICENSE.md` | MIT |
 | PCRE2 (regular expressions, for find and replace now and search later) | 10.44 (tarball `pcre2-10.44.tar.gz`, sha256 `86b9cb0aa3bcb7994faa88018292bc704cdbb708e785f7c74352ff6ea7d3175b`, computed on the download from the project's GitHub release) | https://github.com/PCRE2Project/pcre2 | `pcre2/LICENCE` | BSD-3-Clause (with the project's exemption for binary redistribution) |
+| English (US) Hunspell dictionary (`en_US.aff`, `en_US.dic`, built into the program) | version 2020.12.07 of the LibreOffice dictionaries' `en/` folder (affix file changed 2024-01-29), downloaded from the `master` branch of https://github.com/LibreOffice/dictionaries on 2026-11-12; sha256 `en_US.aff` `e746c882dd6f303c2c46e7452804b9201115a6942cfeb15f18f8edf774d2e24e`, `en_US.dic` `f0b1a234bd178bdd01875b2a392a9647f888b8fe879f79c52aae62c2759b3647` | https://github.com/LibreOffice/dictionaries/tree/master/en (derived from SCOWL, http://wordlist.sourceforge.net) | `dictionaries/en_US/README_en_US.txt` (Kevin Atkinson's SCOWL license, with the Ispell BSD and WordNet notices it carries) | SCOWL (permissive, MIT-style) |
 | Unicode data (grapheme break, emoji, Indic conjunct break) | 17.0.0 | https://github.com/unicode-org/unicodetools (`unicodetools/data/ucd/17.0.0`) | `unicode/LICENSE.txt` | Unicode License v3 |
 | Test fonts (Noto subsets, tests only) | see `tests/fonts/README.md` | notofonts, googlefonts/noto-emoji | `tests/fonts/OFL-Noto.txt` | SIL Open Font License 1.1 |
 
@@ -78,3 +79,4 @@ and what was left out of the vendored copy.
   `pcre2.h.generic` as `pcre2.h`, `config.h.generic` as `config.h`, and the three internal headers.
   Built as `pcre2_8` with `HAVE_CONFIG_H`, `SUPPORT_UNICODE`, `PCRE2_CODE_UNIT_WIDTH=8` and
   `PCRE2_STATIC`; warnings of the vendored code are switched off.
+- **English (US) dictionary**: the two files as downloaded, unchanged, with the README that holds the license; the build embeds them with `tools/embed.c` (about 550 KB).

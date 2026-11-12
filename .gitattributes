@@ -2,3 +2,4 @@
 tests/golden/* -text
 tests/data/* -text
 tests/fuzz/*.bin -binary
+third_party/dictionaries/** -text
