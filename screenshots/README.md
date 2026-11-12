@@ -6,7 +6,7 @@ Reference screenshots of the layout Exhaust aims for.
 
 ![Graph view](graph-view.webp)
 
-On the far left, a bar of utilities. Next to it, the files as a tree of folders that are handled within the app rather than in the actual filesystem. In the middle, a graph view showing the links between notes. On the right, an open note for reference.
+On the far left, a bar of utilities. Next to it, the files as a tree of the vault's real folders on disk, as the README describes. In the middle, a graph view showing the links between notes. On the right, an open note for reference.
 
 ## Editing
 
@@ -22,13 +22,13 @@ The vault button at the bottom left of the file tree lets the user switch betwee
 
 ![Settings](settings.png)
 
-The settings menu to copy. A search box sits at the top. Below it, Options: General, Appearance, Interface, Editor, Files and links, Hotkeys, Keychain, Core plugins and Community plugins. Below that, one entry for each core plugin: Backlinks, Canvas, Command palette, Daily notes, File recovery, Note composer, Page preview, Quick switcher, Sync, Templates and Unique note creator.
+The settings menu to follow. A search box sits at the top. Below it, Options: General, Appearance, Interface, Editor, Files and links, Hotkeys, Keychain, Core plugins and Community plugins. Below that, one entry for each core plugin: Backlinks, Canvas, Command palette, Daily notes, File recovery, Note composer, Page preview, Quick switcher, Sync, Templates and Unique note creator.
 
 ## Hotkeys
 
 ![Hotkeys](hotkeys.png)
 
-The hotkeys list to copy. One row per command, in alphabetical order, with the command name on the left. On the right of each row is a shortcut chip, or "Blank" when none is set, and a plus button to add another shortcut. A chip with a shortcut has a cross to remove it. Examples in the screenshot: Toggle reading view (Ctrl + E), Undo close tab (Ctrl + Shift + T), and many commands with no shortcut, such as Toggle numbered list, the highlight colors, Toggle spellcheck, Toggle stacked tabs, Unique note creator and Zoom in and out.
+The hotkeys list to follow. One row per command, in alphabetical order, with the command name on the left. On the right of each row is a shortcut chip, or "Blank" when none is set, and a plus button to add another shortcut. A chip with a shortcut has a cross to remove it. Examples in the screenshot: Toggle reading view (Ctrl + E), Undo close tab (Ctrl + Shift + T), and many commands with no shortcut, such as Toggle numbered list, the highlight colors, Toggle spellcheck, Toggle stacked tabs, Unique note creator and Zoom in and out.
 
 ## Settings pages
 

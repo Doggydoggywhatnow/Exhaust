@@ -2,7 +2,7 @@
 
 A robust and personable notepad that doesn't get in your way. Notes, journals, knowledge bases and project plans, linked together.
 
-Exhaust's goal is feature parity with Obsidian's documented feature set, in a private, native program. This README is the spec. Features marked *(later)* may be stubs in the first demo. Items marked *(optional)* use the network and are off by default. The technical design is at the end.
+Exhaust's goal is feature parity with Obsidian's documented feature set, in a private, native program. This README is the spec. Features marked *(later)* may be stubs in the first demo. Items marked *(optional)* use the network and are off by default. Other features that are off by default, such as Vim mode, are not marked *(optional)*. The technical design is at the end.
 
 ## Values:
 
@@ -43,14 +43,14 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 - **Folding** of headings and lists.
 - **Find and replace** inside a note, with regular expressions.
 - **Multiple cursors** and **rectangular selection**.
-- **Editing shortcuts**: the usual text-editing keys, plus smart list continuation and indent. The default shortcut tables in the Help page "Editing shortcuts" (one for Windows and Linux, one for macOS) are the reference. Shortcuts work on non-US keyboard layouts.
+- **Editing shortcuts**: the default shortcuts for copying, deleting, moving the cursor and selecting text, for Windows and Linux and for macOS, are listed in [`docs/formats.md`](docs/formats.md#default-editing-shortcuts). Smart list continuation and indent follow the Editor settings. Shortcuts work on non-US keyboard layouts.
 - **Spell check** (Exhaust's own checker, English (US) dictionary included, more added as word lists) and a **word count** in the status bar.
 - **Export to PDF**: from the command palette or a note's More-options menu. Options: page size (A3, A4, A5, Legal, Letter or Tabloid), landscape, margin (Default, Minimal or None), downscale percent, and include the file name as the title. Exports are always light-styled.
 - **Embedded content**: notes, headings, blocks, lists, canvases, images, audio, video and PDFs, with `![[file]]` and Markdown syntax. Images take a size: `![[img.png|640x480]]` or `![[img.png|100]]`. PDFs take a page and height: `![[f.pdf#page=3&height=400]]`. External image URLs need the network, so they are *(optional)* and off by default, showing a placeholder instead. Web links open in the system browser; Exhaust has no embedded browser.
 - **HTML** in notes: a safe subset of tags, drawn by Exhaust itself.
 - **Slash commands**: type `/` for a menu of commands.
 - **Audio recorder**: record straight into a note *(later)*.
-- **Vim mode**, optional.
+- **Vim mode**, off by default.
 
 ## Links
 
@@ -117,15 +117,31 @@ PDFs open in a tab and embed in notes (needs the optional PDF library).
 
 ## Settings
 
-A searchable settings screen, laid out as in the screenshots. Every item has a default. Contents:
+A searchable settings screen, laid out as in [`screenshots/settings`](screenshots/settings): a sidebar of pages (Options first, then Built-in features), and on each page a list of rows with a name, a one-line description and one control. Numbers and colors have a reset button. Every option has a default. The key that stores each option is listed in [`docs/formats.md`](docs/formats.md). The pages, in order:
 
-- **Files and links**: default location for new notes; attachment location (vault root, a set folder, same folder as the note, or a subfolder of it); link format (shortest, relative or absolute); Use Wikilinks; trash mode; confirm before delete; excluded files; automatic link updates on rename; rebuild vault cache.
-- **Editor**: readable line length; strict line breaks; properties in document (visible, hidden or source); line numbers; indent guides; right-to-left text; auto-pair brackets and Markdown; smart lists; indent with tabs; paste HTML as Markdown; default view and mode for new tabs; spell check; Vim mode.
-- **Appearance**: theme, accent color, fonts, text size, interface zoom; inline title; tab title bar; ribbon configuration; hardware acceleration; translucent window; native menus; window frame; Ctrl+scroll to change the font size.
-- **General and interface**: language; always focus new tabs; a notice when startup takes longer than expected; the optional manual update check.
-- **Hotkeys**: every command, searchable, with conflicts shown.
-- **Built-in features**: one switch and options page for each feature (Backlinks, Canvas, Command palette, Daily notes, File recovery, Note composer, Page preview, Quick switcher, Sync, Templates, Unique note creator and the rest).
-- **Plugins**: installed plugins, their permissions and on/off switches *(later)*.
+- **General**: version and a manual *check for updates* button *(optional)*; language; help; a notice when startup takes longer than expected; command line interface *(later)*; hardware acceleration. There is no account or license section (see Non-goals) and no automatic updates.
+- **Appearance**: color scheme (dark, light or follow the system); accent color; theme (choose one, open the themes folder, manage themes); check installed themes for updates *(optional)*; style snippets (how many are on, manage them); fonts for the interface, for text and for monospace text; font size; quick font size adjustment with Ctrl+scroll or pinch; custom app icon; translucent window (macOS only).
+- **Interface**: show the tab title bar; show the ribbon; choose which commands the ribbon shows; zoom level; native menus; window frame style (custom, native or hidden; needs a restart); open settings in a new window.
+- **Editor**: default view for new tabs (editing or reading); default editing mode (live preview or source); show the editing mode in the status bar. Display: inline title, readable line length, strict line breaks, properties in document (visible, hidden or source), fold headings, fold indents, line numbers, indentation guides, right-to-left text. Behavior: spell check and its languages, auto-pair brackets, auto-pair Markdown syntax, smart lists, indent using tabs, indent visual width. Advanced: convert pasted HTML to Markdown, Vim key bindings (off by default).
+- **Files and links**: default file to open at start; always focus new tabs; default location for new notes; default location for new attachments (vault folder, a set folder, the same folder as the note, or a subfolder of it). Links: new link format (shortest path when possible, relative or absolute), automatically update internal links, use wikilinks, show all file types. Trash: confirm before deleting files, delete attachments when deleting a note (ask each time, always or never), and what happens to deleted files (move to the system trash, to a `.trash` folder in the vault, or delete permanently). Advanced: excluded files, the name of the config folder (default `.exhaust`), allow URI callbacks, and a *Rebuild vault cache* button.
+- **Hotkeys**: every command in alphabetical order with a search box. Each row shows its shortcuts as chips (or "Blank" when it has none), a plus button to add a shortcut and a cross on each chip to remove it. Conflicts are shown.
+- **Keychain** *(later)*: secrets for plugins and sync, kept in the operating system's credential store and never in plain files.
+- **Built-in features**: a searchable list; each feature has a switch, and a gear button that opens its own page when it has options. On by default: Backlinks, Bases, Bookmarks, Canvas, Command palette, Daily notes, File recovery, Files, Graph view, Note composer, Outgoing links, Outline, Page preview, Properties view, Quick switcher, Search, Tags view, Templates, Unique note creator and Word count. Off by default: Audio recorder, Footnotes view, Random note, Slash commands, Slides and Workspaces. Sync and Publish are stubs, off and disabled.
+- **Plugins** *(later)*: installed plugins, each with its permissions and an on/off switch. Browsing a directory needs the *(optional)* community directory.
+
+Then one page for each built-in feature that has options:
+
+- **Backlinks**: show backlinks at the bottom of notes, so they are visible in new tabs by default (off by default).
+- **Canvas**: default location for new canvas files; default mouse wheel behavior (pan or zoom); default Ctrl+drag behavior (show a menu, or another action); show card names (always, or another setting); snap to grid; snap to objects; zoom threshold for hiding card content (lower values run faster but hide content sooner when zooming out).
+- **Command palette**: pinned commands, with a button to add one and a message when there are none.
+- **Daily notes**: date format (a list of formats and a custom format with a live preview); folder for new daily notes; template file.
+- **File recovery**: snapshot interval in minutes (5 by default); history length in days (7 by default); view and restore snapshots; clear history.
+- **Note composer**: what replaces the selected text after extracting it (a link to the new file, or another option); template file for merging and extracting, with the variables `{{content}}`, `{{fromTitle}}`, `{{newTitle}}` and `{{date:FORMAT}}`; confirm before merging two files.
+- **Page preview**: for each place a link can be hovered, a switch for whether Ctrl is required to show the preview: Search, Backlinks and Outgoing links; Reading view; Editing view; Tab header; Files; Properties view; Bookmarks; Outline; Bases; Graph view. A filter box narrows the list.
+- **Quick switcher**: show existing files only (hides links to notes not created yet); show attachments.
+- **Sync** *(stub)*: the page is present and disabled.
+- **Templates**: template folder; date format; time format. Each shows a live preview of its syntax and can be overridden once with `{{date:FORMAT}}` or `{{time:FORMAT}}`.
+- **Unique note creator**: folder for new unique notes; template file; unique prefix format with a live preview.
 
 ## Look and feel
 
@@ -138,7 +154,7 @@ A searchable settings screen, laid out as in the screenshots. Every item has a d
 
 ### Themes
 
-Themes can be changed at any time, in Settings, without restarting.
+Themes can be changed at any time, in Settings, without restarting. The theme and snippet file formats and every token name are in [`docs/formats.md`](docs/formats.md).
 
 - **Switching**: choose Light, Dark or Follow system. A theme can also be set for each vault.
 - **Built in**: Exhaust Light and Exhaust Dark (the Midori notebook look), plus high contrast versions of both.
@@ -152,7 +168,7 @@ Themes can be changed at any time, in Settings, without restarting.
 
 ## Extending
 
-- **Plugins**: an open API for new commands, panes, views and file types, written in Lua *(later)*. Plugins are off until you allow them and declare what they can touch. A community directory *(optional, later)* needs the network.
+- **Plugins**: an open API for new commands, panes, views and file types, written in Lua *(later)*. Plugins are off until you allow them and declare what they can touch. The manifest format, the Lua API and the permission names are in [`docs/formats.md`](docs/formats.md). A community directory *(optional, later)* needs the network.
 - **Web clipper** *(later)*: a small extension for your own browser that saves pages into the vault. Exhaust itself has no browser.
 
 ## Sync, sharing and publishing *(optional, later)*
@@ -183,7 +199,7 @@ Exhaust is written in C (C11). There is no web browser or web view anywhere in i
 | Platform layer (`src/platform/`) | Trash (freedesktop spec on Linux, SHFileOperation on Windows, NSFileManager on macOS), file associations, URI registration, cache and config folders | Unlicense (own) |
 | JSON | yyjson | MIT |
 | Images | stb_image, with WebP and AVIF decoders; nanosvg for SVG | Public domain, BSD, zlib |
-| Audio embeds | lib-Peep (WAV and FLAC; vendored and linked statically, about 13 KB), dr_mp3 and stb_vorbis for MP3 and OGG, SDL3 for output; other formats through libmpv | Unlicense, public domain or MIT-0, public domain or MIT, zlib |
+| Audio embeds | [lib-Peep](https://github.com/Doggydoggywhatnow/lib-Peep) 0.5.0, vendored and linked statically: hand-written assembly for x86-64 and ARM64 with no libc, no `malloc` and no threads. Plays 16-bit PCM WAV built in; other WAV depths and float (`wav` codec), compressed WAV (A-law, mu-law, IMA and Microsoft ADPCM; `wavc` codec) and FLAC 4 to 31 bit (`flac` codec) are separate codecs. Pull API in `peep.h`: `peep_open`, `peep_fill`, `peep_fill32`, `peep_seek`, `peep_close`, `peep_set_gain`, `peep_set_dither`, `peep_flac_metadata`; output is interleaved stereo. Size per its README: about 13 KB for WAV, FLAC and every WAV depth (*TODO-verify*: its own table lists `flac.asm` at 17.8 KB on x86-64 and 9.3 KB on ARM64; measure the vendored build). `peep.h` is on the repo's `dev` branch, `main` has the assembly and docs only (*TODO-verify* which branch to vendor). Needs `nasm` (x86-64) or the GNU assembler (ARM64) to build; Windows and macOS builds are *TODO-verify* (its README says macOS and ARM hardware are not fully verified). dr_mp3 and stb_vorbis decode MP3 and OGG, SDL3 handles output, and other formats go through libmpv | Unlicense, public domain or MIT-0, public domain or MIT, zlib |
 | Video embeds | libmpv, loaded at run time | LGPL or GPL (never linked) |
 | PDF | PDFium, loaded at run time | BSD-3 or Apache-2.0 |
 | PDF export | Own PDF writer: lays pages out with Exhaust's reading-mode renderer, embeds font subsets through FreeType, compresses with miniz | Unlicense (own), public domain or MIT |
@@ -213,12 +229,12 @@ Two registries exist from slice 2, and every feature uses them from the start, s
 
 Each slice is finished, tested and committed before the next. The detailed spec, with "done when" checks, is in [`docs/0.1.0.md`](docs/0.1.0.md).
 
-1. **1a** Window, text, buffer, theme tokens. **1b** Accessibility tree.
-2. Vaults and files, registries, platform layer, settings file.
+1. **1a** Window and renderer; shaping, bidi, IME and clipboard; buffer and undo tree; widgets, Clay, theme tokens and multi-cursor. **1b** Accessibility: cargo vendor and CI, C wrapper, tree-dump test, keyboard navigation.
+2. Vaults and files, vault manager, registries, platform layer, settings file, `tools/gen_vault`.
 3. Markdown and live preview.
 4. **4a** Index, links, backlinks, tags, properties, link-safe rename. **4b** Search, switcher, palette, outline, bookmarks, random note, footnotes.
 5. Graph view.
-6. **6a** Canvas. **6b** Bases and expression engine. **6c** Embeds, media, PDF and SVG. **6d** Math and diagrams. **6e** Templates, daily notes, unique notes, composer, slides, converter and import.
+6. **6a** Canvas. **6b** Bases: expression engine, base core, layouts. **6c** Embeds and media: images and SVG, audio, libmpv loader, PDFium loader and viewer, embed syntax. **6d** Math and diagrams. **6e** Templates, daily notes, unique notes, composer, slides, converter, export and import.
 7. Settings, hotkeys, themes and workspaces.
 8. Vim mode, plugins and the optional-feature stubs.
 9. Packaging: zip, AppImage and dmg.
@@ -244,7 +260,7 @@ The screenshots in [`screenshots`](screenshots) are the skeleton of how Exhaust 
 - **File tree**: next to it, the vault's files as a tree of folders, with the vault button at the bottom.
 - **Tabs**: a row of tabs across the top of the main area.
 - **Main area**: panes that can each show a note being edited, the graph view, a canvas or a reference note, side by side.
-- **Settings**: a searchable list with Options first, then one entry for each built-in feature that can be switched on or off. The 28 pages in [`screenshots/settings`](screenshots/settings) are the guideline for what every settings page looks like and which options it offers.
+- **Settings**: a searchable list with Options first, then one entry for each built-in feature that can be switched on or off. The 28 pages in [`screenshots/settings`](screenshots/settings) are the guideline for what every settings page looks like and which options it offers; the Settings section above lists them in my own words.
 - **Vault manager**: the list of known vaults with a menu for each, plus buttons to create a vault, open a folder as a vault, and (as a stub) open a synced vault. See `screenshots/vault-manager.png`.
 - **Unresolved links**: a link to a note that doesn't exist yet shows dimmed in the text and as a faint node in the graph, joined to the note that links to it. Once the note exists, the link becomes underlined, colored text and the node brightens. See `screenshots/unresolved-link.png` and `screenshots/resolved-link.png`.
 - **Hotkeys**: one row per command with its shortcut chip (or "Blank"), a plus button to add a shortcut and a cross to remove one.
