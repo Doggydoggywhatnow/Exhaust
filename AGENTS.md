@@ -33,8 +33,8 @@ Add tests with the code. Required at minimum: the text buffer and undo tree, the
 
 ## Decisions already made
 - Layout: Clay for layout, vendored in `third_party/`, on top of Exhaust's own widget tree.
-- Dependencies are vendored in `third_party/` where small; large or prebuilt ones (PDFium, AccessKit) are fetched at build time by CMake from pinned releases with checksums. Exhaust itself makes no network requests at run time.
-- AccessKit is built with `cargo` in CI as a static library and wrapped in `src/a11y/`.
+- **All dependencies are vendored** in `third_party/`, with their license files and a pinned version recorded in `third_party/VERSIONS.md`. Builds need no downloads. For AccessKit, commit its Rust sources with `cargo vendor`; for PDFium, commit the prebuilt binaries for each OS. Exhaust itself makes no network requests at run time.
+- AccessKit is built offline from the vendored sources with `cargo` as a static library and wrapped in `src/a11y/`.
 - Files in `.exhaust`: `settings.ini`, `index.db`, `themes/*.theme`, `snippets/*.style`, `workspaces.ini`, `hotkeys.ini`, `plugins/`.
 - Plugins use Lua and Exhaust's own API; Obsidian plugins are not compatible and need not be.
 - Spell check uses Exhaust's own dictionary checker with Hunspell-format word lists, on all three OSes.
