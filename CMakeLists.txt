@@ -243,7 +243,10 @@ endif()
 
 add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/ui.c src/ui/panes.c ${THEME_C})
 target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
-target_link_libraries(exhaust_ui PUBLIC exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace clay_impl m)
+target_link_libraries(exhaust_ui PUBLIC exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace clay_impl)
+if(NOT MSVC)
+  target_link_libraries(exhaust_ui PUBLIC m)
+endif()
 
 add_executable(exhaust src/main.c)
 target_link_libraries(exhaust PRIVATE exhaust_core exhaust_render exhaust_ui exhaust_notes)
@@ -344,7 +347,10 @@ target_link_libraries(test_keyboard_nav PRIVATE exhaust_ui)
 add_test(NAME keyboard_nav COMMAND test_keyboard_nav ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/focus_order.txt)
 
 add_executable(test_workspace_layout tests/test_workspace_layout.c)
-target_link_libraries(test_workspace_layout PRIVATE exhaust_workspace m)
+target_link_libraries(test_workspace_layout PRIVATE exhaust_workspace)
+if(NOT MSVC)
+  target_link_libraries(test_workspace_layout PRIVATE m)
+endif()
 add_test(NAME workspace_layout COMMAND test_workspace_layout layout)
 add_test(NAME session_restore COMMAND test_workspace_layout session)
 
