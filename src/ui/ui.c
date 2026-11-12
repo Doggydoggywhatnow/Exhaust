@@ -616,6 +616,7 @@ void ex_ui_key(ExUi *ui, ExKey key, int mods) {
     ExWidget *f = ui->focus;
     int in_editor = f && f->type == EX_WIDGET_EDITOR && f->editor;
     int shift = (mods & EX_MOD_SHIFT) != 0, prim = (mods & EX_MOD_PRIMARY) != 0;
+    if (f && f->on_key && f->on_key(f, key, mods, f->on_key_user)) return;
     if (key == EX_KEY_TAB && (!in_editor || prim || ui->tab_leaves_editor)) {
         ex_ui_focus_move(ui, shift ? -1 : 1);
         return;

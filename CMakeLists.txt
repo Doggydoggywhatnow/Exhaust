@@ -192,12 +192,17 @@ add_library(exhaust_notes STATIC src/notes/note_codec.c src/notes/diff.c src/not
 target_include_directories(exhaust_notes PUBLIC include)
 target_link_libraries(exhaust_notes PUBLIC exhaust_vault exhaust_buffer exhaust_platform)
 
-add_library(exhaust_workspace STATIC src/workspace/workspace.c src/workspace/session.c src/util/ini.c)
+add_library(exhaust_ini STATIC src/util/ini.c)
+target_include_directories(exhaust_ini PUBLIC include)
+
+add_library(exhaust_workspace STATIC src/workspace/workspace.c src/workspace/session.c)
 target_include_directories(exhaust_workspace PUBLIC include)
-target_link_libraries(exhaust_workspace PUBLIC exhaust_vault exhaust_buffer exhaust_platform SDL3::SDL3-static)
+target_link_libraries(exhaust_workspace PUBLIC exhaust_ini exhaust_vault exhaust_buffer exhaust_platform SDL3::SDL3-static)
 
 # ---- Settings: the table of known keys is generated from docs/formats.md ----
 add_executable(gen_tables tools/gen_tables.c)
+add_executable(gen_vault tools/gen_vault.c)
+target_link_libraries(gen_vault PRIVATE exhaust_platform)
 set(SETTINGS_SCHEMA_C ${CMAKE_CURRENT_BINARY_DIR}/settings_schema.c)
 set(COMMAND_TABLE_C ${CMAKE_CURRENT_BINARY_DIR}/command_table.c)
 add_custom_command(
@@ -209,9 +214,9 @@ add_library(exhaust_settings STATIC src/settings/settings.c src/settings/registr
 target_include_directories(exhaust_settings PUBLIC include)
 target_link_libraries(exhaust_settings PUBLIC exhaust_workspace exhaust_buffer exhaust_platform SDL3::SDL3-static)
 
-add_library(exhaust_vault STATIC src/vault/vault.c src/vault/registry.c)
+add_library(exhaust_vault STATIC src/vault/vault.c src/vault/registry.c src/vault/manager.c)
 target_include_directories(exhaust_vault PUBLIC include)
-target_link_libraries(exhaust_vault PUBLIC exhaust_platform exhaust_buffer)
+target_link_libraries(exhaust_vault PUBLIC exhaust_platform exhaust_buffer exhaust_ini)
 
 add_library(exhaust_platform STATIC src/platform/paths.c src/platform/input.c src/platform/files.c src/platform/integration.c)
 target_include_directories(exhaust_platform PUBLIC include)
@@ -254,7 +259,7 @@ if(EXHAUST_A11Y)
   target_link_libraries(exhaust_a11y PUBLIC accesskit)
 endif()
 
-add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/ui.c src/ui/panes.c ${THEME_C})
+add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/ui.c src/ui/panes.c src/ui/vault_screen.c ${THEME_C})
 target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
 target_link_libraries(exhaust_ui PUBLIC exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace clay_impl)
 if(NOT MSVC)
@@ -388,6 +393,15 @@ add_test(NAME registry COMMAND test_registry)
 add_executable(test_integration tests/test_integration.c)
 target_link_libraries(test_integration PRIVATE exhaust_platform)
 add_test(NAME platform_integration COMMAND test_integration)
+
+add_executable(test_gen_vault tests/test_gen_vault.c)
+target_link_libraries(test_gen_vault PRIVATE exhaust_platform)
+add_dependencies(test_gen_vault gen_vault)
+add_test(NAME gen_vault COMMAND test_gen_vault $<TARGET_FILE:gen_vault>)
+
+add_executable(test_vault_manager tests/test_vault_manager.c)
+target_link_libraries(test_vault_manager PRIVATE exhaust_ui)
+add_test(NAME vault_manager COMMAND test_vault_manager)
 
 add_executable(settings_child tests/settings_child.c)
 target_link_libraries(settings_child PRIVATE exhaust_settings)

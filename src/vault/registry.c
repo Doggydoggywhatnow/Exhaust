@@ -225,13 +225,17 @@ const char *ex_registry_add(ExRegistry *r, const char *folder) {
 int ex_registry_remove(ExRegistry *r, const char *id) {
     Section *s = by_id(r, id), *last;
     size_t i;
+    char *keep;
     if (!s) return -1;
+    keep = dup_str(id);                 /* id may point into the section that is freed below */
+    if (!keep) return -1;
     i = (size_t)(s - r->sec);
     free_section(s);
     memmove(r->sec + i, r->sec + i + 1, (r->n - i - 1) * sizeof *r->sec);
     r->n--;
     last = find_section(r, "vaults");
-    if (last && get(last, "last") && strcmp(get(last, "last"), id) == 0) set(last, "last", "");
+    if (last && get(last, "last") && strcmp(get(last, "last"), keep) == 0) set(last, "last", "");
+    free(keep);
     return 0;
 }
 

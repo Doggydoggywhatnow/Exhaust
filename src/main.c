@@ -19,6 +19,8 @@
 #include "exhaust_theme.h"
 #include "exhaust_ui.h"
 #include "exhaust_vault.h"
+#include "exhaust_vaultmgr.h"
+#include "exhaust_vaultscreen.h"
 #include "exhaust_worker.h"
 #include "exhaust_workspace.h"
 
@@ -320,6 +322,8 @@ static void on_toggle_right(ExWidget *w, void *user) { (void)w; ex_commands_run(
 static void cmd_toggle_left(void *u) { toggle_side(u, EX_SIDE_LEFT); }
 static void cmd_toggle_right(void *u) { toggle_side(u, EX_SIDE_RIGHT); }
 static void cmd_change_theme(void *u) { on_toggle_theme(NULL, u); }   /* until the picker exists: switches light and dark */
+static void spawn_self(const char *arg);
+static void cmd_change_vault(void *u) { (void)u; spawn_self("--vaults"); }
 static void cmd_new_note(void *u) { on_new_note(NULL, "", u); }
 static int has_notes(void *u) { return ((App *)u)->notes != NULL && ((App *)u)->vault != NULL; }
 static void cmd_close_tab(void *u) {
@@ -343,6 +347,7 @@ static void register_features_and_commands(App *a) {
     ex_commands_bind(a->commands, "app.toggle-left-sidebar", cmd_toggle_left, NULL, a);
     ex_commands_bind(a->commands, "app.toggle-right-sidebar", cmd_toggle_right, NULL, a);
     ex_commands_bind(a->commands, "app.change-theme", cmd_change_theme, NULL, a);
+    ex_commands_bind(a->commands, "app.change-vault", cmd_change_vault, NULL, a);
     ex_commands_bind(a->commands, "app.create-new-note", cmd_new_note, has_notes, a);
     ex_commands_bind(a->commands, "app.close-current-tab", cmd_close_tab, has_tab, a);
 }
@@ -456,6 +461,144 @@ static ExWidget *ribbon_button(App *a, const char *text, const char *name, ExCli
     return b;
 }
 
+/* ---- the vault manager window and opening vaults ---- */
+
+static const char *g_exe = "exhaust";
+static char *g_first_folder;           /* the vault used last, when started without an argument */
+static Uint32 g_picked_event;
+
+/* Starts another Exhaust: a vault opens in its own window, the manager is its own small window. */
+static void spawn_self(const char *arg) {
+    const char *args[3];
+    SDL_Process *p;
+    args[0] = g_exe; args[1] = arg; args[2] = NULL;
+    p = SDL_CreateProcess(args, false);
+    if (p) SDL_DestroyProcess(p);                 /* does not stop it */
+    else fprintf(stderr, "exhaust: cannot start %s: %s\n", g_exe, SDL_GetError());
+}
+
+typedef struct PickRequest { ExPickPurpose purpose; char vault_id[48]; } PickRequest;
+
+static void SDLCALL on_folder_dialog(void *userdata, const char *const *filelist, int filter) {
+    PickRequest *req = userdata;
+    (void)filter;
+    if (filelist && filelist[0]) {                /* cancelled or failed: nothing to do */
+        SDL_Event e;
+        char *path = malloc(strlen(filelist[0]) + 1), *id = req->vault_id[0] ? malloc(strlen(req->vault_id) + 1) : NULL;
+        if (path) {
+            strcpy(path, filelist[0]);
+            if (id) strcpy(id, req->vault_id);
+            SDL_zero(e);
+            e.type = g_picked_event;
+            e.user.code = (Sint32)req->purpose;
+            e.user.data1 = path;
+            e.user.data2 = id;
+            if (!SDL_PushEvent(&e)) { free(path); free(id); }
+        }
+    }
+    free(req);
+}
+
+typedef struct ManagerApp { SDL_Window *window; int quit; } ManagerApp;
+
+static void manager_pick(void *user, ExPickPurpose purpose, const char *vault_id) {
+    ManagerApp *m = user;
+    PickRequest *req = calloc(1, sizeof *req);
+    if (!req) return;
+    req->purpose = purpose;
+    if (vault_id) snprintf(req->vault_id, sizeof req->vault_id, "%s", vault_id);
+    SDL_ShowOpenFolderDialog(on_folder_dialog, req, m->window, NULL, false);
+}
+
+static void manager_open(void *user, const char *folder) {
+    ManagerApp *m = user;
+    spawn_self(folder);
+    m->quit = 1;                                  /* the manager has done its job */
+}
+
+static int run_vault_manager(void) {
+    ExRenderer *r;
+    ExTheme theme;
+    ExUi *ui;
+    ExVaultManager *mgr;
+    ExVaultScreen *screen;
+    ExVaultScreenHooks hooks;
+    ManagerApp ma;
+    ExSettings *settings;
+    SDL_Event e;
+    int clicks = 0;
+    Uint64 last_click = 0;
+    char *cfg = ex_platform_config_dir();
+    int dark = 1;
+
+    settings = ex_settings_open(NULL, cfg);
+    free(cfg);
+    r = ex_renderer_create("Exhaust: vaults", 960, 600);
+    if (!r) { fprintf(stderr, "exhaust: cannot open a window: %s\n", ex_render_error()); ex_settings_close(settings); return 1; }
+    if (settings) {
+        const char *scheme = ex_settings_get(settings, "appearance", "color_scheme");
+        dark = strcmp(scheme, "light") != 0;
+        if (strcmp(scheme, "system") == 0) dark = SDL_GetSystemTheme() != SDL_SYSTEM_THEME_LIGHT;
+    }
+    if (ex_theme_init_builtin(&theme, dark ? EX_THEME_DARK : EX_THEME_LIGHT) != 0) return 1;
+    ex_renderer_set_display_scale(r, ex_renderer_detect_display_scale(r));
+    ui = ex_ui_create(r, &theme, 16.0f);
+    mgr = ex_vaultmgr_create(NULL, NULL);
+    memset(&ma, 0, sizeof ma);
+    ma.window = ex_renderer_window(r);
+    memset(&hooks, 0, sizeof hooks);
+    hooks.pick_folder = manager_pick;
+    hooks.open_vault = manager_open;
+    screen = mgr ? ex_vaultscreen_create(ui, mgr, &hooks, &ma, exhaust_version()) : NULL;
+    if (!screen) { fprintf(stderr, "exhaust: cannot read the list of vaults\n"); return 1; }
+    g_picked_event = SDL_RegisterEvents(1);
+    ex_text_input_start(ex_renderer_window(r));
+    while (!ma.quit) {
+        ExTextEvent te;
+        ExKey key;
+        int mods, w, h;
+        if (SDL_WaitEventTimeout(&e, 100)) {
+            if (e.type == SDL_EVENT_QUIT) break;
+            if (e.type == g_picked_event) {
+                ex_vaultscreen_folder_chosen(screen, (ExPickPurpose)e.user.code, (const char *)e.user.data2, (const char *)e.user.data1);
+                free(e.user.data1);
+                free(e.user.data2);
+            } else if (ex_text_event_decode(&e, &te)) {
+                if (te.kind == EX_TEXT_COMMIT) ex_ui_text_input(ui, te.text, strlen(te.text));
+            } else if (ex_key_from_sdl(&e, &key, &mods)) {
+                ex_ui_key(ui, key, mods);
+            } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN || e.type == SDL_EVENT_MOUSE_BUTTON_UP || e.type == SDL_EVENT_MOUSE_MOTION) {
+                float density = SDL_GetWindowPixelDensity(ex_renderer_window(r));
+                float x = (e.type == SDL_EVENT_MOUSE_MOTION ? e.motion.x : e.button.x) * density, y = (e.type == SDL_EVENT_MOUSE_MOTION ? e.motion.y : e.button.y) * density;
+                if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+                    Uint64 now = SDL_GetTicks();
+                    clicks = now - last_click < 400 ? clicks + 1 : 1;
+                    last_click = now;
+                    ex_ui_mouse(ui, ex_vaultscreen_root(screen), EX_MOUSE_DOWN, x, y, ex_mods_from_sdl(), clicks);
+                } else if (e.type == SDL_EVENT_MOUSE_BUTTON_UP) ex_ui_mouse(ui, ex_vaultscreen_root(screen), EX_MOUSE_UP, x, y, ex_mods_from_sdl(), clicks);
+                else if (e.motion.state & SDL_BUTTON_LMASK) ex_ui_mouse(ui, ex_vaultscreen_root(screen), EX_MOUSE_DRAG, x, y, ex_mods_from_sdl(), clicks);
+            } else if (e.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED) {
+                ex_renderer_set_display_scale(r, ex_renderer_detect_display_scale(r));
+            }
+        }
+        ex_vaultscreen_update(screen);
+        ex_renderer_size(r, &w, &h);
+        ex_ui_layout(ui, ex_vaultscreen_root(screen), (float)w, (float)h);
+        ex_renderer_clear(r, ex_theme_color(&theme, EX_COLOR_BACKGROUND));
+        ex_ui_draw(ui, ex_vaultscreen_root(screen), 1);
+        ex_renderer_present(r);
+    }
+    ex_vaultscreen_free(screen);
+    ex_vaultmgr_free(mgr);
+    ex_settings_close(settings);
+    ex_ui_free(ui);
+    ex_theme_free(&theme);
+    ex_renderer_destroy(r);
+    return 0;
+}
+
+static void on_vault_button(ExWidget *w, void *user) { (void)w; (void)user; spawn_self("--vaults"); }
+
 int main(int argc, char **argv) {
     App app;
     SDL_Event e;
@@ -475,15 +618,39 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (argc > 1 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
-        printf("Usage: exhaust [FOLDER]\n  FOLDER  open this folder of notes as a vault (it is remembered)\n  --version\n");
+        printf("Usage: exhaust [FOLDER | --vaults]\n  FOLDER    open this folder of notes as a vault (it is remembered)\n  --vaults  show the vault manager\n  (no argument) open the vault used last, or show the vault manager\n  --version\n");
         return 0;
+    }
+    if (argc > 0 && argv[0] && argv[0][0]) g_exe = argv[0];
+    {   /* which vault: the folder given, else the one used last; none known (or --vaults): the vault manager */
+        char *last_path = NULL;
+        if (argc > 1 && strcmp(argv[1], "--vaults") == 0) return run_vault_manager();
+        if (argc == 1) {
+            ExRegistry *reg = ex_registry_load(NULL);
+            if (reg) {
+                const char *last = ex_registry_last(reg);
+                ExRegistryEntry en;
+                size_t i;
+                for (i = 0; last && i < ex_registry_count(reg); i++)
+                    if (ex_registry_get(reg, i, &en) == 0 && strcmp(en.id, last) == 0) {
+                        ExPathInfo info;
+                        if (ex_platform_path_info(en.path, &info) == 0 && info.is_dir) { last_path = malloc(strlen(en.path) + 1); if (last_path) strcpy(last_path, en.path); }
+                    }
+                ex_registry_free(reg);
+            }
+            if (!last_path) return run_vault_manager();
+            g_first_folder = last_path;
+        }
     }
     memset(&app, 0, sizeof app);
     app.zoom = 1.0f;
     app.blink_on = 1;
-    if (argc > 1) {
-        app.vault = ex_vault_open(argv[1]);
-        if (!app.vault) fprintf(stderr, "exhaust: cannot open %s as a vault\n", argv[1]);
+    {
+        const char *folder = argc > 1 ? argv[1] : g_first_folder;
+        if (folder) {
+            app.vault = ex_vault_open(folder);
+            if (!app.vault) fprintf(stderr, "exhaust: cannot open %s as a vault\n", folder);
+        }
     }
     {   /* settings: the vault's .exhaust folder over the global file; reading creates nothing */
         char *cfg = ex_platform_config_dir(), *vcfg = NULL;
@@ -581,6 +748,7 @@ int main(int argc, char **argv) {
     }
     if (app.vault && left_content) ex_explorer_set_new_note_handler(left_content, on_new_note, &app);
     app.left_content = left_content;
+    if (app.vault && left_content) ex_explorer_set_vault_handler(left_content, on_vault_button, &app);
     on_files_feature("files", ex_features_enabled(app.features, "files"), &app);
     app.left_sb = ex_sidebar_create(app.ui, app.ws, EX_SIDE_LEFT, left_content, "Left sidebar");
     ex_widget_add(row, app.left_sb);
@@ -764,6 +932,7 @@ int main(int argc, char **argv) {
     ex_features_free(app.features);
     ex_settings_close(app.settings);               /* waits for the settings writes that are queued */
     ex_vault_close(app.vault);
+    free(g_first_folder);
     ex_ui_free(app.ui);
     ex_theme_free(&app.theme);
     ex_renderer_destroy(app.r);

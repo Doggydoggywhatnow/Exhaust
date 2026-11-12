@@ -73,6 +73,10 @@ struct ExWidget {
     /* Drop hook for files and text dropped from the desktop onto this widget or a descendant. */
     int (*on_drop)(ExWidget *w, int is_file, const char *data, float x, float y, void *user);
     void *on_drop_user;
+    /* Key hook: the focused widget sees every key first; returning non-zero takes it (a text field uses
+     * it for Enter and Escape). */
+    int (*on_key)(ExWidget *w, ExKey key, int mods, void *user);
+    void *on_key_user;
     uint32_t tag;                 /* for the application: the pane or tab id a widget stands for */
     int selected;                 /* drawn as the current item (an active tab) */
     void *owned;                  /* anything the widget owns besides itself; freed with it */
@@ -114,6 +118,8 @@ void ex_widget_remove(ExWidget *parent, ExWidget *child);   /* unlinks it; the c
 /* The New note button creates no file: it asks the application (which starts a note that is
  * only written once something is typed). Without a handler the button creates an empty file. */
 void ex_explorer_set_new_note_handler(ExWidget *sidebar, void (*fn)(ExWidget *w, const char *parent_rel, void *user), void *user);
+/* The vault button at the bottom of the explorer calls this (the application opens the vault manager). */
+void ex_explorer_set_vault_handler(ExWidget *sidebar, void (*fn)(ExWidget *w, void *user), void *user);
 void ex_widget_add(ExWidget *parent, ExWidget *child);
 void ex_widget_set_text(ExWidget *w, const char *text);
 void ex_widget_free(ExWidget *root); /* frees the tree; editors are freed with it, documents are not */

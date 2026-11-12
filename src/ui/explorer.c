@@ -13,6 +13,8 @@ typedef struct Explorer {
     void *user;
     void (*on_new)(ExWidget *w, const char *parent_rel, void *user);
     void *new_user;
+    void (*on_vault)(ExWidget *w, void *user);   /* the vault button at the bottom */
+    void *vault_user;
 } Explorer;
 
 static void free_explorer(void *p) { free(p); }
@@ -52,6 +54,11 @@ static void new_item(ExWidget *button, void *user, int folder) {
         free(rel);
     }
     free(dir);
+}
+
+static void on_vault_button(ExWidget *w, void *u) {
+    Explorer *e = u;
+    if (e->on_vault) e->on_vault(w, e->vault_user);
 }
 
 static void on_new_note(ExWidget *w, void *u) { new_item(w, u, 0); }
@@ -117,7 +124,7 @@ ExWidget *ex_explorer_sidebar(ExUi *ui, ExVault *vault, void (*on_open)(ExWidget
     vault_row->width = ex_size_grow();
     vault_row->pad_x = 0.75f; vault_row->pad_y = 0.5f;
     snprintf(label, sizeof label, "%s", ex_vault_name(vault));
-    vault_button = ex_widget_button(ui, label, NULL, NULL);   /* switching vaults arrives with the vault manager (2e) */
+    vault_button = ex_widget_button(ui, label, on_vault_button, e);   /* opens the vault manager (the application decides how) */
     vault_button->bg_token = -1; vault_button->border_token = -1;
     vault_button->name = realloc(vault_button->name, strlen(label) + 32);
     if (vault_button->name) snprintf(vault_button->name, strlen(label) + 32, "Vault: %s", label);
@@ -133,4 +140,11 @@ void ex_explorer_set_new_note_handler(ExWidget *sidebar, void (*fn)(ExWidget *w,
     if (!e) return;
     e->on_new = fn;
     e->new_user = user;
+}
+
+void ex_explorer_set_vault_handler(ExWidget *sidebar, void (*fn)(ExWidget *w, void *user), void *user) {
+    Explorer *e = sidebar ? sidebar->owned : NULL;
+    if (!e) return;
+    e->on_vault = fn;
+    e->vault_user = user;
 }
