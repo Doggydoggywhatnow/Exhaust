@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include <SDL3/SDL.h>
 
@@ -11,6 +12,7 @@
 #include "exhaust_render.h"
 #include "exhaust_theme.h"
 #include "exhaust_ui.h"
+#include "exhaust_vault.h"
 #include "exhaust_worker.h"
 
 /* The system font scan runs on a worker thread and hands its result to the UI
@@ -38,6 +40,8 @@ typedef struct App {
     ExTheme theme;
     ExWidget *root, *editor;
     ExDoc *doc;
+    ExVault *vault;
+    ExWidget *tree, *status;
     int blink_on;
     float zoom;
 } App;
@@ -49,6 +53,35 @@ static void relayout_and_draw(App *a) {
     ex_renderer_clear(a->r, ex_theme_color(&a->theme, EX_COLOR_BACKGROUND));
     ex_ui_draw(a->ui, a->root, a->blink_on);
     ex_renderer_present(a->r);
+}
+
+/* Opens a file from the explorer in the editor. READ-ONLY: notes are not saved until
+ * sub-slice 2b (autosave and the recovery journal), so nothing typed could be kept. */
+static void on_open_file(ExWidget *w, const char *rel, void *user) {
+    App *a = user;
+    char *abs = ex_vault_abs_path(a->vault, rel), *text = NULL;
+    size_t len = 0;
+    (void)w;
+    if (!abs) return;
+    {
+        ExPathInfo info;
+        if (ex_platform_path_info(abs, &info) == 0 && info.size <= 16 * 1024 * 1024) text = ex_platform_read_file(abs, &len);
+    }
+    if (text) {
+        ExDoc *doc = ex_doc_create(text, len);
+        if (doc) {
+            char msg[400];
+            ex_editor_set_doc(a->editor->editor, doc);
+            ex_editor_set_readonly(a->editor->editor, 1);
+            ex_doc_free(a->doc);
+            a->doc = doc;
+            snprintf(msg, sizeof msg, "%s: read-only preview (saving notes arrives in sub-slice 2b)", rel);
+            ex_widget_set_text(a->status, msg);
+            ex_ui_set_focus(a->ui, a->editor);
+        }
+        free(text);
+    }
+    free(abs);
 }
 
 static void on_toggle_theme(ExWidget *w, void *user) {
@@ -77,6 +110,10 @@ int main(int argc, char **argv) {
         printf("Exhaust %s\n", exhaust_version());
         return 0;
     }
+    if (argc > 1 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
+        printf("Usage: exhaust [FOLDER]\n  FOLDER  open this folder of notes as a vault (it is remembered)\n  --version\n");
+        return 0;
+    }
     memset(&app, 0, sizeof app);
     app.zoom = 1.0f;
     app.blink_on = 1;
@@ -90,6 +127,23 @@ int main(int argc, char **argv) {
     app.ui = ex_ui_create(app.r, &app.theme, 16.0f);
     app.doc = ex_doc_create(intro, strlen(intro));
     app.root = ex_sample_window(app.ui, app.doc, on_toggle_theme, &app, &app.editor);
+    app.status = app.root->last_child;
+    if (argc > 1) {
+        app.vault = ex_vault_open(argv[1]);
+        if (!app.vault) fprintf(stderr, "exhaust: cannot open %s as a vault\n", argv[1]);
+    }
+    if (app.vault) {
+        ExRegistry *reg = ex_registry_load(NULL);
+        ExWidget *side = ex_explorer_sidebar(app.ui, app.vault, on_open_file, &app, &app.tree);
+        if (reg) { /* remember the vault, and which one was opened last */
+            const char *id = ex_registry_add(reg, ex_vault_path(app.vault));
+            if (id) ex_registry_touch(reg, id, (int64_t)time(NULL));
+            ex_registry_save(reg);
+            ex_registry_free(reg);
+        }
+        if (side) ex_widget_insert_before(app.root->first_child, side, app.editor);
+        ex_editor_set_readonly(app.editor->editor, 1);
+    }
     ex_ui_set_focus(app.ui, app.editor);
 
     g_wake_event = SDL_RegisterEvents(1);
@@ -173,6 +227,7 @@ int main(int argc, char **argv) {
     ex_queue_destroy(results);
     ex_widget_free(app.root);
     ex_doc_free(app.doc);
+    ex_vault_close(app.vault);
     ex_ui_free(app.ui);
     ex_theme_free(&app.theme);
     ex_renderer_destroy(app.r);

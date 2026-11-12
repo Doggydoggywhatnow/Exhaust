@@ -66,6 +66,7 @@ void ex_renderer_present(ExRenderer *r);
  * its bounds. radius is clamped to half the shorter side. */
 void ex_fill_round_rect(ExRenderer *r, float x, float y, float w, float h, float radius, ExColor c);
 void ex_stroke_round_rect(ExRenderer *r, float x, float y, float w, float h, float radius, float thickness, ExColor c);
+void ex_fill_triangle(ExRenderer *r, float x1, float y1, float x2, float y2, float x3, float y3, ExColor c);
 /* Clips drawing to a rectangle until the next call; w < 0 removes the clip. */
 void ex_set_clip(ExRenderer *r, int x, int y, int w, int h);
 

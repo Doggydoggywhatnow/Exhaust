@@ -38,6 +38,7 @@ struct ExEditor {
     size_t drag_anchor;
     int dragging;
     unsigned long caret_dirty;
+    int readonly;
 };
 
 /* ---- clipboard default ---- */
@@ -70,6 +71,18 @@ void ex_editor_free(ExEditor *e) {
 }
 
 ExDoc *ex_editor_doc(ExEditor *e) { return e->doc; }
+void ex_editor_set_readonly(ExEditor *e, int readonly) { e->readonly = readonly != 0; }
+int ex_editor_readonly(const ExEditor *e) { return e->readonly; }
+void ex_editor_set_doc(ExEditor *e, ExDoc *doc) {
+    clear_cache(e);
+    e->doc = doc;
+    e->scroll_y = 0;
+    e->composition[0] = 0;
+    e->last_vertical = 0;
+    free(e->goal);
+    e->goal = NULL;
+    e->ngoal = 0;
+}
 void ex_editor_set_clipboard(ExEditor *e, const ExClipboard *cb) { e->clip = *cb; }
 
 void ex_editor_set_font(ExEditor *e, ExFont *font, float size, int line_height_pct) {
@@ -374,6 +387,7 @@ static void delete_ranges(ExEditor *e, ExRenderer *r, Range *rg, size_t n) {
 
 static void backspace_or_delete(ExEditor *e, ExRenderer *r, int forward, int word) {
     size_t n = ex_doc_sel_count(e->doc), i;
+    if (e->readonly) return;
     Range *rg = malloc((n ? n : 1) * sizeof *rg);
     if (!rg) return;
     for (i = 0; i < n; i++) {
@@ -387,7 +401,7 @@ static void backspace_or_delete(ExEditor *e, ExRenderer *r, int forward, int wor
 }
 
 void ex_editor_text_input(ExEditor *e, const char *text, size_t len) {
-    if (len == 0) return;
+    if (len == 0 || e->readonly) return;
     e->composition[0] = 0;
     ex_doc_replace_selections(e->doc, text, len, 1);
     e->last_vertical = 0;
@@ -418,7 +432,9 @@ char *ex_editor_selected_text(ExEditor *e, size_t *len) {
 }
 
 static void paste(ExEditor *e) {
-    char *text = e->clip.get ? e->clip.get(e->clip.user) : NULL;
+    char *text;
+    if (e->readonly) return;
+    text = e->clip.get ? e->clip.get(e->clip.user) : NULL;
     size_t n = ex_doc_sel_count(e->doc), lines = 1, i, len;
     if (!text) return;
     len = strlen(text);
@@ -491,8 +507,8 @@ void ex_editor_key(ExEditor *e, ExRenderer *r, ExKey key, int mods) {
         break;
     }
     case EX_KEY_A: if (prim) { ExSel s; s.anchor = 0; s.head = ex_buffer_size(buf(e)); ex_doc_set_selections(e->doc, &s, 1); sync_goal(e, 1); } break;
-    case EX_KEY_Z: if (prim) { if (shift) ex_doc_redo(e->doc); else ex_doc_undo(e->doc); ensure_visible(e, r); } break;
-    case EX_KEY_Y: if (prim) { ex_doc_redo(e->doc); ensure_visible(e, r); } break;
+    case EX_KEY_Z: if (prim && !e->readonly) { if (shift) ex_doc_redo(e->doc); else ex_doc_undo(e->doc); ensure_visible(e, r); } break;
+    case EX_KEY_Y: if (prim && !e->readonly) { ex_doc_redo(e->doc); ensure_visible(e, r); } break;
     case EX_KEY_C:
     case EX_KEY_X:
         if (prim) {
@@ -500,7 +516,7 @@ void ex_editor_key(ExEditor *e, ExRenderer *r, ExKey key, int mods) {
             char *t = ex_editor_selected_text(e, &len);
             if (t && len > 0 && e->clip.set) {
                 e->clip.set(e->clip.user, t);
-                if (key == EX_KEY_X) backspace_or_delete(e, r, 0, 0);
+                if (key == EX_KEY_X && !e->readonly) backspace_or_delete(e, r, 0, 0);
             }
             free(t);
         }

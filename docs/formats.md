@@ -976,3 +976,23 @@ Copied as facts (key combinations) from the Obsidian Help page "Editing shortcut
 *Since 0.1.0. A cache, not user data: it may be deleted at any time and is rebuilt by scanning the OS font folders.* `fonts.cache` in the OS cache folder (`<cache>/Exhaust/`, see the cache folder table of the platform layer: `$XDG_CACHE_HOME` or `~/.cache` on Linux, `%LOCALAPPDATA%\Exhaust\Cache` on Windows, `~/Library/Caches` on macOS). It is not stored in the vault.
 
 Plain text, written atomically. Line 1 is `EXHAUST-FONTS 1` (the format version; a different version is ignored and rescanned). Line 2 is `sig <16 hex digits>`: a hash of the path and modification time of every folder visited under the OS font folders. If the signature of a new walk differs, the cache is ignored. Then one line per font face, with fields separated by tabs: file path, face index, flags (1 bold, 2 italic, 4 monospaced, 8 color), family name, style name, and the coverage as 384 hexadecimal digits (192 bytes: one bit for each page of 128 code points below U+30000; a set bit means the face has at least one glyph in that page). Files with tabs or line breaks in a path or family name are left out.
+
+## vaults.ini
+
+*Since 0.1.0.* The list of vaults Exhaust remembers. One file for the user, in the OS config folder, not in any vault: `<config>/Exhaust/vaults.ini` with `<config>` = `$XDG_CONFIG_HOME` or `~/.config` on Linux, `%APPDATA%` on Windows, `~/Library/Application Support` on macOS. Plain text, INI style, written atomically. Removing a vault from the list never touches its files.
+
+```
+[vaults]
+last = 3f2a...          # id of the vault opened last (empty: none)
+
+[vault.3f2a...]
+path = /home/me/Notes   # canonical absolute path (symbolic links resolved), UTF-8
+name = Notes            # the name shown in the vault list; defaults to the folder's name
+opened = 1731400000     # when it was last opened, seconds since the Unix epoch
+```
+
+The section name carries the vault id: the first 32 hexadecimal digits of the SHA-256 of the canonical absolute path (see "Journal and session state"). When a vault is moved on disk and re-added, it gets a new id and a new section. Unknown keys and sections are kept and written back unchanged.
+
+## Vault folders that Exhaust owns
+
+Inside a vault, `.exhaust` holds Exhaust's own plain-text files (settings, themes, snippets, hotkeys, workspaces, plugins) and `.trash` holds notes deleted with `trash_mode = vault_trash` (the deleted file keeps its path relative to the vault). Both are hidden from the file explorer, search, links and the graph. Other names that start with a dot are hidden from the explorer and never indexed.

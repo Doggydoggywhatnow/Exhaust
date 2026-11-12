@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(exhaust VERSION 0.0.0 LANGUAGES C CXX)
+if(APPLE)
+  enable_language(OBJC) # the macOS trash call (src/platform/trash_mac.m, under 150 lines)
+endif()
 
 
 # ---- Vendored dependencies (third_party/, see third_party/VERSIONS.md) ----
@@ -181,13 +184,23 @@ add_custom_command(OUTPUT ${THEME_C}
 add_library(exhaust_core STATIC src/version.c)
 target_include_directories(exhaust_core PUBLIC include ${CMAKE_CURRENT_BINARY_DIR}/include)
 
-add_library(exhaust_buffer STATIC src/buffer/buffer.c src/buffer/doc.c src/buffer/journal.c src/util/worker.c)
+add_library(exhaust_buffer STATIC src/buffer/buffer.c src/buffer/doc.c src/buffer/journal.c src/util/worker.c src/util/sha256.c)
 target_include_directories(exhaust_buffer PUBLIC include)
 target_link_libraries(exhaust_buffer PUBLIC SDL3::SDL3-static)
 
-add_library(exhaust_platform STATIC src/platform/paths.c src/platform/input.c)
+add_library(exhaust_vault STATIC src/vault/vault.c src/vault/registry.c)
+target_include_directories(exhaust_vault PUBLIC include)
+target_link_libraries(exhaust_vault PUBLIC exhaust_platform exhaust_buffer)
+
+add_library(exhaust_platform STATIC src/platform/paths.c src/platform/input.c src/platform/files.c)
 target_include_directories(exhaust_platform PUBLIC include)
 target_link_libraries(exhaust_platform PUBLIC SDL3::SDL3-static)
+if(APPLE)
+  target_sources(exhaust_platform PRIVATE src/platform/trash_mac.m)
+  target_link_libraries(exhaust_platform PUBLIC "-framework Foundation")
+elseif(WIN32)
+  target_link_libraries(exhaust_platform PUBLIC shell32)
+endif()
 
 # UTF-8 and grapheme clusters: no dependencies, so the fuzz targets can link just this.
 add_library(exhaust_unicode STATIC src/text/utf8.c src/text/grapheme.c src/text/grapheme_data.c)
@@ -220,9 +233,9 @@ if(EXHAUST_A11Y)
   target_link_libraries(exhaust_a11y PUBLIC accesskit)
 endif()
 
-add_library(exhaust_ui STATIC src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/ui.c ${THEME_C})
+add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/ui.c ${THEME_C})
 target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
-target_link_libraries(exhaust_ui PUBLIC exhaust_render exhaust_buffer exhaust_a11y clay_impl)
+target_link_libraries(exhaust_ui PUBLIC exhaust_render exhaust_buffer exhaust_vault exhaust_a11y clay_impl)
 
 add_executable(exhaust src/main.c)
 target_link_libraries(exhaust PRIVATE exhaust_core exhaust_render exhaust_ui)
@@ -321,6 +334,14 @@ add_test(NAME a11y_dump COMMAND test_a11y_dump ${CMAKE_CURRENT_SOURCE_DIR}/tests
 add_executable(test_keyboard_nav tests/test_keyboard_nav.c)
 target_link_libraries(test_keyboard_nav PRIVATE exhaust_ui)
 add_test(NAME keyboard_nav COMMAND test_keyboard_nav ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/focus_order.txt)
+
+add_executable(test_vault_tree tests/test_vault_tree.c)
+target_link_libraries(test_vault_tree PRIVATE exhaust_vault)
+add_test(NAME vault_tree COMMAND test_vault_tree)
+
+add_executable(test_explorer tests/test_explorer.c)
+target_link_libraries(test_explorer PRIVATE exhaust_ui)
+add_test(NAME explorer COMMAND test_explorer)
 
 add_executable(test_shaping tests/test_shaping.c)
 target_link_libraries(test_shaping PRIVATE exhaust_text)

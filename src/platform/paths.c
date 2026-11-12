@@ -145,7 +145,7 @@ static SDL_EnumerationResult collect(void *ud, const char *dirname, const char *
 
 static int cmp_names(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
 
-static int walk_dir(const char *dir, ExWalkFn fn, void *user) {
+static int walk_dir(const char *dir, ExWalkFn fn, void *user, int depth) {
     Names nm = {0};
     int i, stop = 0;
     if (!SDL_EnumerateDirectory(dir, collect, &nm)) {
@@ -153,7 +153,7 @@ static int walk_dir(const char *dir, ExWalkFn fn, void *user) {
         free(nm.v);
         return -1;
     }
-    qsort(nm.v, (size_t)nm.n, sizeof *nm.v, cmp_names);
+    if (nm.n > 1) qsort(nm.v, (size_t)nm.n, sizeof *nm.v, cmp_names); /* nm.v is NULL for an empty folder */
     for (i = 0; i < nm.n && !stop; i++) {
         char *full = join(dir, nm.v[i]);
         SDL_PathInfo info;
@@ -162,7 +162,7 @@ static int walk_dir(const char *dir, ExWalkFn fn, void *user) {
             int is_dir = info.type == SDL_PATHTYPE_DIRECTORY;
             if (info.type == SDL_PATHTYPE_DIRECTORY || info.type == SDL_PATHTYPE_FILE) {
                 stop = fn(full, is_dir, (int64_t)info.modify_time, user);
-                if (!stop && is_dir) stop = walk_dir(full, fn, user) == -2;
+                if (!stop && is_dir && depth < 24) stop = walk_dir(full, fn, user, depth + 1) == -2; /* the depth limit also ends symbolic link loops */
             }
         }
         free(full);
@@ -177,7 +177,7 @@ int ex_platform_walk(const char *dir, ExWalkFn fn, void *user) {
     int r;
     if (!SDL_GetPathInfo(dir, &info) || info.type != SDL_PATHTYPE_DIRECTORY) return -1;
     if (fn(dir, 1, (int64_t)info.modify_time, user)) return 0;
-    r = walk_dir(dir, fn, user);
+    r = walk_dir(dir, fn, user, 0);
     return r == -1 ? -1 : 0;
 }
 

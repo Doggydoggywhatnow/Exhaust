@@ -9,6 +9,7 @@ static ExA11yRole role_of(const ExWidget *w) {
     case EX_ROLE_LABEL: return EX_A11Y_LABEL;
     case EX_ROLE_BUTTON: return EX_A11Y_BUTTON;
     case EX_ROLE_TEXT_INPUT: return EX_A11Y_TEXT_INPUT;
+    case EX_ROLE_TREE: return EX_A11Y_TREE;
     default: return EX_A11Y_GROUP;
     }
 }
@@ -28,6 +29,15 @@ static int sync_widget(const ExUi *ui, const ExWidget *w, uint64_t parent, ExA11
         free(text);
     } else {
         ex_a11y_set_value(t, w->id, "");
+    }
+    if (w->type == EX_WIDGET_TREE && w->vault) { /* the visible rows are tree items below the tree */
+        size_t i, rows = ex_vault_row_count(w->vault);
+        for (i = 0; i < rows && i < 65535; i++) {
+            const ExNode *n = ex_vault_row(w->vault, i, NULL);
+            uint64_t id = 0x100000000ull + (uint64_t)w->id * 65536u + i;
+            if (n && ex_a11y_set_node(t, id, w->id, EX_A11Y_TREE_ITEM, n->name) == 0)
+                ex_a11y_set_actions(t, id, EX_A11Y_ACTION_CLICK);
+        }
     }
     (void)ui;
     for (c = w->first_child; c; c = c->next) if (sync_widget(ui, c, w->id, t)) return -1;
@@ -68,7 +78,8 @@ int ex_ui_a11y_sync(ExUi *ui, ExWidget *root, ExA11yTree *t) {
             while (head < qn) {
                 uint64_t id = queue[head++];
                 size_t c;
-                if (!exists(ids, n, id)) { stale[ns++] = id; continue; } /* its subtree goes with it */
+                if (id < 0x100000000ull && !exists(ids, n, id)) { stale[ns++] = id; continue; } /* its subtree goes with it */
+                if (id >= 0x100000000ull) { stale[ns++] = id; continue; }                       /* tree rows are rebuilt below */
                 if (ex_a11y_get(t, id, &info) == 0)
                     for (c = 0; c < info.child_count && qn < queue_cap; c++) queue[qn++] = ex_a11y_child(t, id, c);
             }

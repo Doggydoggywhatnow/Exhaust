@@ -159,6 +159,7 @@ void ex_widget_free(ExWidget *w) {
         ExWidget *n = w->next;
         ex_widget_free(w->first_child);
         ex_editor_free(w->editor);
+        if (w->owned && w->free_owned) w->free_owned(w->owned);
         free(w->name);
         free(w->text);
         free(w);
@@ -170,6 +171,162 @@ size_t ex_widget_count(const ExWidget *w) {
     size_t n = 0;
     for (; w; w = w->next) n += 1 + ex_widget_count(w->first_child);
     return n;
+}
+
+ExWidget *ex_widget_tree(ExUi *ui, ExVault *vault, const char *name,
+                         void (*on_open)(ExWidget *w, const char *rel, void *user), void *user) {
+    ExWidget *w = new_widget(ui, EX_WIDGET_TREE, EX_ROLE_TREE, name);
+    if (!w) return NULL;
+    w->vault = vault;
+    w->on_tree_open = on_open;
+    w->on_tree_open_user = user;
+    w->width = ex_size_grow();
+    w->height = ex_size_grow();
+    w->focusable = 1;
+    w->clip = 1;
+    w->font_token = EX_FONT_TOKEN_INTERFACE;
+    return w;
+}
+
+void ex_widget_insert_before(ExWidget *parent, ExWidget *child, ExWidget *before) {
+    ExWidget *p;
+    child->parent = parent;
+    if (!before) { ex_widget_add(parent, child); return; }
+    if (parent->first_child == before) { child->next = before; parent->first_child = child; return; }
+    for (p = parent->first_child; p && p->next != before; p = p->next) {}
+    if (p) { child->next = before; p->next = child; } else ex_widget_add(parent, child);
+}
+
+const ExNode *ex_tree_selected(ExWidget *w) {
+    if (!w->vault) return NULL;
+    return ex_vault_row(w->vault, w->tree_selected, NULL);
+}
+
+void ex_tree_select_path(ExWidget *w, const char *rel) {
+    long row;
+    if (!w->vault) return;
+    row = ex_vault_reveal(w->vault, rel);
+    if (row >= 0) w->tree_selected = (size_t)row;
+}
+
+static float tree_row_h(ExUi *ui, const ExWidget *w) {
+    ExFontMetrics m;
+    ExFont *f = ex_ui_font(ui, w->font_token, 0);
+    if (ex_text_metrics(ui->r, f, ui->base_size, &m)) return 24.0f;
+    return (float)m.line_height * 1.3f;
+}
+
+static void tree_ensure_visible(ExUi *ui, ExWidget *w) {
+    float rh = tree_row_h(ui, w), top = (float)w->tree_selected * rh, bottom = top + rh;
+    size_t rows = w->vault ? ex_vault_row_count(w->vault) : 0;
+    float total = (float)rows * rh, max_scroll = total > w->h ? total - w->h : 0;
+    if (top < w->tree_scroll) w->tree_scroll = top;
+    else if (bottom > w->tree_scroll + w->h) w->tree_scroll = bottom - w->h;
+    if (w->tree_scroll > max_scroll) w->tree_scroll = max_scroll;
+    if (w->tree_scroll < 0) w->tree_scroll = 0;
+}
+
+static void tree_clamp(ExWidget *w) {
+    size_t rows = w->vault ? ex_vault_row_count(w->vault) : 0;
+    if (rows == 0) w->tree_selected = 0;
+    else if (w->tree_selected >= rows) w->tree_selected = rows - 1;
+}
+
+static void tree_activate(ExWidget *w) {
+    const ExNode *n;
+    tree_clamp(w);
+    n = ex_tree_selected(w);
+    if (!n) return;
+    if (n->is_dir) ex_vault_toggle(w->vault, n->rel);
+    else if (w->on_tree_open) w->on_tree_open(w, n->rel, w->on_tree_open_user);
+}
+
+static void tree_key(ExUi *ui, ExWidget *w, ExKey key) {
+    size_t rows;
+    const ExNode *n;
+    if (!w->vault) return;
+    rows = ex_vault_row_count(w->vault);
+    tree_clamp(w);
+    n = ex_tree_selected(w);
+    switch (key) {
+    case EX_KEY_UP: if (w->tree_selected > 0) w->tree_selected--; break;
+    case EX_KEY_DOWN: if (w->tree_selected + 1 < rows) w->tree_selected++; break;
+    case EX_KEY_HOME: w->tree_selected = 0; break;
+    case EX_KEY_END: if (rows) w->tree_selected = rows - 1; break;
+    case EX_KEY_PAGE_UP: { size_t page = (size_t)(w->h / tree_row_h(ui, w)); w->tree_selected = w->tree_selected > page ? w->tree_selected - page : 0; break; }
+    case EX_KEY_PAGE_DOWN: { size_t page = (size_t)(w->h / tree_row_h(ui, w)); w->tree_selected = w->tree_selected + page < rows ? w->tree_selected + page : (rows ? rows - 1 : 0); break; }
+    case EX_KEY_RIGHT:
+        if (n && n->is_dir && !n->expanded) ex_vault_toggle(w->vault, n->rel);
+        else if (w->tree_selected + 1 < rows && n && n->is_dir) w->tree_selected++;   /* into the folder */
+        break;
+    case EX_KEY_LEFT:
+        if (n && n->is_dir && n->expanded) ex_vault_toggle(w->vault, n->rel);
+        else if (n && n->parent && n->parent->parent) ex_tree_select_path(w, n->parent->rel);   /* to its folder */
+        break;
+    case EX_KEY_ENTER:
+    case EX_KEY_SPACE: tree_activate(w); break;
+    default: break;
+    }
+    tree_clamp(w);
+    tree_ensure_visible(ui, w);
+}
+
+static void tree_mouse(ExUi *ui, ExWidget *w, ExMouse kind, float x, float y, int clicks) {
+    float rh = tree_row_h(ui, w);
+    long row;
+    int depth = 0;
+    const ExNode *n;
+    if (kind != EX_MOUSE_DOWN || !w->vault) return;
+    row = (long)((y - w->y + w->tree_scroll) / rh);
+    if (row < 0 || (size_t)row >= ex_vault_row_count(w->vault)) return;
+    w->tree_selected = (size_t)row;
+    n = ex_vault_row(w->vault, (size_t)row, &depth);
+    if (n && n->is_dir) {
+        float indent = (float)ex_px(ui->r, 16);
+        float chevron_end = w->x + (float)ex_px(ui->r, 8) + (float)depth * indent + indent;
+        if (x < chevron_end || clicks >= 2) ex_vault_toggle(w->vault, n->rel);     /* the chevron, or a double click */
+    } else if (n && clicks >= 2) {
+        tree_activate(w);
+    }
+    tree_clamp(w);
+}
+
+static void tree_draw(ExUi *ui, ExWidget *w) {
+    const ExTheme *t = ui->theme;
+    ExRenderer *r = ui->r;
+    ExFont *f = ex_ui_font(ui, w->font_token, 0);
+    ExFontMetrics m;
+    float rh = tree_row_h(ui, w), indent = (float)ex_px(r, 16), pad = (float)ex_px(r, 8);
+    size_t rows, i, first, last;
+    ExColor text = ex_theme_color(t, EX_COLOR_TEXT), muted = ex_theme_color(t, EX_COLOR_TEXT_MUTED);
+    if (!w->vault || ex_text_metrics(r, f, ui->base_size, &m)) return;
+    rows = ex_vault_row_count(w->vault);
+    tree_clamp(w);
+    first = (size_t)(w->tree_scroll / rh);
+    last = first + (size_t)(w->h / rh) + 1;
+    for (i = first; i <= last && i < rows; i++) {
+        int depth = 0;
+        const ExNode *n = ex_vault_row(w->vault, i, &depth);
+        float y = w->y + (float)i * rh - w->tree_scroll, x = w->x + pad + (float)depth * indent;
+        float cy = y + rh / 2.0f, s = (float)ex_px(r, 3);
+        if (!n) break;
+        if (i == w->tree_selected) {
+            ExColor sel = ex_theme_color(t, ui->focus == w ? EX_COLOR_SELECTION : EX_COLOR_SURFACE_HOVER);
+            ex_fill_round_rect(r, w->x + (float)ex_px(r, 2), y, w->w - (float)ex_px(r, 4), rh, (float)ex_px(r, ex_theme_size(t, EX_SIZE_RADIUS)), sel);
+        }
+        if (n->is_dir) { /* a chevron: pointing right when closed, down when open */
+            ExColor c = muted;
+            float cx = x + indent / 2.0f;
+            if (n->expanded) ex_fill_triangle(r, cx - s, cy - s / 2, cx + s, cy - s / 2, cx, cy + s, c);
+            else ex_fill_triangle(r, cx - s / 2, cy - s, cx - s / 2, cy + s, cx + s, cy, c);
+        }
+        {
+            char label[320];
+            snprintf(label, sizeof label, "%s%s", n->name, n->link_loop ? "  (loop)" : "");
+            ex_text_draw(r, f, ui->base_size, x + indent, y + (rh - (float)m.line_height) / 2.0f, label, strlen(label),
+                         n->excluded || n->link_loop ? muted : text);
+        }
+    }
 }
 
 /* ---- layout ---- */
@@ -320,6 +477,7 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
     if (w->type == EX_WIDGET_EDITOR && w->editor) {
         ex_editor_draw(w->editor, r, t, ui->focus == w, blink_on);
     }
+    if (w->type == EX_WIDGET_TREE) tree_draw(ui, w);
     for (c = w->first_child; c; c = c->next) draw_widget(ui, c, blink_on);
     if (w->clip) ex_set_clip(r, 0, 0, -1, -1);
     if (w->focusable && ui->focus == w) { /* the visible focus ring, drawn last so nothing covers it */
@@ -364,6 +522,7 @@ void ex_ui_mouse(ExUi *ui, ExWidget *root, ExMouse kind, float x, float y, int m
         ui->pressed = NULL;
         if (target == p && p->on_click) p->on_click(p, p->on_click_user);
     }
+    if (target && target->type == EX_WIDGET_TREE) tree_mouse(ui, target, kind, x, y, clicks);
     if (ui->focus && ui->focus->type == EX_WIDGET_EDITOR && ui->focus->editor)
         if (kind == EX_MOUSE_DRAG || kind == EX_MOUSE_UP || (kind == EX_MOUSE_DOWN && target == ui->focus))
             ex_editor_mouse(ui->focus->editor, ui->r, kind, x, y, mods, clicks);
@@ -403,6 +562,7 @@ void ex_ui_key(ExUi *ui, ExKey key, int mods) {
         ex_ui_focus_move(ui, shift ? -1 : 1);
         return;
     }
+    if (f && f->type == EX_WIDGET_TREE) { tree_key(ui, f, key); return; }
     if (in_editor) {
         /* Escape in an editor first collapses several cursors or a selection; with a single
          * caret it arms the next Tab to leave the editor instead of typing a tab */

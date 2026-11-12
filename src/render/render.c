@@ -201,6 +201,17 @@ void ex_stroke_round_rect(ExRenderer *r, float x, float y, float w, float h, flo
     SDL_RenderGeometry(r->renderer, NULL, v, n * 2, idx, n * 6);
 }
 
+void ex_fill_triangle(ExRenderer *r, float x1, float y1, float x2, float y2, float x3, float y3, ExColor c) {
+    SDL_Vertex v[3];
+    int idx[3] = {0, 1, 2};
+    v[0].position.x = x1; v[0].position.y = y1;
+    v[1].position.x = x2; v[1].position.y = y2;
+    v[2].position.x = x3; v[2].position.y = y3;
+    v[0].color = v[1].color = v[2].color = fcolor(c);
+    v[0].tex_coord.x = v[0].tex_coord.y = v[1].tex_coord.x = v[1].tex_coord.y = v[2].tex_coord.x = v[2].tex_coord.y = 0;
+    SDL_RenderGeometry(r->renderer, NULL, v, 3, idx, 3);
+}
+
 void ex_set_clip(ExRenderer *r, int x, int y, int w, int h) {
     if (w < 0) { SDL_SetRenderClipRect(r->renderer, NULL); return; }
     {

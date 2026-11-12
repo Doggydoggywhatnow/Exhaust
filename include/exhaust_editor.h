@@ -41,6 +41,14 @@ typedef struct ExEditor ExEditor;
 ExEditor *ex_editor_create(ExDoc *doc);
 void ex_editor_free(ExEditor *e);
 ExDoc *ex_editor_doc(ExEditor *e);
+/* Shows another document (not owned). Selections of the old one are forgotten. */
+void ex_editor_set_doc(ExEditor *e, ExDoc *doc);
+/* A read-only editor moves, selects and copies but ignores every change. Until notes
+ * are saved (sub-slice 2b) the demo window opens real files this way, so typed text
+ * can never be lost. */
+void ex_editor_set_readonly(ExEditor *e, int readonly);
+int ex_editor_readonly(const ExEditor *e);
+
 /* Defaults to the operating system clipboard. */
 void ex_editor_set_clipboard(ExEditor *e, const ExClipboard *cb);
 

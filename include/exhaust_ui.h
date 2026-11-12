@@ -8,14 +8,15 @@
 
 #include "exhaust_a11y.h"
 #include "exhaust_editor.h"
+#include "exhaust_vault.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef enum ExWidgetType { EX_WIDGET_BOX, EX_WIDGET_LABEL, EX_WIDGET_BUTTON, EX_WIDGET_EDITOR, EX_WIDGET_TYPE_COUNT } ExWidgetType;
+typedef enum ExWidgetType { EX_WIDGET_BOX, EX_WIDGET_LABEL, EX_WIDGET_BUTTON, EX_WIDGET_EDITOR, EX_WIDGET_TREE, EX_WIDGET_TYPE_COUNT } ExWidgetType;
 
-typedef enum ExRole { EX_ROLE_WINDOW, EX_ROLE_GROUP, EX_ROLE_LABEL, EX_ROLE_BUTTON, EX_ROLE_TEXT_INPUT } ExRole;
+typedef enum ExRole { EX_ROLE_WINDOW, EX_ROLE_GROUP, EX_ROLE_LABEL, EX_ROLE_BUTTON, EX_ROLE_TEXT_INPUT, EX_ROLE_TREE } ExRole;
 
 typedef enum ExSizing { EX_SIZING_FIT, EX_SIZING_GROW, EX_SIZING_FIXED, EX_SIZING_PERCENT } ExSizing;
 
@@ -57,6 +58,13 @@ struct ExWidget {
     ExClickFn on_click;
     void *on_click_user;
     ExEditor *editor;             /* EX_WIDGET_EDITOR */
+    ExVault *vault;               /* EX_WIDGET_TREE: the vault whose rows it shows (not owned) */
+    size_t tree_selected;         /* selected row */
+    float tree_scroll;            /* pixels */
+    void (*on_tree_open)(ExWidget *w, const char *rel, void *user); /* Enter or double click on a file */
+    void *on_tree_open_user;
+    void *owned;                  /* anything the widget owns besides itself; freed with it */
+    void (*free_owned)(void *);
 
     /* set by layout: pixels in window coordinates */
     float x, y, w, h;
@@ -78,6 +86,18 @@ ExWidget *ex_widget_box(ExUi *ui, int vertical, const char *name);
 ExWidget *ex_widget_label(ExUi *ui, const char *text);
 ExWidget *ex_widget_button(ExUi *ui, const char *text, ExClickFn fn, void *user);
 ExWidget *ex_widget_editor(ExUi *ui, ExDoc *doc, const char *name);
+/* The file explorer's tree: shows ex_vault_row() rows with chevrons, keeps a selection,
+ * and calls on_open for a file. Up and Down move the selection, Right and Left open
+ * and close folders (Left on a closed folder or a file goes to its folder), Enter opens. */
+ExWidget *ex_widget_tree(ExUi *ui, ExVault *vault, const char *name,
+                         void (*on_open)(ExWidget *w, const char *rel, void *user), void *user);
+void ex_tree_select_path(ExWidget *tree, const char *rel);          /* reveals and selects */
+const ExNode *ex_tree_selected(ExWidget *tree);
+/* The explorer sidebar of the screenshots: a toolbar (new note, new folder, expand or
+ * collapse all, sort), the tree, and the vault button at the bottom. */
+ExWidget *ex_explorer_sidebar(ExUi *ui, ExVault *vault, void (*on_open)(ExWidget *w, const char *rel, void *user), void *user,
+                              ExWidget **tree_out);
+void ex_widget_insert_before(ExWidget *parent, ExWidget *child, ExWidget *before);
 void ex_widget_add(ExWidget *parent, ExWidget *child);
 void ex_widget_set_text(ExWidget *w, const char *text);
 void ex_widget_free(ExWidget *root); /* frees the tree; editors are freed with it, documents are not */
