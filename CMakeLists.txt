@@ -130,6 +130,9 @@ add_custom_command(OUTPUT ${FONTS_C}
 add_library(exhaust_core STATIC src/version.c)
 target_include_directories(exhaust_core PUBLIC include ${CMAKE_CURRENT_BINARY_DIR}/include)
 
+add_library(exhaust_buffer STATIC src/buffer/buffer.c src/buffer/doc.c src/buffer/journal.c)
+target_include_directories(exhaust_buffer PUBLIC include)
+
 add_library(exhaust_platform STATIC src/platform/paths.c src/platform/input.c)
 target_include_directories(exhaust_platform PUBLIC include)
 target_link_libraries(exhaust_platform PUBLIC SDL3::SDL3-static)
@@ -179,6 +182,14 @@ add_test(NAME version COMMAND test_version)
 add_executable(test_utf8 tests/test_utf8.c)
 target_link_libraries(test_utf8 PRIVATE exhaust_text)
 add_test(NAME utf8 COMMAND test_utf8)
+
+add_executable(test_buffer tests/test_buffer.c)
+target_link_libraries(test_buffer PRIVATE exhaust_buffer)
+add_test(NAME buffer COMMAND test_buffer)
+
+add_executable(test_journal_replay tests/test_journal_replay.c)
+target_link_libraries(test_journal_replay PRIVATE exhaust_buffer)
+add_test(NAME journal_replay COMMAND test_journal_replay)
 
 add_executable(test_shaping tests/test_shaping.c)
 target_link_libraries(test_shaping PRIVATE exhaust_text)
