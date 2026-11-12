@@ -6,6 +6,7 @@
 #ifndef EXHAUST_UI_H
 #define EXHAUST_UI_H
 
+#include "exhaust_a11y.h"
 #include "exhaust_editor.h"
 
 #ifdef __cplusplus
@@ -98,6 +99,12 @@ void ex_ui_key(ExUi *ui, ExKey key, int mods);
 void ex_ui_text_input(ExUi *ui, const char *utf8, size_t len);
 ExWidget *ex_ui_focus(const ExUi *ui);
 void ex_ui_set_focus(ExUi *ui, ExWidget *w);
+
+/* Mirrors the widget tree into an accessibility tree: one node for each widget (the
+ * node id is the widget id), with its role, name, bounds, actions and, for editors,
+ * the text. Nodes of widgets that no longer exist are removed and the focus follows
+ * the UI's focus. Call it after layout whenever the UI changed. Returns 0. */
+int ex_ui_a11y_sync(ExUi *ui, ExWidget *root, ExA11yTree *tree);
 
 /* Number of widgets in a tree. */
 size_t ex_widget_count(const ExWidget *root);
