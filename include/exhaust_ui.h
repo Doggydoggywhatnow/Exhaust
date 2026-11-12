@@ -39,6 +39,7 @@ struct ExWidget {
     ExAxis width, height;
     float pad_x, pad_y, gap;      /* in units of the theme's spacing token */
     int clip;                     /* clip children to this widget */
+    int hidden;                   /* not laid out, drawn, focused or exposed to screen readers */
 
     /* look: theme token ids, -1 for none */
     int bg_token;                 /* ExColorToken */
@@ -98,6 +99,10 @@ const ExNode *ex_tree_selected(ExWidget *tree);
 ExWidget *ex_explorer_sidebar(ExUi *ui, ExVault *vault, void (*on_open)(ExWidget *w, const char *rel, void *user), void *user,
                               ExWidget **tree_out);
 void ex_widget_insert_before(ExWidget *parent, ExWidget *child, ExWidget *before);
+void ex_widget_remove(ExWidget *parent, ExWidget *child);   /* unlinks it; the caller frees it or adds it elsewhere */
+/* The New note button creates no file: it asks the application (which starts a note that is
+ * only written once something is typed). Without a handler the button creates an empty file. */
+void ex_explorer_set_new_note_handler(ExWidget *sidebar, void (*fn)(ExWidget *w, const char *parent_rel, void *user), void *user);
 void ex_widget_add(ExWidget *parent, ExWidget *child);
 void ex_widget_set_text(ExWidget *w, const char *text);
 void ex_widget_free(ExWidget *root); /* frees the tree; editors are freed with it, documents are not */

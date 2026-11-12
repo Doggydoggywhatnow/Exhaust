@@ -150,6 +150,18 @@ static void test_widgets(void) {
         ex_widget_free(button);
     }
 
+    /* a hidden widget has no node, is skipped by Tab, and comes back when shown */
+    {
+        ExWidget *tgt = box->first_child; /* "Status line" label has no focus; use the editor for the focus order */
+        size_t cnt = ex_a11y_count(t);
+        (void)tgt;
+        editor->hidden = 1;
+        CHECK(ex_ui_a11y_sync(ui, root, t) == 0 && ex_a11y_get(t, editor->id, &in) == -1 && ex_a11y_count(t) == cnt - 1);
+        editor->hidden = 0;
+        ex_ui_layout(ui, root, 400, 300);
+        CHECK(ex_ui_a11y_sync(ui, root, t) == 0 && ex_a11y_get(t, editor->id, &in) == 0 && ex_a11y_count(t) == cnt);
+    }
+
     /* the snapshot for the operating system's thread is a faithful copy */
     {
         ExA11ySnapshot *s = ex_a11y_snapshot(t), *s2;

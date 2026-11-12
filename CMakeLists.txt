@@ -188,6 +188,10 @@ add_library(exhaust_buffer STATIC src/buffer/buffer.c src/buffer/doc.c src/buffe
 target_include_directories(exhaust_buffer PUBLIC include)
 target_link_libraries(exhaust_buffer PUBLIC SDL3::SDL3-static)
 
+add_library(exhaust_notes STATIC src/notes/note_codec.c src/notes/diff.c src/notes/watcher.c src/notes/journal_writer.c src/notes/notes.c)
+target_include_directories(exhaust_notes PUBLIC include)
+target_link_libraries(exhaust_notes PUBLIC exhaust_vault exhaust_buffer exhaust_platform)
+
 add_library(exhaust_vault STATIC src/vault/vault.c src/vault/registry.c)
 target_include_directories(exhaust_vault PUBLIC include)
 target_link_libraries(exhaust_vault PUBLIC exhaust_platform exhaust_buffer)
@@ -238,7 +242,7 @@ target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
 target_link_libraries(exhaust_ui PUBLIC exhaust_render exhaust_buffer exhaust_vault exhaust_a11y clay_impl)
 
 add_executable(exhaust src/main.c)
-target_link_libraries(exhaust PRIVATE exhaust_core exhaust_render exhaust_ui)
+target_link_libraries(exhaust PRIVATE exhaust_core exhaust_render exhaust_ui exhaust_notes)
 # Release builds are stripped of symbols (the size budget is for the installed program).
 if(NOT MSVC AND NOT APPLE)
   target_link_options(exhaust PRIVATE $<$<CONFIG:Release>:-s>)
@@ -342,6 +346,19 @@ add_test(NAME vault_tree COMMAND test_vault_tree)
 add_executable(test_explorer tests/test_explorer.c)
 target_link_libraries(test_explorer PRIVATE exhaust_ui)
 add_test(NAME explorer COMMAND test_explorer)
+
+foreach(t file_safety write_failure watch_fallback)
+  add_executable(test_${t} tests/test_${t}.c)
+  target_link_libraries(test_${t} PRIVATE exhaust_notes)
+  add_test(NAME ${t} COMMAND test_${t})
+endforeach()
+
+add_executable(autosave_child tests/autosave_child.c)
+target_link_libraries(autosave_child PRIVATE exhaust_notes)
+add_executable(test_autosave_crash tests/test_autosave_crash.c)
+target_link_libraries(test_autosave_crash PRIVATE exhaust_notes)
+add_dependencies(test_autosave_crash autosave_child)
+add_test(NAME autosave_crash COMMAND test_autosave_crash $<TARGET_FILE:autosave_child>)
 
 add_executable(test_shaping tests/test_shaping.c)
 target_link_libraries(test_shaping PRIVATE exhaust_text)

@@ -18,6 +18,7 @@
 #include <shellapi.h>
 #else
 #include <limits.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -363,4 +364,201 @@ int ex_platform_show_in_file_manager(const char *path) {
     rc = ex_platform_open_default(dir);
     free(dir);
     return rc;
+}
+
+/* ---- local data folder ---- */
+
+char *ex_platform_local_data_dir(void) {
+    const char *base;
+    char *tmp, *r;
+#if defined(_WIN32)
+    base = SDL_getenv("LOCALAPPDATA");
+    if (!base || !*base) return NULL;
+    return join2(base, "Exhaust");
+#elif defined(__APPLE__)
+    base = SDL_GetUserFolder(SDL_FOLDER_HOME);
+    if (!base || !*base) return NULL;
+    tmp = join2(base, "Library/Application Support");
+    r = tmp ? join2(tmp, "Exhaust") : NULL;
+    free(tmp);
+    return r;
+#else
+    base = SDL_getenv("XDG_DATA_HOME");
+    if (base && base[0] == '/') return join2(base, "Exhaust");
+    base = SDL_GetUserFolder(SDL_FOLDER_HOME);
+    if (!base || !*base) return NULL;
+    tmp = join2(base, ".local/share");
+    r = tmp ? join2(tmp, "Exhaust") : NULL;
+    free(tmp);
+    return r;
+#endif
+}
+
+uint64_t ex_platform_now_ms(void) { return SDL_GetTicks(); }
+int64_t ex_platform_unix_time(void) { return (int64_t)time(NULL); }
+
+/* ---- saving ---- */
+
+static char g_fault_message[160];
+static int g_fault_code, g_fault_on;
+
+void ex_platform_set_save_fault(const char *message, int error_code) {
+    if (message) { snprintf(g_fault_message, sizeof g_fault_message, "%s", message); g_fault_code = error_code; g_fault_on = 1; }
+    else g_fault_on = 0;
+}
+
+static void fail(ExSaveResult *res, int code, const char *what) {
+    if (!res) return;
+    res->ok = 0;
+    res->error_code = code;
+    snprintf(res->message, sizeof res->message, "%s", what);
+}
+
+#ifdef _WIN32
+
+int ex_platform_save_file(const char *path, const void *data, size_t len, ExSaveResult *res) {
+    char *real = ex_platform_realpath(path), *target = real ? real : dup_str(path), *tmp;
+    wchar_t *wt, *wp;
+    HANDLE h;
+    DWORD written = 0;
+    int rc = -1;
+    if (res) memset(res, 0, sizeof *res);
+    if (g_fault_on) { fail(res, g_fault_code, g_fault_message); free(target); return -1; }
+    if (!target) { fail(res, 1, "out of memory"); return -1; }
+    tmp = malloc(strlen(target) + 40);
+    if (!tmp) { fail(res, 1, "out of memory"); free(target); return -1; }
+    sprintf(tmp, "%s.exhaust-tmp-%lu", target, (unsigned long)GetCurrentProcessId());
+    wt = to_wide(tmp); wp = to_wide(target);
+    if (!wt || !wp) { fail(res, 1, "out of memory"); goto done; }
+    h = CreateFileW(wt, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) { fail(res, (int)GetLastError(), "cannot create the temporary file"); goto done; }
+    if (len > 0 && (!WriteFile(h, data, (DWORD)len, &written, NULL) || written != (DWORD)len)) {
+        fail(res, (int)GetLastError(), "cannot write (disk full?)");
+        CloseHandle(h); DeleteFileW(wt); goto done;
+    }
+    if (!FlushFileBuffers(h)) { fail(res, (int)GetLastError(), "cannot flush to disk"); CloseHandle(h); DeleteFileW(wt); goto done; }
+    CloseHandle(h);
+    if (!MoveFileExW(wt, wp, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        fail(res, (int)GetLastError(), "cannot replace the file (is it open in another program?)");
+        DeleteFileW(wt);
+        goto done;
+    }
+    if (res) { res->ok = 1; res->error_code = 0; }
+    rc = 0;
+done:
+    free(wt); free(wp); free(tmp); free(target);
+    return rc;
+}
+
+#else
+
+int ex_platform_save_file(const char *path, const void *data, size_t len, ExSaveResult *res) {
+    char *real = ex_platform_realpath(path), *target, *tmp;
+    struct stat st;
+    int have_st = 0, fd, rc = -1;
+    size_t done = 0;
+    if (res) memset(res, 0, sizeof *res);
+    if (g_fault_on) { fail(res, g_fault_code, g_fault_message); free(real); return -1; }
+    target = real ? real : dup_str(path); /* a missing file is created; a symbolic link is resolved so the link survives */
+    if (!target) { fail(res, ENOMEM, "out of memory"); return -1; }
+    tmp = malloc(strlen(target) + 40);
+    if (!tmp) { fail(res, ENOMEM, "out of memory"); free(target); return -1; }
+    sprintf(tmp, "%s.exhaust-tmp-%ld", target, (long)getpid());
+    have_st = stat(target, &st) == 0;
+    fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_EXCL, have_st ? (st.st_mode & 07777) : 0644);
+    if (fd < 0 && errno == EEXIST) { unlink(tmp); fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_EXCL, have_st ? (st.st_mode & 07777) : 0644); }
+    if (fd < 0) { fail(res, errno, strerror(errno)); goto done; }
+    while (done < len) {
+        ssize_t n = write(fd, (const char *)data + done, len - done);
+        if (n < 0) { if (errno == EINTR) continue; fail(res, errno, strerror(errno)); close(fd); unlink(tmp); goto done; }
+        done += (size_t)n;
+    }
+    if (have_st) (void)fchmod(fd, st.st_mode & 07777);          /* the umask must not narrow the original permissions */
+    if (fsync(fd) != 0) { fail(res, errno, strerror(errno)); close(fd); unlink(tmp); goto done; }
+    if (close(fd) != 0) { fail(res, errno, strerror(errno)); unlink(tmp); goto done; }
+    if (rename(tmp, target) != 0) { fail(res, errno, strerror(errno)); unlink(tmp); goto done; }
+    {   /* make the rename itself durable */
+        char *dir = dup_str(target), *slash = dir ? strrchr(dir, '/') : NULL;
+        if (slash) {
+            int dfd;
+            if (slash == dir) slash[1] = 0; else *slash = 0;
+            dfd = open(dir, O_RDONLY);
+            if (dfd >= 0) { (void)fsync(dfd); close(dfd); }
+        }
+        free(dir);
+    }
+    if (res) { res->ok = 1; res->error_code = 0; }
+    rc = 0;
+done:
+    free(tmp); free(target);
+    return rc;
+}
+
+#endif
+
+/* ---- append-only files ---- */
+
+struct ExAppendFile {
+#ifdef _WIN32
+    HANDLE h;
+#else
+    int fd;
+#endif
+    long long size;
+};
+
+ExAppendFile *ex_append_open(const char *path) {
+    ExAppendFile *f = calloc(1, sizeof *f);
+    if (!f) return NULL;
+#ifdef _WIN32
+    {
+        wchar_t *w = to_wide(path);
+        LARGE_INTEGER sz;
+        f->h = w ? CreateFileW(w, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL) : INVALID_HANDLE_VALUE;
+        free(w);
+        if (f->h == INVALID_HANDLE_VALUE) { free(f); return NULL; }
+        f->size = GetFileSizeEx(f->h, &sz) ? (long long)sz.QuadPart : 0;
+    }
+#else
+    f->fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0600);
+    if (f->fd < 0) { free(f); return NULL; }
+    f->size = (long long)lseek(f->fd, 0, SEEK_END);
+#endif
+    return f;
+}
+
+int ex_append_write(ExAppendFile *f, const void *data, size_t len) {
+#ifdef _WIN32
+    DWORD w = 0;
+    if (len && (!WriteFile(f->h, data, (DWORD)len, &w, NULL) || w != (DWORD)len)) return -1;
+#else
+    size_t done = 0;
+    while (done < len) {
+        ssize_t n = write(f->fd, (const char *)data + done, len - done);
+        if (n < 0) { if (errno == EINTR) continue; return -1; }
+        done += (size_t)n;
+    }
+#endif
+    f->size += (long long)len;
+    return 0;
+}
+
+int ex_append_sync(ExAppendFile *f) {
+#ifdef _WIN32
+    return FlushFileBuffers(f->h) ? 0 : -1;
+#else
+    return fsync(f->fd) == 0 ? 0 : -1;
+#endif
+}
+
+long long ex_append_size(const ExAppendFile *f) { return f->size; }
+
+void ex_append_close(ExAppendFile *f) {
+    if (!f) return;
+#ifdef _WIN32
+    CloseHandle(f->h);
+#else
+    close(f->fd);
+#endif
+    free(f);
 }

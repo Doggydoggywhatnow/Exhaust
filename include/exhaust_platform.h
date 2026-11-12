@@ -71,6 +71,37 @@ int ex_platform_trash_system(const char *path);
 int ex_platform_open_default(const char *path);
 int ex_platform_show_in_file_manager(const char *path);
 
+/* The OS local-data folder for Exhaust (journal, session state, recovery): $XDG_DATA_HOME
+ * or ~/.local/share, %LOCALAPPDATA%, or ~/Library/Application Support, plus "/Exhaust".
+ * Not the cache folder (the OS may clear a cache) and not the roaming folder. */
+char *ex_platform_local_data_dir(void);
+
+typedef struct ExSaveResult {
+    int ok;
+    int error_code;          /* the OS error number, 0 when ok */
+    char message[160];       /* short reason, for example "permission denied" */
+} ExSaveResult;
+/* Replaces a file safely: writes a temporary file next to it, flushes it to disk, keeps the
+ * permissions, and renames it over the file. A symbolic link is followed so the link stays.
+ * On failure the old file is untouched and the temporary file is removed. */
+int ex_platform_save_file(const char *path, const void *data, size_t len, ExSaveResult *res);
+/* Test hook: while set, every ex_platform_save_file fails with this message and error code
+ * (set to NULL to turn it off). Lets tests simulate a full disk or a locked file on any OS. */
+void ex_platform_set_save_fault(const char *message, int error_code);
+
+/* An append-only file (the recovery journal). */
+typedef struct ExAppendFile ExAppendFile;
+ExAppendFile *ex_append_open(const char *path);
+int ex_append_write(ExAppendFile *f, const void *data, size_t len);  /* handed to the OS before it returns */
+int ex_append_sync(ExAppendFile *f);                                 /* flushed to the disk */
+long long ex_append_size(const ExAppendFile *f);
+void ex_append_close(ExAppendFile *f);
+
+/* Monotonic milliseconds, for timers. */
+uint64_t ex_platform_now_ms(void);
+/* Seconds since the Unix epoch. */
+int64_t ex_platform_unix_time(void);
+
 /* Clipboard, UTF-8 text. get returns NULL when empty or not text. */
 char *ex_clipboard_get_text(void);
 int ex_clipboard_set_text(const char *utf8);

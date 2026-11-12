@@ -188,6 +188,21 @@ ExWidget *ex_widget_tree(ExUi *ui, ExVault *vault, const char *name,
     return w;
 }
 
+void ex_widget_remove(ExWidget *parent, ExWidget *child) {
+    ExWidget *p;
+    if (parent->first_child == child) parent->first_child = child->next;
+    else {
+        for (p = parent->first_child; p && p->next != child; p = p->next) {}
+        if (p) p->next = child->next;
+    }
+    if (parent->last_child == child) {
+        for (p = parent->first_child; p && p->next; p = p->next) {}
+        parent->last_child = p;
+    }
+    child->next = NULL;
+    child->parent = NULL;
+}
+
 void ex_widget_insert_before(ExWidget *parent, ExWidget *child, ExWidget *before) {
     ExWidget *p;
     child->parent = parent;
@@ -402,13 +417,14 @@ static void build(ExUi *ui, ExWidget *w) {
         tc.textColor = dummy_color();
         Clay__OpenTextElement(s, tc);
     }
-    for (c = w->first_child; c; c = c->next) build(ui, c);
+    for (c = w->first_child; c; c = c->next) if (!c->hidden) build(ui, c);
     Clay__CloseElement();
 }
 
 static void store_rects(ExUi *ui, ExWidget *w) {
     for (; w; w = w->next) {
         Clay_ElementData d = Clay_GetElementData(id_of(w));
+        if (w->hidden) { w->x = w->y = w->w = w->h = 0; store_rects(ui, w->first_child); continue; }
         w->x = d.boundingBox.x; w->y = d.boundingBox.y; w->w = d.boundingBox.width; w->h = d.boundingBox.height;
         store_rects(ui, w->first_child);
     }
@@ -454,6 +470,7 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
     ExRenderer *r = ui->r;
     float rad = w->radius_token >= 0 ? token_px(ui, w->radius_token) * ex_renderer_scale(r) : 0.0f;
     ExWidget *c;
+    if (w->hidden) return;
     if (w->bg_token >= 0) {
         int token = w->bg_token;
         if (w->type == EX_WIDGET_BUTTON) token = w->pressed ? EX_COLOR_ACCENT : (w->hover ? EX_COLOR_SURFACE_HOVER : w->bg_token);
@@ -492,7 +509,7 @@ void ex_ui_draw(ExUi *ui, ExWidget *root, int blink_on) { draw_widget(ui, root, 
 
 ExWidget *ex_ui_widget_at(ExWidget *w, float x, float y) {
     ExWidget *best = NULL, *c;
-    if (!w || x < w->x || y < w->y || x >= w->x + w->w || y >= w->y + w->h) return NULL;
+    if (!w || w->hidden || x < w->x || y < w->y || x >= w->x + w->w || y >= w->y + w->h) return NULL;
     best = w;
     for (c = w->first_child; c; c = c->next) {
         ExWidget *hit = ex_ui_widget_at(c, x, y);
@@ -530,6 +547,7 @@ void ex_ui_mouse(ExUi *ui, ExWidget *root, ExMouse kind, float x, float y, int m
 
 static size_t collect_focusable(ExWidget *w, ExWidget **out, size_t n, size_t cap) {
     for (; w; w = w->next) {
+        if (w->hidden) continue;
         if (w->focusable) { if (n < cap) out[n] = w; n++; }
         n = collect_focusable(w->first_child, out, n, cap);
     }

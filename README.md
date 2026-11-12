@@ -208,7 +208,7 @@ Exhaust is written in C (C11). There is no web browser or web view anywhere in i
 | Properties | Read with libyaml; edited as text so files are never reformatted | MIT |
 | Index | SQLite with FTS5 using the `trigram` tokenizer (so partial words match), plus tables for lines, blocks, sections and tasks; stored in the OS cache folder, keyed by vault; always rebuildable from the notes; the trigram index is at most 4 times the size of the note text | Public domain |
 | Search regex | PCRE2, run over the files the index returns | BSD |
-| File watching | dmon (single-header C), or Exhaust's own inotify, ReadDirectoryChangesW and FSEvents code; when the OS refuses more watches (inotify `ENOSPC` on Linux), it falls back to polling modification times every 2 seconds on a worker thread and says so in the status bar; excluded files are never watched | BSD-2-Clause, Unlicense (own) |
+| File watching | Exhaust's own inotify code on Linux; on Windows and macOS (until their own ReadDirectoryChangesW and FSEvents code is written, so dmon is not used) the polling fallback; when the OS refuses more watches (inotify `ENOSPC` on Linux), it falls back to polling modification times every 2 seconds on a worker thread and says so in the status bar; excluded files are never watched | BSD-2-Clause, Unlicense (own) |
 | Platform layer (`src/platform/`) | Trash (freedesktop spec on Linux, SHFileOperation on Windows, NSFileManager on macOS), file associations, URI registration, cache and config folders | Unlicense (own) |
 | JSON | yyjson | MIT |
 | Images | stb_image, with WebP and AVIF decoders; nanosvg for SVG | Public domain, BSD, zlib |

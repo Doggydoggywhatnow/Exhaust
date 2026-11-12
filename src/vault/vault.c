@@ -156,6 +156,12 @@ static int matches_pattern(const char *pat, const char *rel) {
     return ok;
 }
 
+int ex_patterns_match(const char *const *patterns, size_t n, const char *rel) {
+    size_t i;
+    for (i = 0; i < n; i++) if (matches_pattern(patterns[i], rel)) return 1;
+    return 0;
+}
+
 int ex_vault_is_excluded(const ExVault *v, const char *rel) {
     size_t i;
     for (i = 0; i < v->opt.nexcluded; i++) if (matches_pattern(v->opt.excluded[i], rel)) return 1;

@@ -93,6 +93,8 @@ long ex_vault_reveal(ExVault *v, const char *rel);
  * and everything in it. Matching ignores case. */
 int ex_vault_is_excluded(const ExVault *v, const char *rel);
 int ex_glob_match(const char *pattern, const char *text);
+/* The same matching for a list of patterns, without a vault (the file watcher uses it). */
+int ex_patterns_match(const char *const *patterns, size_t n, const char *rel);
 
 /* Is this a valid name for a new file or folder? No separators, control characters,
  * "# ^ [ ] |" or ":", no "%%", no Windows reserved names (CON, NUL, COM1 and so on),

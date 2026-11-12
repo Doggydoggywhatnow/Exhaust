@@ -526,7 +526,7 @@ Then records until the end of the file. Each record:
 | timestamp | u64 | milliseconds since the Unix epoch |
 | path_length | u16 | length of the path in bytes |
 | path | bytes | vault-relative path, UTF-8, with `/` separators |
-| offset | u64 | byte offset of the edit in the file's text (edit records) |
+| offset | u64 | byte offset of the edit in the note's text as Exhaust edits it: the byte-order mark removed and, for a file that uses CRLF throughout, line breaks as a single LF (edit records) |
 | removed | u64 | number of bytes removed at the offset (edit records) |
 | inserted_length | u32 | number of bytes inserted (edit records) |
 | inserted | bytes | the inserted text, UTF-8 (edit records) |
@@ -996,3 +996,11 @@ The section name carries the vault id: the first 32 hexadecimal digits of the SH
 ## Vault folders that Exhaust owns
 
 Inside a vault, `.exhaust` holds Exhaust's own plain-text files (settings, themes, snippets, hotkeys, workspaces, plugins) and `.trash` holds notes deleted with `trash_mode = vault_trash` (the deleted file keeps its path relative to the vault). Both are hidden from the file explorer, search, links and the graph. Other names that start with a dot are hidden from the explorer and never indexed.
+
+## Recovery snapshots of the other side of a conflict
+
+*Since 0.1.0.* When a note was changed on disk while it had unsaved edits (the conflict banner), and the user keeps their own version, Exhaust first copies the version that is on disk to `<local-data>/Exhaust/vaults/<vault-id>/recovery/<vault-relative path, "/" replaced by "__">.<YYYYMMDD-HHMMSS>.bak` (same bytes as the file, never altered). File recovery (sub-slice 7e) later takes these over as its first snapshots. They are user data like the journal: never deleted by Exhaust automatically in 0.1.0 before 7e defines the retention.
+
+## Note text on disk
+
+A note is a UTF-8 file. Exhaust refuses to open a file that is not valid UTF-8 (it shows a message and never writes to it). A leading UTF-8 byte-order mark and the line-ending style are remembered per note and written back unchanged: a file whose line breaks are all CRLF is edited with LF in memory and saved with CRLF; a file that mixes line-ending styles (or contains lone CR characters) is edited and saved byte for byte, with the line-ending characters left alone. Saving writes a temporary file next to the note, flushes it to disk and renames it over the note; if the note is a symbolic link, the file it points to is replaced and the link is kept; file permissions are kept.

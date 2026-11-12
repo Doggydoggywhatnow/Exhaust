@@ -16,6 +16,7 @@ static ExA11yRole role_of(const ExWidget *w) {
 
 static int sync_widget(const ExUi *ui, const ExWidget *w, uint64_t parent, ExA11yTree *t) {
     const ExWidget *c;
+    if (w->hidden) return 0;                 /* hidden widgets are not in the accessibility tree (their old node is removed) */
     unsigned actions = 0;
     const char *name = w->name ? w->name : (w->text ? w->text : "");
     if (ex_a11y_set_node(t, w->id, parent, role_of(w), name)) return -1;
@@ -47,6 +48,7 @@ static int sync_widget(const ExUi *ui, const ExWidget *w, uint64_t parent, ExA11
 /* Collects the ids of the widgets that exist, to remove the nodes that do not. */
 static size_t collect(const ExWidget *w, uint64_t *ids, size_t n, size_t cap) {
     for (; w; w = w->next) {
+        if (w->hidden) continue;
         if (n < cap) ids[n] = w->id;
         n++;
         n = collect(w->first_child, ids, n, cap);
@@ -65,8 +67,7 @@ int ex_ui_a11y_sync(ExUi *ui, ExWidget *root, ExA11yTree *t) {
     uint64_t *ids = malloc((n ? n : 1) * sizeof *ids), *stale;
     ExA11yInfo info;
     if (!ids) return -1;
-    got = collect(root, ids, 0, n);
-    (void)got;
+    got = collect(root, ids, 0, n);   /* hidden widgets are not collected, so got can be less than n */
     /* remove nodes whose widgets are gone: walk the tree from the root and collect the stale ids first */
     stale = malloc((have ? have : 1) * sizeof *stale);
     if (stale) {
@@ -78,7 +79,7 @@ int ex_ui_a11y_sync(ExUi *ui, ExWidget *root, ExA11yTree *t) {
             while (head < qn) {
                 uint64_t id = queue[head++];
                 size_t c;
-                if (id < 0x100000000ull && !exists(ids, n, id)) { stale[ns++] = id; continue; } /* its subtree goes with it */
+                if (id < 0x100000000ull && !exists(ids, got, id)) { stale[ns++] = id; continue; } /* its subtree goes with it */
                 if (id >= 0x100000000ull) { stale[ns++] = id; continue; }                       /* tree rows are rebuilt below */
                 if (ex_a11y_get(t, id, &info) == 0)
                     for (c = 0; c < info.child_count && qn < queue_cap; c++) queue[qn++] = ex_a11y_child(t, id, c);

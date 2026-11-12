@@ -11,6 +11,8 @@ typedef struct Explorer {
     ExWidget *tree;
     void (*on_open)(ExWidget *w, const char *rel, void *user);
     void *user;
+    void (*on_new)(ExWidget *w, const char *parent_rel, void *user);
+    void *new_user;
 } Explorer;
 
 static void free_explorer(void *p) { free(p); }
@@ -36,6 +38,7 @@ static void new_item(ExWidget *button, void *user, int folder) {
     int k;
     (void)button;
     if (!dir) return;
+    if (!folder && e->on_new) { e->on_new(e->tree, dir, e->new_user); free(dir); return; }   /* the note is not created until something is typed */
     for (k = 1; k < 1000; k++) {
         char name[64];
         if (folder) snprintf(name, sizeof name, k == 1 ? "Untitled folder" : "Untitled folder %d", k);
@@ -123,4 +126,11 @@ ExWidget *ex_explorer_sidebar(ExUi *ui, ExVault *vault, void (*on_open)(ExWidget
     ex_widget_add(side, vault_row);
     if (tree_out) *tree_out = e->tree;
     return side;
+}
+
+void ex_explorer_set_new_note_handler(ExWidget *sidebar, void (*fn)(ExWidget *w, const char *parent_rel, void *user), void *user) {
+    Explorer *e = sidebar ? sidebar->owned : NULL;
+    if (!e) return;
+    e->on_new = fn;
+    e->new_user = user;
 }
