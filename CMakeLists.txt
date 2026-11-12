@@ -228,6 +228,12 @@ elseif(WIN32)
   target_link_libraries(exhaust_platform PUBLIC shell32 advapi32)
 endif()
 
+# The Markdown tokenizer and the HTML subset: only the UTF-8 helpers, so the fuzz targets can link just these.
+add_library(exhaust_markdown STATIC src/markdown/html.c src/markdown/markdown.c src/markdown/md_inline.c)
+target_include_directories(exhaust_markdown PRIVATE src/markdown)
+target_include_directories(exhaust_markdown PUBLIC include)
+target_link_libraries(exhaust_markdown PUBLIC exhaust_unicode)
+
 # UTF-8 and grapheme clusters: no dependencies, so the fuzz targets can link just this.
 add_library(exhaust_unicode STATIC src/text/utf8.c src/text/grapheme.c src/text/grapheme_data.c)
 target_include_directories(exhaust_unicode PUBLIC include PRIVATE src/text)
@@ -350,6 +356,13 @@ if(EXHAUST_FUZZ)
   target_compile_options(fuzz_utf8 PRIVATE -fsanitize=fuzzer,address,undefined)
   target_link_options(fuzz_utf8 PRIVATE -fsanitize=fuzzer,address,undefined)
   target_link_libraries(fuzz_utf8 PRIVATE exhaust_unicode)
+  target_compile_options(exhaust_markdown PRIVATE -fsanitize=fuzzer-no-link,address,undefined)
+  foreach(fz fuzz_markdown fuzz_html)
+    add_executable(${fz} tests/fuzz/${fz}.c)
+    target_compile_options(${fz} PRIVATE -fsanitize=fuzzer,address,undefined)
+    target_link_options(${fz} PRIVATE -fsanitize=fuzzer,address,undefined)
+    target_link_libraries(${fz} PRIVATE exhaust_markdown)
+  endforeach()
 endif()
 
 add_executable(test_a11y_wrapper tests/test_a11y_wrapper.c)
@@ -402,6 +415,18 @@ add_test(NAME gen_vault COMMAND test_gen_vault $<TARGET_FILE:gen_vault>)
 add_executable(test_vault_manager tests/test_vault_manager.c)
 target_link_libraries(test_vault_manager PRIVATE exhaust_ui)
 add_test(NAME vault_manager COMMAND test_vault_manager)
+
+add_executable(test_tokenizer tests/test_tokenizer.c)
+target_link_libraries(test_tokenizer PRIVATE exhaust_markdown exhaust_platform)
+add_test(NAME tokenizer COMMAND test_tokenizer ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/sample_note.md ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/tokenizer_sample.txt)
+
+add_executable(test_tokenizer_incremental tests/test_tokenizer_incremental.c)
+target_link_libraries(test_tokenizer_incremental PRIVATE exhaust_markdown exhaust_platform)
+add_test(NAME tokenizer_incremental COMMAND test_tokenizer_incremental ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/sample_note.md)
+
+add_executable(test_html tests/test_html.c)
+target_link_libraries(test_html PRIVATE exhaust_markdown)
+add_test(NAME html COMMAND test_html ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/regression_html_depth.bin)
 
 add_executable(settings_child tests/settings_child.c)
 target_link_libraries(settings_child PRIVATE exhaust_settings)

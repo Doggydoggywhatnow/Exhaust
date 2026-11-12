@@ -82,6 +82,10 @@ jobs:
       - run: >
           cmake -S . -B build-fuzz -DCMAKE_BUILD_TYPE=RelWithDebInfo -DEXHAUST_FUZZ=ON -DEXHAUST_A11Y=OFF
           -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-      - run: cmake --build build-fuzz --target fuzz_utf8 --parallel
-      - name: Run the first fuzz target for 10 seconds
-        run: mkdir -p corpus && ./build-fuzz/fuzz_utf8 -max_total_time=10 corpus
+      - run: cmake --build build-fuzz --target fuzz_utf8 fuzz_markdown fuzz_html --parallel
+      - name: UTF-8 and grapheme segmenter, 10 seconds
+        run: mkdir -p corpus/utf8 && ./build-fuzz/fuzz_utf8 -max_total_time=10 corpus/utf8
+      - name: Markdown tokenizer (with the incremental update), 60 seconds
+        run: mkdir -p corpus/markdown && cp tests/data/sample_note.md corpus/markdown/ && ./build-fuzz/fuzz_markdown -max_total_time=60 -max_len=4096 corpus/markdown
+      - name: HTML subset, 60 seconds
+        run: mkdir -p corpus/html && printf '<p onclick=x>hi <b>there</b><script>x</script><a href="javascript:y">z</a></p>' > corpus/html/seed.html && ./build-fuzz/fuzz_html -max_total_time=60 -max_len=4096 corpus/html
