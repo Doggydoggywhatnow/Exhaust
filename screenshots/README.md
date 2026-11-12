@@ -29,3 +29,14 @@ The settings menu to copy. A search box sits at the top. Below it, Options: Gene
 ![Hotkeys](hotkeys.png)
 
 The hotkeys list to copy. One row per command, in alphabetical order, with the command name on the left. On the right of each row is a shortcut chip, or "Blank" when none is set, and a plus button to add another shortcut. A chip with a shortcut has a cross to remove it. Examples in the screenshot: Toggle reading view (Ctrl + E), Undo close tab (Ctrl + Shift + T), and many commands with no shortcut, such as Toggle numbered list, the highlight colors, Toggle spellcheck, Toggle stacked tabs, Unique note creator and Zoom in and out.
+
+## Settings pages
+
+Full-page screenshots of each settings page, in `settings/`. They show the layout, wording and options to cover, as in the README's Settings section. As with the other screenshots, copy the layout and the list of options, not the artwork or text.
+
+- `general-settings.png`: version and updates, language, help, account, advanced switches.
+- `appearance-settings.png`
+- `interface-settings.png`
+- `editor-settings-pt-1.png` and `editor-settings-part-2.png`
+- `files-and-links-settings-pt-1.png` and `files-and-links-pt-2.png`
+- `hotkeys-1.png` to `hotkeys-9.png`: the complete hotkeys list across nine pages, in alphabetical order.
