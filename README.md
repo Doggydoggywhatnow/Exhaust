@@ -100,11 +100,26 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 
 ## Look and feel
 
-- **Themes**: light, dark and your own. Accent color, fonts, font size and interface zoom.
-- **Style snippets**: small text files in Exhaust's own style format that restyle any part of the interface, reloaded as you save.
+- **Themes**: light, dark, high contrast and your own; see [Themes](#themes).
+- **Fonts and size**: separate fonts for the interface, the editor and code, a text size, and an interface zoom.
+- **Accent color**: pick any color; Exhaust adjusts shades so text stays readable.
 - **Languages**: interface translations *(later)*.
 - **Accessibility**: full keyboard use, scalable text, high contrast and screen reader support, designed in from the first slice.
 - **Window**: set the default size of a new Exhaust window.
+
+### Themes
+
+Themes can be changed at any time, in Settings, without restarting.
+
+- **Switching**: choose Light, Dark or Follow system. A theme can also be set for each vault.
+- **Built in**: Exhaust Light and Exhaust Dark (the Midori notebook look), plus high contrast versions of both.
+- **Your own**: a theme is a plain text file in the `.exhaust/themes` folder of a vault, or in Exhaust's own settings folder to use it in every vault. It names colors, fonts, sizes, spacing, corner shapes and icons for each part of the interface: the editor, file tree, tabs, sidebars, graph, canvas, callouts and code blocks.
+- **Settings editor**: every theme value can also be changed from Settings with live preview and a color picker, so no file editing is needed. Changes you make are saved to a copy of the theme, never to a built-in one.
+- **Style snippets**: small extra files in Exhaust's own style format that tweak any part of the interface without replacing the theme. They can be switched on and off one by one.
+- **Live reload**: save a theme or snippet file in any text editor and Exhaust updates at once.
+- **Contrast check**: Exhaust warns when a color pairing is hard to read.
+- **Sharing**: copy a theme file to share it. Nothing is downloaded for you unless you turn on the *(optional)* community directory.
+- **Keeping settings**: unknown theme keys are kept and written back unchanged, so themes from newer versions survive a downgrade.
 
 ## Extending
 
