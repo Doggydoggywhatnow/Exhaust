@@ -32,11 +32,8 @@ The hotkeys list to copy. One row per command, in alphabetical order, with the c
 
 ## Settings pages
 
-Full-page screenshots of each settings page, in `settings/`. They show the layout, wording and options to cover, as in the README's Settings section. As with the other screenshots, copy the layout and the list of options, not the artwork or text.
+Full-page screenshots of 28 settings pages, in `settings/`. **These are the guideline for what Exhaust's settings should look like**: follow their layout, grouping, order and the options they offer, as in the README's Settings section. As with the other screenshots, copy the layout and the list of options, not the artwork or text.
 
-- `general-settings.png`: version and updates, language, help, account, advanced switches.
-- `appearance-settings.png`
-- `interface-settings.png`
-- `editor-settings-pt-1.png` and `editor-settings-part-2.png`
-- `files-and-links-settings-pt-1.png` and `files-and-links-pt-2.png`
-- `hotkeys-1.png` to `hotkeys-9.png`: the complete hotkeys list across nine pages, in alphabetical order.
+- **Options:** `general-settings.png`, `appearance-settings.png`, `interface-settings.png`, `editor-settings-pt-1.png`, `editor-settings-part-2.png`, `files-and-links-settings-pt-1.png`, `files-and-links-pt-2.png`.
+- **Hotkeys:** `hotkeys-1.png` to `hotkeys-9.png`, the complete list across nine pages, in alphabetical order.
+- **Built-in features:** `core-plugins-pt-1-settings.png` and `core-plugins-pt-2.png` (the list of features with their switches), then one page each for `backlinks-settings.png`, `canvas-settings.png`, `command-pallete-settings.png`, `daily-notes-settings.png`, `file-recovery-settings.png`, `new-note-creator-settings.png`, `note-composer-settings.png`, `page-preview-settings.png`, `quick-switcher-settings.png` and `template-settings.png`.

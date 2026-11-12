@@ -228,7 +228,7 @@ The screenshots in [`screenshots`](screenshots) are the skeleton of how Exhaust 
 - **File tree**: next to it, the vault's files as a tree of folders, with the vault button at the bottom.
 - **Tabs**: a row of tabs across the top of the main area.
 - **Main area**: panes that can each show a note being edited, the graph view, a canvas or a reference note, side by side.
-- **Settings**: a searchable list with Options first, then one entry for each built-in feature that can be switched on or off.
+- **Settings**: a searchable list with Options first, then one entry for each built-in feature that can be switched on or off. The 28 pages in [`screenshots/settings`](screenshots/settings) are the guideline for what every settings page looks like and which options it offers.
 - **Hotkeys**: one row per command with its shortcut chip (or "Blank"), a plus button to add a shortcut and a cross to remove one.
 
 Exhaust keeps this arrangement but has its own look: the Midori notebook style, its own icons, its own colors and wording, and light and dark themes. The screenshots are a reference for placement, not artwork to copy.
