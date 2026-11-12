@@ -102,6 +102,46 @@ endif()
 
 configure_file(include/exhaust_version.h.in include/exhaust_version.h)
 
+# ---- AccessKit: the screen reader bridge (Rust, built offline from third_party) ----
+# The only Rust in Exhaust. cargo builds a static library from the vendored crates
+# (third_party/accesskit-c/vendor, see tools/vendor_a11y.sh); no network is used.
+# -DEXHAUST_A11Y=OFF skips it for a build on a machine without cargo; the program
+# then has no accessibility tree, so the official builds always have it on.
+option(EXHAUST_A11Y "Build the AccessKit screen reader bridge (needs cargo)" ON)
+if(EXHAUST_A11Y)
+  find_program(CARGO cargo)
+  if(NOT CARGO)
+    message(FATAL_ERROR "cargo was not found. Install Rust (https://rustup.rs) or configure with -DEXHAUST_A11Y=OFF.")
+  endif()
+  set(ACCESSKIT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/accesskit-c)
+  set(ACCESSKIT_TARGET_DIR ${CMAKE_CURRENT_BINARY_DIR}/accesskit-target)
+  if(MSVC)
+    set(ACCESSKIT_LIB ${ACCESSKIT_TARGET_DIR}/release/accesskit.lib)
+  else()
+    set(ACCESSKIT_LIB ${ACCESSKIT_TARGET_DIR}/release/libaccesskit.a)
+  endif()
+  file(GLOB_RECURSE ACCESSKIT_SOURCES ${ACCESSKIT_DIR}/src/*.rs)
+  add_custom_command(OUTPUT ${ACCESSKIT_LIB}
+    COMMAND ${CMAKE_COMMAND} -E env CARGO_TARGET_DIR=${ACCESSKIT_TARGET_DIR} MAKEFLAGS=
+            ${CARGO} build --release --offline --locked
+    WORKING_DIRECTORY ${ACCESSKIT_DIR}   # so cargo finds .cargo/config.toml (the vendored sources)
+    DEPENDS ${ACCESSKIT_DIR}/Cargo.toml ${ACCESSKIT_DIR}/Cargo.lock ${ACCESSKIT_SOURCES}
+    COMMENT "Building AccessKit with cargo (offline)")
+  add_custom_target(accesskit_build DEPENDS ${ACCESSKIT_LIB})
+  add_library(accesskit STATIC IMPORTED GLOBAL)
+  set_target_properties(accesskit PROPERTIES IMPORTED_LOCATION ${ACCESSKIT_LIB}
+    INTERFACE_INCLUDE_DIRECTORIES ${ACCESSKIT_DIR}/include)
+  add_dependencies(accesskit accesskit_build)
+  # system libraries the Rust code needs (from `cargo rustc -- --print native-static-libs`)
+  if(WIN32)
+    set_property(TARGET accesskit PROPERTY INTERFACE_LINK_LIBRARIES kernel32 ntdll userenv ws2_32 dbghelp)
+  elseif(APPLE)
+    set_property(TARGET accesskit PROPERTY INTERFACE_LINK_LIBRARIES "-framework AppKit" "-framework Foundation" objc m)
+  else()
+    set_property(TARGET accesskit PROPERTY INTERFACE_LINK_LIBRARIES pthread m dl rt util)
+  endif()
+endif()
+
 # ---- Built-in fonts, embedded as C arrays by tools/embed.c ----
 add_executable(embed tools/embed.c)
 set(FONT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts)
@@ -148,10 +188,14 @@ add_library(exhaust_platform STATIC src/platform/paths.c src/platform/input.c)
 target_include_directories(exhaust_platform PUBLIC include)
 target_link_libraries(exhaust_platform PUBLIC SDL3::SDL3-static)
 
-add_library(exhaust_text STATIC src/text/utf8.c src/text/grapheme.c src/text/grapheme_data.c src/text/font.c
+# UTF-8 and grapheme clusters: no dependencies, so the fuzz targets can link just this.
+add_library(exhaust_unicode STATIC src/text/utf8.c src/text/grapheme.c src/text/grapheme_data.c)
+target_include_directories(exhaust_unicode PUBLIC include PRIVATE src/text)
+
+add_library(exhaust_text STATIC src/text/font.c
   src/text/fontdb.c src/text/shape.c src/text/fonts_table.c ${FONTS_C})
 target_include_directories(exhaust_text PUBLIC include PRIVATE src/text)
-target_link_libraries(exhaust_text PUBLIC freetype harfbuzz sheenbidi exhaust_platform)
+target_link_libraries(exhaust_text PUBLIC exhaust_unicode freetype harfbuzz sheenbidi exhaust_platform)
 
 add_library(exhaust_render STATIC src/render/render.c src/render/atlas.c)
 target_include_directories(exhaust_render PUBLIC include)
@@ -180,6 +224,12 @@ install(FILES
   DESTINATION share/exhaust/licenses RENAME SDL3-LICENSE.txt)
 install(FILES third_party/freetype/docs/FTL.TXT
   DESTINATION share/exhaust/licenses RENAME FreeType-FTL.txt)
+if(EXHAUST_A11Y)
+  install(FILES third_party/accesskit-c/LICENSE-MIT third_party/accesskit-c/LICENSE-APACHE
+          third_party/accesskit-c/LICENSE.chromium DESTINATION share/exhaust/licenses/accesskit)
+  install(DIRECTORY third_party/accesskit-c/vendor/ DESTINATION share/exhaust/licenses/rust
+          FILES_MATCHING PATTERN "LICENSE*" PATTERN "COPYING*" PATTERN "UNLICENSE*")
+endif()
 install(FILES third_party/clay/LICENSE.md
   DESTINATION share/exhaust/licenses RENAME Clay-LICENSE.txt)
 install(FILES third_party/harfbuzz/COPYING
@@ -230,6 +280,22 @@ add_test(NAME no_color_literals COMMAND test_no_color_literals ${CMAKE_CURRENT_S
 add_executable(test_editor_widget tests/test_editor_widget.c)
 target_link_libraries(test_editor_widget PRIVATE exhaust_ui)
 add_test(NAME editor_widget COMMAND test_editor_widget)
+
+if(EXHAUST_A11Y)
+  add_executable(test_a11y_link tests/test_a11y_link.c)
+  target_link_libraries(test_a11y_link PRIVATE accesskit)
+  add_test(NAME a11y_link COMMAND test_a11y_link)
+endif()
+
+# libFuzzer targets (clang only): cmake -DEXHAUST_FUZZ=ON -DCMAKE_C_COMPILER=clang
+option(EXHAUST_FUZZ "Build the libFuzzer targets in tests/fuzz (clang)" OFF)
+if(EXHAUST_FUZZ)
+  target_compile_options(exhaust_unicode PRIVATE -fsanitize=fuzzer-no-link,address,undefined)
+  add_executable(fuzz_utf8 tests/fuzz/fuzz_utf8.c)
+  target_compile_options(fuzz_utf8 PRIVATE -fsanitize=fuzzer,address,undefined)
+  target_link_options(fuzz_utf8 PRIVATE -fsanitize=fuzzer,address,undefined)
+  target_link_libraries(fuzz_utf8 PRIVATE exhaust_unicode)
+endif()
 
 add_executable(test_shaping tests/test_shaping.c)
 target_link_libraries(test_shaping PRIVATE exhaust_text)

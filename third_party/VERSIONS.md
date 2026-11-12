@@ -14,6 +14,7 @@ and what was left out of the vendored copy.
 | SheenBidi | 3.0.0 (commit `cfe430e7375a7845b679adae9d51dac6deaa8858`) | https://github.com/Tehreer/SheenBidi | `SheenBidi/LICENSE` | Apache-2.0 |
 | zlib | 1.3.1 (commit `51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf`) | https://github.com/madler/zlib | `zlib/LICENSE` | zlib |
 | libpng | 1.6.59 (commit `cd952f49f95bb27154ae77dbb103032d95f6e580`) | https://github.com/pnggroup/libpng | `libpng/LICENSE` | libpng License |
+| AccessKit C bindings (accesskit-c 0.23.2; Rust crates accesskit 0.25.1, accesskit_windows 0.35.1, accesskit_macos 0.27.1, accesskit_unix 0.24.0, and their dependencies) | commit `99023c87eca49531a8e1efc4657e35779257a463` of https://github.com/AccessKit/accesskit-c | https://github.com/AccessKit/accesskit-c | `accesskit-c/LICENSE-MIT`, `LICENSE-APACHE`, `LICENSE.chromium` | MIT or Apache-2.0 (parts derived from Chromium: BSD-style) |
 | Clay (layout engine, single header) | commit `e6cc36941ab2af5d81107617039d6f527a1c660b` (no release tag; main branch, May 2026) | https://github.com/nicbarker/clay | `clay/LICENSE.md` | zlib/libpng license |
 | Unicode data (grapheme break, emoji, Indic conjunct break) | 17.0.0 | https://github.com/unicode-org/unicodetools (`unicodetools/data/ucd/17.0.0`) | `unicode/LICENSE.txt` | Unicode License v3 |
 | Test fonts (Noto subsets, tests only) | see `tests/fonts/README.md` | notofonts, googlefonts/noto-emoji | `tests/fonts/OFL-Noto.txt` | SIL Open Font License 1.1 |
@@ -57,3 +58,12 @@ and what was left out of the vendored copy.
 - **Clay**: `clay.h` and its license only. It is compiled once, in `src/ui/clay_impl.c`,
   without Exhaust's warning flags. Exhaust uses Clay through its own widget tree
   (`include/exhaust_ui.h`); only `src/ui/ui.c` calls Clay.
+- **AccessKit**: `src/`, `include/accesskit.h`, `Cargo.toml`, `Cargo.lock` and the
+  licenses of accesskit-c, plus `vendor/` (the crates from `Cargo.lock`, filtered
+  by `tools/vendor_a11y.sh`; crates that are not built on a shipping target keep
+  only their `Cargo.toml`, and `.cargo-checksum.json` files list no files).
+  `.cargo/config.toml` points cargo at `vendor/` and makes it offline. accesskit-c's
+  Meson build files (LGPL-2.1) are not vendored. The Rust crates are all MIT,
+  Apache-2.0, Unlicense, Zlib or dual licenses of those (`r-efi` lists LGPL-2.1+ as
+  a third option; Exhaust uses it under MIT); their license files are installed
+  under `share/exhaust/licenses/rust/`.
