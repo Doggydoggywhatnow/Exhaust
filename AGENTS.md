@@ -40,7 +40,7 @@ Add tests with the code. Required at minimum: the text buffer and undo tree, the
 - Spell check uses Exhaust's own dictionary checker with Hunspell-format word lists, on all three OSes.
 
 ## UI design
-No mockups beyond `screenshots/` exist. Follow them for layout (ribbon, file tree, tabs, side panels, vault button, settings list), and design the look yourself in the README's Midori notebook style. Give light and dark themes, and keep the design consistent. Document major UI decisions in the README.
+The screenshots in `screenshots/` are the **skeleton of how Exhaust should look**. Build the layout to match them: ribbon on the far left, file tree with the vault button at its bottom, tabs across the top, side-by-side panes for notes, graph, canvas and reference notes, and the searchable settings list. Design the look itself yourself in the README's Midori notebook style. Do not copy pixels, icons or text from the screenshots. Give light and dark themes, and keep the design consistent. Document major UI decisions in the README.
 
 ## Licensing of reference material
 `screenshots/` shows another app's interface for layout reference. Do not copy its icons, artwork, wording or code. Draw your own icons and write your own text.
