@@ -18,6 +18,7 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 - No network requests, telemetry or accounts unless you turn on an *(optional)* feature.
 - **Updates**: there is no auto-updater. An optional manual "check for updates" button *(optional)* asks the network only when you press it.
 - Every feature below can be switched off. Built-in features such as Graph, Canvas and Bases are separate toggles in Settings.
+- Notes are not encrypted by Exhaust; use full-disk encryption.
 
 ## Vaults and files
 
