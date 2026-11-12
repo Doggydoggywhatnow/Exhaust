@@ -1,0 +1,80 @@
+# Exhaust 0.1.0: progress
+
+Read this first when resuming. It tracks the sub-slices of [`0.1.0.md`](0.1.0.md) in build order. Update it in the same commit as each sub-slice.
+
+**Status values:** `not started`, `in progress`, `done` (tests pass locally and CI is green on Linux, Windows and macOS), `done, CI pending` (committed and pushed, CI not yet confirmed green on all three).
+
+**Rules:** one sub-slice at a time; commit and push to `dev` after each; CI green on all three OSes before the next; never push to `main`; never skip, loosen or delete a test. **Checkpoints, stop and report for review:** after 1b-iv (first typing build), after 3b (first live-preview build), after 4b-iv (first usable build).
+
+## Sub-slices
+
+| Id | Title | Status | Commit | Assumptions and TODO-verify |
+| --- | --- | --- | --- | --- |
+| 1a-i | Window, renderer and text atlas | done, CI pending | see `git log` ("1a-i") | SDL3 3.2.24 and FreeType 2.13.3 vendored (static, X11 and Wayland both built on Linux). Fonts embedded via `tools/embed.c`. Light autohinting, unhinted (linear) advances, whole-pixel glyph positions; gray coverage only (color emoji and subpixel positioning are 1a-ii/1a-iv). Goldens `tests/golden/smoke_{1x,2x}.ppm` were generated on Linux with the software renderer; tolerance is mean abs error <= 0.75 per channel and <= 1% of channels off by more than 48. **TODO-verify:** that Windows and macOS CI match the goldens within that tolerance, and that SDL3 builds there (untested locally). `src/main.c` uses two placeholder colors until the token loader (1a-iv). `exhaust` with no arguments opens a window; `--version` prints the version. No `SDL_main`: on Windows a console window will show until the platform layer. Local sanitizer run used gcc (clang has no runtime here); CI uses clang. |
+| 1a-ii | Shaping, fonts, bidi, IME and clipboard | not started | | |
+| 1a-iii | Buffer, undo tree and selections | not started | | |
+| 1a-iv | Layout, widgets, theme tokens and editor widget | not started | | |
+| 1b-i | AccessKit vendoring and CI | not started | | |
+| 1b-ii | Accessibility C wrapper | not started | | |
+| 1b-iii | Accessibility-tree dump test | not started | | |
+| 1b-iv | Keyboard navigation | not started | | |
+| | **CHECKPOINT: stop and report (first typing build)** | | | |
+| 2a | Vaults, file tree and file actions | not started | | |
+| 2b | File watching, saving and note names | not started | | |
+| 2c | Tabs, splits, sidebars and drag and drop | not started | | |
+| 2d | Settings file, registries and platform layer | not started | | |
+| 2e | Vault manager and `tools/gen_vault` | not started | | |
+| 3a | Tokenizer, callouts and HTML subset | not started | | |
+| 3b | Source mode and live preview | not started | | |
+| | **CHECKPOINT: stop and report (first live-preview build)** | | | |
+| 3c | Reading mode and folding | not started | | |
+| 3d | Find, rectangular selection, shortcuts and slash commands | not started | | |
+| 3e | Spell check and word count | not started | | |
+| 4a-i | Index schema and indexer | not started | | |
+| 4a-ii | Links, backlinks and page preview | not started | | |
+| 4a-iii | Tags and properties | not started | | |
+| 4a-iv | Link-safe rename | not started | | |
+| 4b-i | Search engine and operators | not started | | |
+| 4b-ii | Saved queries and query blocks | not started | | |
+| 4b-iii | Quick switcher and command palette | not started | | |
+| 4b-iv | Outline, bookmarks, random note and footnotes | not started | | |
+| | **CHECKPOINT: stop and report (first usable build)** | | | |
+| 5a | Barnes-Hut layout and graph rendering | not started | | |
+| 5b | Graph filters, groups, forces and display | not started | | |
+| 5c | Local graph, animation and keyboard route | not started | | |
+| 6a | Canvas | not started | | |
+| 6b-i | Expression engine | not started | | |
+| 6b-ii | Base core | not started | | |
+| 6b-iii | Base layouts | not started | | |
+| 6c-i | Images including SVG | not started | | |
+| 6c-ii | Audio | not started | | |
+| 6c-iii | libmpv loader | not started | | |
+| 6c-iv | PDFium loader and PDF viewer | not started | | |
+| 6c-v | Embed syntax | not started | | |
+| 6d-i | Math | not started | | |
+| 6d-ii | Mermaid flowchart and sequence | not started | | |
+| 6d-iii | Mermaid class, state, ER, pie and gantt | not started | | |
+| 6e-i | Daily notes, templates and dates | not started | | |
+| 6e-ii | Unique notes and note composer | not started | | |
+| 6e-iii | Slides | not started | | |
+| 6e-iv | Format converter and PDF export | not started | | |
+| 6e-v | Importers and stubs | not started | | |
+| 7a | Settings framework and Options pages | not started | | |
+| 7b | Built-in feature pages | not started | | |
+| 7c | Hotkeys | not started | | |
+| 7d | Themes and style snippets | not started | | |
+| 7e | Workspaces and file recovery | not started | | |
+| 7f | Status bar, ribbon, high contrast and zoom | not started | | |
+| 8a | Vim mode | not started | | |
+| 8b | Lua runtime and plugin permissions | not started | | |
+| 8c | Labeled stubs | not started | | |
+| 9a | Windows zip | not started | | |
+| 9b | Linux AppImage | not started | | |
+| 9c | macOS dmg | not started | | |
+| 9d | Add-on package and final checks | not started | | |
+
+## Notes for the next session
+
+- Environment used so far (cloud container): Linux x86-64, gcc 13, clang 18 without the sanitizer runtime (the local sanitizer run used gcc; CI uses clang), cmake 3.28, nasm, cargo. Windows and macOS can only be verified by CI.
+- Network: `git clone` of GitHub repositories works through the proxy; release tarballs and `api.github.com` do not. Vendored sources were taken from git tags at the commits in `third_party/VERSIONS.md`.
+- Local Linux build needs: `libx11-dev libxext-dev libxcursor-dev libxi-dev libxrandr-dev libxfixes-dev libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev wayland-protocols libdecor-0-dev libegl-dev libudev-dev libasound2-dev libpulse-dev libdbus-1-dev` (the same list as `LINUX_DEPS` in the workflow).

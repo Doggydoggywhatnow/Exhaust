@@ -225,6 +225,8 @@ Exhaust is written in C (C11). There is no web browser or web view anywhere in i
 | Spell check | Own checker reading Hunspell `.aff`/`.dic` files, supporting `PFX`, `SFX`, `REP` and `KEY` only (no compounding); English (US) included | Unlicense (own); each word list keeps its own license |
 | Sync *(later)* | libsodium | ISC |
 
+Pinned versions, sources and what was left out of each vendored copy are in [`third_party/VERSIONS.md`](third_party/VERSIONS.md). FreeType is dual licensed (FreeType License or GPLv2); Exhaust uses it under the FreeType License only. Exhaust's UI uses portions of the FreeType Project (https://freetype.org); the FreeType License asks for that credit.
+
 ### Threads
 
 - **UI thread**: input and drawing only. It never blocks on disk, the index or layout for more than 16 ms.

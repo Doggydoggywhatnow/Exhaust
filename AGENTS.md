@@ -32,6 +32,8 @@ Never add a web browser, web view or JavaScript engine to Exhaust itself.
 - File watching uses dmon (single-header C) or our own inotify, ReadDirectoryChangesW and FSEvents code. Do not use efsw (C++).
 
 ## Workflow
+- **Progress file:** `docs/PROGRESS.md` lists every sub-slice with its status, commit and any assumptions or *TODO-verify* items. Update it in the same commit as each sub-slice, so a fresh session can resume from it. Read it first.
+- **One sub-slice at a time.** Commit and push after each, with CI green on Linux, Windows and macOS before starting the next. **Stop and report** after 1b, 3b and 4b (first typing build, first live-preview build, first usable build) for review, and whenever a test or CI keeps failing: never skip, loosen or delete a test.
 - Work on `dev`. **Never push directly to `main`.** (The repository owner may tell you otherwise for a specific push.)
 - Versioning: `x.0.0` major, `0.x.0` minor (big features), `0.0.x` patch (small features, fixes, security).
 - Build: `cmake -S . -B build && cmake --build build && ctest --test-dir build`

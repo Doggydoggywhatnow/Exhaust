@@ -3,6 +3,15 @@ on:
   push:
     branches: [dev, main]
   pull_request:
+
+env:
+  # Packages SDL3 needs to build its X11 and Wayland video drivers and its audio
+  # backends on Linux. They are build-time only: SDL loads them with dlopen.
+  LINUX_DEPS: >-
+    libx11-dev libxext-dev libxcursor-dev libxi-dev libxrandr-dev libxfixes-dev
+    libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev wayland-protocols
+    libdecor-0-dev libegl-dev libudev-dev libasound2-dev libpulse-dev libdbus-1-dev
+
 jobs:
   build:
     strategy:
@@ -12,26 +21,33 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $LINUX_DEPS
       - run: cmake -S . -B build
-      - run: cmake --build build --config Release
+      - run: cmake --build build --config Release --parallel
       - run: ctest --test-dir build -C Release --output-on-failure
 
   sanitizers:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $LINUX_DEPS
       - run: >
           cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug
           -DCMAKE_C_COMPILER=clang
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
-      - run: cmake --build build-san
+      - run: cmake --build build-san --parallel
       - run: ctest --test-dir build-san --output-on-failure
 
   size:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $LINUX_DEPS
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-      - run: cmake --build build
+      - run: cmake --build build --parallel
       - run: cmake --install build --prefix "$PWD/install"
       - run: tools/check_size.sh "$PWD/install"
