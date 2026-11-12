@@ -37,3 +37,9 @@ Full-page screenshots of 28 settings pages, in `settings/`. **These are the guid
 - **Options:** `general-settings.png`, `appearance-settings.png`, `interface-settings.png`, `editor-settings-pt-1.png`, `editor-settings-part-2.png`, `files-and-links-settings-pt-1.png`, `files-and-links-pt-2.png`.
 - **Hotkeys:** `hotkeys-1.png` to `hotkeys-9.png`, the complete list across nine pages, in alphabetical order.
 - **Built-in features:** `core-plugins-pt-1-settings.png` and `core-plugins-pt-2.png` (the list of features with their switches), then one page each for `backlinks-settings.png`, `canvas-settings.png`, `command-pallete-settings.png`, `daily-notes-settings.png`, `file-recovery-settings.png`, `new-note-creator-settings.png`, `note-composer-settings.png`, `page-preview-settings.png`, `quick-switcher-settings.png` and `template-settings.png`.
+
+## Vault manager
+
+![Vault manager](vault-manager.png)
+
+This is what managing the vault should be like in Exhaust. A list of known vaults sits on the left, each with its name, its folder and a three-dot menu for actions such as rename, move and remove. On the right are the ways to add one: create a new vault under a folder, open an existing folder of Markdown files as a vault, and (in Obsidian) open a vault from its sync service, which in Exhaust is an *(optional, later)* stub. A language choice sits below them.
