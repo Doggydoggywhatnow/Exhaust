@@ -95,7 +95,16 @@ void ex_ui_draw(ExUi *ui, ExWidget *root, int blink_on);
 /* Input, in window pixel coordinates. */
 ExWidget *ex_ui_widget_at(ExWidget *root, float x, float y); /* the deepest widget under the point */
 void ex_ui_mouse(ExUi *ui, ExWidget *root, ExMouse kind, float x, float y, int mods, int clicks);
+/* Keyboard. Tab and Shift+Tab move the focus through every focusable widget in
+ * tree order (the order of the accessibility tree), wrapping around; Enter and
+ * Space press the focused button. In an editor Tab types a tab, so the editor is
+ * left with Ctrl+Tab or Ctrl+Shift+Tab, or with Escape (once the selection is a
+ * single caret) followed by Tab. The focused widget is always drawn with a visible
+ * ring in the accent color. */
 void ex_ui_key(ExUi *ui, ExKey key, int mods);
+/* Moves the focus to the next (dir > 0) or previous (dir < 0) focusable widget of
+ * the tree last laid out; returns the newly focused widget or NULL. */
+ExWidget *ex_ui_focus_move(ExUi *ui, int dir);
 void ex_ui_text_input(ExUi *ui, const char *utf8, size_t len);
 ExWidget *ex_ui_focus(const ExUi *ui);
 void ex_ui_set_focus(ExUi *ui, ExWidget *w);
@@ -105,6 +114,11 @@ void ex_ui_set_focus(ExUi *ui, ExWidget *w);
  * the text. Nodes of widgets that no longer exist are removed and the focus follows
  * the UI's focus. Call it after layout whenever the UI changed. Returns 0. */
 int ex_ui_a11y_sync(ExUi *ui, ExWidget *root, ExA11yTree *tree);
+
+/* The sample window: ribbon with a theme switch button, the note editor on doc, and a
+ * status line. The demo program and the accessibility and keyboard tests all use it,
+ * so what the tests check is what the program shows. toggle_theme may be NULL. */
+ExWidget *ex_sample_window(ExUi *ui, ExDoc *doc, ExClickFn toggle_theme, void *user, ExWidget **editor_out);
 
 /* Number of widgets in a tree. */
 size_t ex_widget_count(const ExWidget *root);

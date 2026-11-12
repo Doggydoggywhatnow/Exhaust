@@ -482,6 +482,7 @@ void ex_editor_key(ExEditor *e, ExRenderer *r, ExKey key, int mods) {
     case EX_KEY_DELETE: backspace_or_delete(e, r, 1, prim || alt); break;
     case EX_KEY_ENTER: ex_editor_text_input(e, "\n", 1); ensure_visible(e, r); break;
     case EX_KEY_TAB: ex_editor_text_input(e, "\t", 1); break;
+    case EX_KEY_SPACE: break; /* typed through text input */
     case EX_KEY_ESCAPE: {
         ExSel s = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
         s.anchor = s.head;

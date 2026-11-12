@@ -221,15 +221,32 @@ static void bprintf(Buf *b, const char *fmt, ...) {
     b->n += (size_t)need;
 }
 
+/* Quoted, with line breaks, tabs, quotes and backslashes escaped: one node per line. */
+static void bquoted(Buf *b, const char *s) {
+    bprintf(b, "\"");
+    for (; *s; s++) {
+        switch (*s) {
+        case '\n': bprintf(b, "\\n"); break;
+        case '\r': bprintf(b, "\\r"); break;
+        case '\t': bprintf(b, "\\t"); break;
+        case '"': bprintf(b, "\\\""); break;
+        case '\\': bprintf(b, "\\\\"); break;
+        default: bprintf(b, "%c", *s); break;
+        }
+    }
+    bprintf(b, "\"");
+}
+
 static void dump_rec(const ExA11yTree *t, uint64_t id, int depth, Buf *b) {
     Node *n = find(t, id);
     size_t i;
     if (!n) return;
-    bprintf(b, "%*s%s \"%s\"", depth * 2, "", ex_a11y_role_name(n->role), n->name);
+    bprintf(b, "%*s%s ", depth * 2, "", ex_a11y_role_name(n->role));
+    bquoted(b, n->name);
     if (n->actions & EX_A11Y_ACTION_CLICK) bprintf(b, " [click]");
     if (n->actions & EX_A11Y_ACTION_FOCUS) bprintf(b, " [focusable]");
     if (t->focus == id) bprintf(b, " [focused]");
-    if (n->value[0]) bprintf(b, " value=\"%s\"", n->value);
+    if (n->value[0]) { bprintf(b, " value="); bquoted(b, n->value); }
     bprintf(b, "\n");
     for (i = 0; i < n->nkids; i++) dump_rec(t, n->kids[i], depth + 1, b);
 }

@@ -123,6 +123,7 @@ if(EXHAUST_A11Y)
   file(GLOB_RECURSE ACCESSKIT_SOURCES ${ACCESSKIT_DIR}/src/*.rs)
   add_custom_command(OUTPUT ${ACCESSKIT_LIB}
     COMMAND ${CMAKE_COMMAND} -E env CARGO_TARGET_DIR=${ACCESSKIT_TARGET_DIR} MAKEFLAGS=
+            CARGO_PROFILE_RELEASE_DEBUG=false   # accesskit-c's own profile keeps debug info: it would bloat the program
             ${CARGO} build --release --offline --locked
     WORKING_DIRECTORY ${ACCESSKIT_DIR}   # so cargo finds .cargo/config.toml (the vendored sources)
     DEPENDS ${ACCESSKIT_DIR}/Cargo.toml ${ACCESSKIT_DIR}/Cargo.lock ${ACCESSKIT_SOURCES}
@@ -219,12 +220,16 @@ if(EXHAUST_A11Y)
   target_link_libraries(exhaust_a11y PUBLIC accesskit)
 endif()
 
-add_library(exhaust_ui STATIC src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/ui.c ${THEME_C})
+add_library(exhaust_ui STATIC src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/ui.c ${THEME_C})
 target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
 target_link_libraries(exhaust_ui PUBLIC exhaust_render exhaust_buffer exhaust_a11y clay_impl)
 
 add_executable(exhaust src/main.c)
 target_link_libraries(exhaust PRIVATE exhaust_core exhaust_render exhaust_ui)
+# Release builds are stripped of symbols (the size budget is for the installed program).
+if(NOT MSVC AND NOT APPLE)
+  target_link_options(exhaust PRIVATE $<$<CONFIG:Release>:-s>)
+endif()
 install(TARGETS exhaust RUNTIME DESTINATION bin)
 # License texts of the code and fonts linked or embedded into the executable.
 install(FILES
@@ -308,6 +313,14 @@ endif()
 add_executable(test_a11y_wrapper tests/test_a11y_wrapper.c)
 target_link_libraries(test_a11y_wrapper PRIVATE exhaust_ui)
 add_test(NAME a11y_wrapper COMMAND test_a11y_wrapper)
+
+add_executable(test_a11y_dump tests/test_a11y_dump.c)
+target_link_libraries(test_a11y_dump PRIVATE exhaust_ui)
+add_test(NAME a11y_dump COMMAND test_a11y_dump ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/a11y_sample.txt)
+
+add_executable(test_keyboard_nav tests/test_keyboard_nav.c)
+target_link_libraries(test_keyboard_nav PRIVATE exhaust_ui)
+add_test(NAME keyboard_nav COMMAND test_keyboard_nav ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/focus_order.txt)
 
 add_executable(test_shaping tests/test_shaping.c)
 target_link_libraries(test_shaping PRIVATE exhaust_text)

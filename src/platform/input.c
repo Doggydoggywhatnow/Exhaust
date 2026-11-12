@@ -70,6 +70,7 @@ int ex_key_from_sdl(const SDL_Event *e, ExKey *key, int *mods) {
     case SDLK_DELETE: k = EX_KEY_DELETE; break;
     case SDLK_RETURN: case SDLK_KP_ENTER: k = EX_KEY_ENTER; break;
     case SDLK_TAB: k = EX_KEY_TAB; break;
+    case SDLK_SPACE: k = EX_KEY_SPACE; break;
     case SDLK_ESCAPE: k = EX_KEY_ESCAPE; break;
     case SDLK_A: k = EX_KEY_A; break;
     case SDLK_C: k = EX_KEY_C; break;

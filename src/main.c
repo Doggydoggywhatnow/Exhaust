@@ -62,41 +62,6 @@ static void on_toggle_theme(ExWidget *w, void *user) {
     }
 }
 
-static void build_ui(App *a) {
-    ExWidget *row, *ribbon, *toggle, *status;
-    a->root = ex_widget_box(a->ui, 1, "Exhaust");
-    a->root->role = EX_ROLE_WINDOW;
-    a->root->width = ex_size_grow();
-    a->root->height = ex_size_grow();
-    a->root->bg_token = EX_COLOR_BACKGROUND;
-    row = ex_widget_box(a->ui, 0, "workspace");
-    row->width = ex_size_grow();
-    row->height = ex_size_grow();
-    ribbon = ex_widget_box(a->ui, 1, "ribbon");
-    ribbon->width = ex_size_token(EX_SIZE_RIBBON_WIDTH, 1.0f);
-    ribbon->height = ex_size_grow();
-    ribbon->bg_token = EX_COLOR_BACKGROUND_ALT;
-    ribbon->pad_x = 0.5f;
-    ribbon->pad_y = 1.0f;
-    toggle = ex_widget_button(a->ui, "Aa", on_toggle_theme, a);
-    free(toggle->name);
-    toggle->name = malloc(32);
-    if (toggle->name) strcpy(toggle->name, "Switch light and dark theme");
-    a->editor = ex_widget_editor(a->ui, a->doc, "Note text");
-    status = ex_widget_label(a->ui, "Typing, selecting, several cursors (Ctrl+Alt+Up or Down, Alt+click), undo and redo work. Ctrl+Plus and Ctrl+Minus zoom.");
-    status->text_token = EX_COLOR_TEXT_MUTED;
-    status->text_scale = 0.85f;
-    status->width = ex_size_grow();
-    status->pad_x = 1.0f;
-    status->pad_y = 0.5f;
-    status->bg_token = EX_COLOR_BACKGROUND_ALT;
-    ex_widget_add(ribbon, toggle);
-    ex_widget_add(row, ribbon);
-    ex_widget_add(row, a->editor);
-    ex_widget_add(a->root, row);
-    ex_widget_add(a->root, status);
-}
-
 int main(int argc, char **argv) {
     App app;
     SDL_Event e;
@@ -124,7 +89,7 @@ int main(int argc, char **argv) {
     ex_renderer_set_display_scale(app.r, ex_renderer_detect_display_scale(app.r));
     app.ui = ex_ui_create(app.r, &app.theme, 16.0f);
     app.doc = ex_doc_create(intro, strlen(intro));
-    build_ui(&app);
+    app.root = ex_sample_window(app.ui, app.doc, on_toggle_theme, &app, &app.editor);
     ex_ui_set_focus(app.ui, app.editor);
 
     g_wake_event = SDL_RegisterEvents(1);

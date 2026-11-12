@@ -1,0 +1,6 @@
+window "Exhaust"
+  group "workspace"
+    group "ribbon"
+      button "Switch light and dark theme" [click] [focusable]
+    text-input "Note text" [focusable] [focused] value="Welcome to Exhaust.\n\nType here. عربي 你好\n"
+  label "Typing, selecting, several cursors (Ctrl+Alt+Up or Down, Alt+click), undo and redo work. Ctrl+Plus and Ctrl+Minus zoom."

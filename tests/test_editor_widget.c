@@ -259,7 +259,7 @@ static void run_theme(ExBuiltinTheme which, float scale) {
         CHECK(px && w == W && h == H);
         if (px) {
             /* an empty corner of the editor is the theme background */
-            pixel(px, w, (int)(editor->x + editor->w - 4), (int)(editor->y + editor->h - 4), &pr, &pg, &pb);
+            pixel(px, w, (int)(editor->x + editor->w - 12), (int)(editor->y + editor->h - 12), &pr, &pg, &pb);  /* inside the focus ring */
             CHECK(pr == bg.r && pg == bg.g && pb == bg.b);
             /* the ribbon is the alternate background */
             {

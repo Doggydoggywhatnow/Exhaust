@@ -17,6 +17,7 @@ struct ExUi {
     uint32_t next_id;
     ExWidget *last_root;
     int clay_errors;
+    int tab_leaves_editor;   /* Escape was pressed in an editor: the next Tab leaves it */
 };
 
 /* ---- construction ---- */
@@ -289,6 +290,8 @@ void ex_ui_layout(ExUi *ui, ExWidget *root, float width, float height) {
 
 /* ---- drawing ---- */
 
+static const ExTheme *t_theme(const ExUi *ui) { return ui->theme; }
+
 static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
     const ExTheme *t = ui->theme;
     ExRenderer *r = ui->r;
@@ -319,6 +322,10 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
     }
     for (c = w->first_child; c; c = c->next) draw_widget(ui, c, blink_on);
     if (w->clip) ex_set_clip(r, 0, 0, -1, -1);
+    if (w->focusable && ui->focus == w) { /* the visible focus ring, drawn last so nothing covers it */
+        float t = 2.0f * (float)ex_px(r, token_px(ui, EX_SIZE_BORDER_WIDTH));
+        ex_stroke_round_rect(r, w->x, w->y, w->w, w->h, rad, t, ex_theme_color(t_theme(ui), EX_COLOR_ACCENT));
+    }
 }
 
 void ex_ui_draw(ExUi *ui, ExWidget *root, int blink_on) { draw_widget(ui, root, blink_on); }
@@ -362,13 +369,57 @@ void ex_ui_mouse(ExUi *ui, ExWidget *root, ExMouse kind, float x, float y, int m
             ex_editor_mouse(ui->focus->editor, ui->r, kind, x, y, mods, clicks);
 }
 
+static size_t collect_focusable(ExWidget *w, ExWidget **out, size_t n, size_t cap) {
+    for (; w; w = w->next) {
+        if (w->focusable) { if (n < cap) out[n] = w; n++; }
+        n = collect_focusable(w->first_child, out, n, cap);
+    }
+    return n;
+}
+
+ExWidget *ex_ui_focus_move(ExUi *ui, int dir) {
+    size_t n, i, cur = (size_t)-1;
+    ExWidget **list;
+    if (!ui->last_root) return NULL;
+    n = ex_widget_count(ui->last_root);
+    list = malloc((n ? n : 1) * sizeof *list);
+    if (!list) return NULL;
+    n = collect_focusable(ui->last_root, list, 0, n);
+    if (n == 0) { free(list); return NULL; }
+    for (i = 0; i < n; i++) if (list[i] == ui->focus) cur = i;
+    if (cur == (size_t)-1) cur = dir > 0 ? n - 1 : 0, i = dir > 0 ? 0 : n - 1;
+    else i = dir > 0 ? (cur + 1) % n : (cur + n - 1) % n;
+    ui->focus = list[i];
+    ui->tab_leaves_editor = 0;
+    free(list);
+    return ui->focus;
+}
+
 void ex_ui_key(ExUi *ui, ExKey key, int mods) {
     ExWidget *f = ui->focus;
-    if (f && f->type == EX_WIDGET_EDITOR) ex_editor_key(f->editor, ui->r, key, mods);
-    else if (f && f->type == EX_WIDGET_BUTTON && (key == EX_KEY_ENTER) && f->on_click) f->on_click(f, f->on_click_user);
+    int in_editor = f && f->type == EX_WIDGET_EDITOR && f->editor;
+    int shift = (mods & EX_MOD_SHIFT) != 0, prim = (mods & EX_MOD_PRIMARY) != 0;
+    if (key == EX_KEY_TAB && (!in_editor || prim || ui->tab_leaves_editor)) {
+        ex_ui_focus_move(ui, shift ? -1 : 1);
+        return;
+    }
+    if (in_editor) {
+        /* Escape in an editor first collapses several cursors or a selection; with a single
+         * caret it arms the next Tab to leave the editor instead of typing a tab */
+        if (key == EX_KEY_ESCAPE) {
+            ExDoc *d = ex_editor_doc(f->editor);
+            ExSel s = ex_doc_sel(d, 0);
+            ui->tab_leaves_editor = ex_doc_sel_count(d) == 1 && s.anchor == s.head;
+        } else if (key != EX_KEY_TAB) {
+            ui->tab_leaves_editor = 0;
+        }
+        if (key != EX_KEY_SPACE) ex_editor_key(f->editor, ui->r, key, mods);
+    } else if (f && f->type == EX_WIDGET_BUTTON && (key == EX_KEY_ENTER || key == EX_KEY_SPACE) && f->on_click) {
+        f->on_click(f, f->on_click_user);
+    }
 }
 
 void ex_ui_text_input(ExUi *ui, const char *utf8, size_t len) {
     ExWidget *f = ui->focus;
-    if (f && f->type == EX_WIDGET_EDITOR) ex_editor_text_input(f->editor, utf8, len);
+    if (f && f->type == EX_WIDGET_EDITOR) { ui->tab_leaves_editor = 0; ex_editor_text_input(f->editor, utf8, len); }
 }

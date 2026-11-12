@@ -1,0 +1,2 @@
+button: Switch light and dark theme
+text-input: Note text
