@@ -63,6 +63,8 @@ Add tests with the code. Required at minimum: the text buffer and undo tree, the
 - Spell check: own checker, `PFX`, `SFX`, `REP` and `KEY` only, no compounding, English (US) only in 0.1.
 - Fonts: Atkinson Hyperlegible, Atkinson Hyperlegible Mono for code, system fonts discovered by scanning the OS font folders, no bundled emoji font.
 - Date formatting uses an own formatter for Moment-style tokens.
+- PDF export uses an own PDF writer (fonts subset through FreeType, deflate from miniz); exports are always light-styled.
+- There is no auto-updater. A manual update check is optional and off until the user presses it.
 
 ## UI design
 The screenshots in `screenshots/` are the **skeleton of how Exhaust should look**. Build the layout to match them: ribbon on the far left, file tree with the vault button at its bottom, tabs across the top, side-by-side panes for notes, graph, canvas and reference notes, the searchable settings list, and the hotkeys list (`screenshots/hotkeys.png`). The 28 pages in `screenshots/settings/` are the guideline for Exhaust's settings screens: match their layout, grouping and options. Design the look itself yourself in the README's Midori notebook style. Do not copy pixels, icons or text from the screenshots. Give light and dark themes, and document major UI decisions in the README.

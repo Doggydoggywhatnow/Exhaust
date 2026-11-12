@@ -16,12 +16,13 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 
 - Notes are plain Markdown files in a folder you choose. Exhaust never moves, renames or reorganizes them behind your back.
 - No network requests, telemetry or accounts unless you turn on an *(optional)* feature.
+- **Updates**: there is no auto-updater. An optional manual "check for updates" button *(optional)* asks the network only when you press it.
 - Every feature below can be switched off. Built-in features such as Graph, Canvas and Bases are separate toggles in Settings.
 
 ## Vaults and files
 
-- **Vaults**: a vault is a folder of Markdown files. A vault button at the bottom of the file tree switches between vaults. Create, open and remember several.
-- **File explorer**: a tree of folders and notes. Create, rename, move, delete and sort. Folders shown here are the real folders on disk.
+- **Vaults**: a vault is a folder of Markdown files. A vault button at the bottom of the file tree switches between vaults. Create, open and remember several. Manage them from the vault list: rename, move, remove from the list (never deleting files), create a vault from an existing folder, and transfer settings from one vault to another.
+- **File explorer**: a tree of folders and notes. Create, rename, move, delete and sort. Folders shown here are the real folders on disk. Auto-reveal the open note in the tree, and expand or collapse all folders. Each note's More-options menu offers open in default app, show in file manager, copy path (from the vault, or from the system root) and export to PDF.
 - **Open anything**, with exactly these file types: Markdown (`.md`), bases (`.base`), JSON Canvas (`.canvas`), images (`.avif`, `.bmp`, `.gif`, `.jpeg`, `.jpg`, `.png`, `.svg`, `.webp`), audio (`.flac`, `.m4a`, `.mp3`, `.ogg`, `.wav`, `.webm`, `.3gp`), video (`.mkv`, `.mov`, `.mp4`, `.ogv`, `.webm`) and PDF (`.pdf`). Other file types are left alone. Audio, video and PDF need the optional media and PDF libraries; without them Exhaust offers "Open externally". Playback depends on the codecs available.
 - **Excluded files**: patterns that hide files from search, links and the graph.
 - **Link-safe renames**: renaming or moving a note updates every link to it. It asks first by default; you can make it automatic or off. It covers wikilinks, embeds, Markdown links (URL-encoded and relative), links inside properties, `#heading` and `#^block` references, `.canvas` files, `.base` files and bookmarks.
@@ -30,21 +31,22 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 - **Trash**: deleted notes go to the system trash, to a `.trash` folder in the vault, or are deleted permanently, as you choose, with an optional confirmation.
 - **Symbolic links**: followed, with loops detected.
 - **Configuration folder**: settings, themes, snippets, hotkeys and workspaces live in a `.exhaust` folder inside the vault, in plain text. The search index and other caches live in the operating system's cache folder, keyed by vault, never inside the vault, so file-sync tools cannot corrupt them. Settings has a *Rebuild vault cache* button.
-- **Import**: Markdown and plain text folders, HTML, CSV and Textbundle. Other apps' exports are *(later)*.
+- **Import**: Markdown and plain text folders, HTML, CSV and Textbundle. Importer templates control how imported notes are named and laid out. Importers for Apple Journal, Apple Notes, Bear, Craft, Evernote, Google Keep, Logseq, OneNote, Notion, Roam, Tomboy/Gnote and Airtable are listed as disabled *(later)* entries.
 - **Backups**: because everything is plain files, any backup tool works.
 
 ## Writing
 
 - **Markdown**: headings, bold, italic, strikethrough, highlight, lists, task lists, quotes, code blocks, tables, horizontal rules, footnotes, comments, math, and Mermaid diagrams (flowchart, sequence, class, state, ER, pie and gantt).
-- **Callouts**: typed, titled and foldable blocks, nestable.
+- **Callouts**: typed, titled and foldable (`+` or `-`) blocks, nestable. The types, each with its own color and icon, are `note`, `abstract` (aliases `summary`, `tldr`), `info`, `todo`, `tip` (`hint`, `important`), `success` (`check`, `done`), `question` (`help`, `faq`), `warning` (`caution`, `attention`), `failure` (`fail`, `missing`), `danger` (`error`), `bug`, `example` and `quote` (`cite`). The type is not case-sensitive and unknown types show as `note`. Custom callouts, with your own color and icon, are made with style snippets.
 - **Live preview**: formatting shows as you type, with the syntax revealed under the cursor.
 - **Source mode and reading mode**: switch per note.
 - **Folding** of headings and lists.
 - **Find and replace** inside a note, with regular expressions.
-- **Multiple cursors**.
-- **Editing shortcuts**: the usual text-editing keys, plus smart list continuation and indent.
+- **Multiple cursors** and **rectangular selection**.
+- **Editing shortcuts**: the usual text-editing keys, plus smart list continuation and indent. The default shortcut tables in the Help page "Editing shortcuts" (one for Windows and Linux, one for macOS) are the reference. Shortcuts work on non-US keyboard layouts.
 - **Spell check** (Exhaust's own checker, English (US) dictionary included, more added as word lists) and a **word count** in the status bar.
-- **Embedded content**: notes, headings, blocks, images, audio, video and PDFs. Web links open in the system browser; Exhaust has no embedded browser.
+- **Export to PDF**: from the command palette or a note's More-options menu. Options: page size (A3, A4, A5, Legal, Letter or Tabloid), landscape, margin (Default, Minimal or None), downscale percent, and include the file name as the title. Exports are always light-styled.
+- **Embedded content**: notes, headings, blocks, lists, canvases, images, audio, video and PDFs, with `![[file]]` and Markdown syntax. Images take a size: `![[img.png|640x480]]` or `![[img.png|100]]`. PDFs take a page and height: `![[f.pdf#page=3&height=400]]`. External image URLs need the network, so they are *(optional)* and off by default, showing a placeholder instead. Web links open in the system browser; Exhaust has no embedded browser.
 - **HTML** in notes: a safe subset of tags, drawn by Exhaust itself.
 - **Slash commands**: type `/` for a menu of commands.
 - **Audio recorder**: record straight into a note *(later)*.
@@ -53,16 +55,27 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 ## Links
 
 - **Wikilinks**: `[[Note]]`, `[[Note|alias]]`, `[[Note#Heading]]`, `[[Note#^block]]`, plus ordinary Markdown links. Suggestions appear as you type.
-- **Backlinks**: a panel of notes that point at the open note, including unlinked mentions.
+- **Backlinks**: a panel of notes that point at the open note, including unlinked mentions. Backlinks can also be shown at the bottom of the document.
 - **Outgoing links**: a panel of everything the open note points at.
 - **Aliases**: alternate names for a note that links can use.
 - **Page preview**: hover a link to see the note.
 - **Tags**: `#tag` and `#nested/tags`, a tag pane, and search by tag.
-- **Properties**: typed metadata at the top of a note (text, lists, numbers, checkboxes, dates, links) kept as plain YAML. A properties pane shows every property in the vault.
+- **Properties**: typed metadata at the top of a note (text, lists, numbers, checkboxes, date, date and time, links) kept as plain YAML. The default properties are `tags`, `aliases` and `cssclasses`; `cssclasses` adds style classes to the note. A properties pane shows every property in the vault, and you can rename a property or change its type across the whole vault as an action you choose.
+
+## PDF viewer
+
+PDFs open in a tab and embed in notes (needs the optional PDF library).
+
+- **Navigation**: a table of contents, fit width, fit height, and zoom.
+- **Search**: find in the PDF, with match case and highlight all.
+- **Copy text** from the page.
+- **Links to a selection**: `[[file.pdf#page=1&selection=...]]` opens the PDF at that selected text.
+- **Annotations** are not supported (see Non-goals).
 
 ## Graph
 
 - **Graph view**: notes are circles, links are lines, busier notes are bigger. Hover to highlight neighbours, click to open, right-click for actions, scroll to zoom, drag to pan, arrow keys and `+`/`-` too.
+- **Graph display**: arrows, a text fade threshold, node size and link thickness.
 - **Local graph** for the open note, with adjustable depth.
 - **Filters and groups**: by search, tag, folder and property, with colors. Toggle orphans, unresolved links and attachments.
 - **Forces**: sliders for centering, repulsion, link strength and distance.
@@ -71,8 +84,8 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 
 ## Finding things
 
-- **Search**: full text over the vault with the operators `file:`, `path:`, `content:`, `match-case:`, `ignore-case:`, `tag:`, `line:`, `block:`, `section:`, `task:`, `task-todo:` and `task-done:`, property filters like `[property:value]`, regular expressions, `OR`, `-` for not, parentheses and quotes. Matching works on parts of words. Results show context, can be sorted, and can be saved as a query.
-- **Embedded search**: a `query` code block in a note shows live search results.
+- **Search**: full text over the vault with the operators `file:`, `path:`, `content:`, `match-case:`, `ignore-case:`, `tag:`, `line:`, `block:`, `section:`, `task:`, `task-todo:` and `task-done:`, property filters like `[property:value]`, regular expressions, `OR`, `-` for not, parentheses and quotes. Matching works on parts of words. Results show context (with an option for more), can be sorted, copied, collapsed and saved as a query.
+- **Embedded search**: a `query` code block in a note shows live search results. The same result options apply.
 - **Quick switcher**: `Ctrl+O`, fuzzy match by name or alias, `Enter` to create a note that doesn't exist.
 - **Command palette**: `Ctrl+P`, fuzzy match every command, with pinned commands.
 - **Outline**: the headings of the open note, clickable and draggable to reorder sections.
@@ -83,13 +96,13 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 ## Organizing and structure
 
 - **Canvas**: an infinite board for notes, images, web links, text cards and groups, joined by labeled arrows. Saved as `.canvas` in the open JSON Canvas format.
-- **Bases**: database-style views of your notes and their properties, with filters, sorting, formulas and functions (all 72 documented ones). Table, list, cards, kanban and map layouts. Saved as `.base` files, or embedded in a note. `.base` files belong to Exhaust, so it may rewrite them (keeping any keys it doesn't know); notes are never reformatted. The map layout needs map tiles from the network, so it is *(optional)* and off by default, with a tile address you set; without it, it plots coordinates on a plain grid.
+- **Bases**: database-style views of your notes and their properties, with filters, sorting, grouping, summaries (built-in and custom), formulas and functions (all 72 documented ones). Expressions use the `note.`, `file.` and `formula.` namespaces and the `this` object. A view can have a limit, copy to the clipboard and export CSV. Layouts and their settings: table (row height), list (markers and separators), cards (card size and image property), kanban (columns) and map. Saved as `.base` files, or embedded in a note as a code block. `.base` files belong to Exhaust, so it may rewrite them (keeping any keys it doesn't know); notes are never reformatted. The map layout needs map tiles from the network, so it is *(optional)* and off by default, with a tile address you set; without it, it plots coordinates on a plain grid.
 - **Daily notes**: a note per day from a template, with an optional calendar. Date formats use Moment-style tokens, such as `YYYY-MM-DD`.
-- **Templates**: insert a template with date, time and title variables, using Moment-style date tokens (`{{date:YYYY-MM-DD}}`).
+- **Templates**: insert a template with date, time and title variables, using Moment-style date tokens (`{{date:YYYY-MM-DD}}`). The template's properties are merged into the note's own.
 - **Unique note creator**: timestamp-named notes for Zettelkasten work.
-- **Note composer**: merge two notes, or split a selection into a new note, with links updated.
+- **Note composer**: merge two notes, or split a selection into a new note, with links updated. An optional template file sets the text of the extracted note.
 - **Slides**: present any note, with `---` between slides.
-- **Format converter** between link styles.
+- **Format converter**: migrates old frontmatter across the whole vault (`alias` to `aliases`, `tag` to `tags`, `cssclass` to `cssclasses`). It runs only when you ask, after a warning to back up your notes first.
 
 ## Workspace
 
@@ -108,7 +121,8 @@ A searchable settings screen, laid out as in the screenshots. Every item has a d
 
 - **Files and links**: default location for new notes; attachment location (vault root, a set folder, same folder as the note, or a subfolder of it); link format (shortest, relative or absolute); Use Wikilinks; trash mode; confirm before delete; excluded files; automatic link updates on rename; rebuild vault cache.
 - **Editor**: readable line length; strict line breaks; properties in document (visible, hidden or source); line numbers; indent guides; right-to-left text; auto-pair brackets and Markdown; smart lists; indent with tabs; paste HTML as Markdown; default view and mode for new tabs; spell check; Vim mode.
-- **Appearance**: theme, accent color, fonts, text size, interface zoom; inline title; tab title bar; ribbon configuration; hardware acceleration.
+- **Appearance**: theme, accent color, fonts, text size, interface zoom; inline title; tab title bar; ribbon configuration; hardware acceleration; translucent window; native menus; window frame; Ctrl+scroll to change the font size.
+- **General and interface**: language; always focus new tabs; a notice when startup takes longer than expected; the optional manual update check.
 - **Hotkeys**: every command, searchable, with conflicts shown.
 - **Built-in features**: one switch and options page for each feature (Backlinks, Canvas, Command palette, Daily notes, File recovery, Note composer, Page preview, Quick switcher, Sync, Templates, Unique note creator and the rest).
 - **Plugins**: installed plugins, their permissions and on/off switches *(later)*.
@@ -172,6 +186,7 @@ Exhaust is written in C (C11). There is no web browser or web view anywhere in i
 | Audio embeds | lib-Peep (WAV and FLAC; vendored and linked statically, about 13 KB), dr_mp3 and stb_vorbis for MP3 and OGG, SDL3 for output; other formats through libmpv | Unlicense, public domain or MIT-0, public domain or MIT, zlib |
 | Video embeds | libmpv, loaded at run time | LGPL or GPL (never linked) |
 | PDF | PDFium, loaded at run time | BSD-3 or Apache-2.0 |
+| PDF export | Own PDF writer: lays pages out with Exhaust's reading-mode renderer, embeds font subsets through FreeType, compresses with miniz | Unlicense (own), public domain or MIT |
 | Plugins | Lua, sandboxed, with Exhaust's own API | MIT |
 | Bases expressions | Own expression engine module: the documented types and all 72 documented functions, tested against the examples in the docs | Unlicense (own) |
 | Math | Own LaTeX-subset layout using HarfBuzz's `hb-ot-math` and STIX Two Math | Unlicense (own), OFL 1.1 |
@@ -218,6 +233,7 @@ These Obsidian features are deliberately not part of Exhaust:
 - Mobile apps.
 - Accounts, licenses, payments, credits and the Teams offering.
 - A hosted Sync or Publish server. Their settings and interface are stubs; any file-sync tool already syncs a vault.
+- Annotating PDFs. Obsidian does not support it either.
 - Compatibility with Obsidian's JavaScript plugins. Exhaust has its own Lua plugin API.
 
 ## Screenshots
