@@ -21,7 +21,7 @@ Never add a web browser, web view or JavaScript engine to Exhaust itself.
 - Must run on Windows, Linux (Wayland and X11) and macOS. No display-server-specific code. Platform code lives in `src/platform/`.
 - Dependencies must be compatible with the Unlicense. Prefer public domain or permissive libraries. Never add GPL or AGPL code. LGPL libraries (libmpv) are loaded at run time, never linked. Record each dependency and its license in the README's table when you add it, after confirming the license yourself.
 - Accessibility is designed in from the first slice: keyboard navigation, scalable text, high contrast, and an accessibility tree for every widget. No hard-coded colors, sizes or fonts: use theme tokens from slice 1a-iv.
-- Every feature registers its commands in the command registry and its switch in the feature-toggle registry from slice 2 onward.
+- Every feature registers its commands in the command registry and its switch in the feature-toggle registry from sub-slice 2d onward.
 
 ## Dependencies
 - **Vendor everything** in `third_party/`: source and headers, with each license file, and a pinned version recorded in `third_party/VERSIONS.md`. Core builds need no downloads. Commit AccessKit's Rust sources with `cargo vendor`.
@@ -34,7 +34,7 @@ Never add a web browser, web view or JavaScript engine to Exhaust itself.
 - Versioning: `x.0.0` major, `0.x.0` minor (big features), `0.0.x` patch (small features, fixes, security).
 - Build: `cmake -S . -B build && cmake --build build && ctest --test-dir build`
 - Layout: `src/` sources (`src/platform/`, `src/a11y/`), `include/` headers, `tests/` tests (`tests/fuzz/` fuzz targets), `third_party/` vendored dependencies, `tools/` scripts, `extras/clipper/` the web clipper extension, `docs/` build specs.
-- Finish and commit each slice in `docs/0.1.0.md` before the next (the ids run 1a-i to 1a-iv, 1b-i to 1b-iv, 2, 3, 4a, 4b, 5, 6a, 6b-i to 6b-iii, 6c-i to 6c-v, 6d, 6e, 7, 8 and 9). Commit and push after each slice.
+- Finish and commit each sub-slice (for example 2a) in `docs/0.1.0.md` before the next; the table order is the build order and each sub-slice lists what it depends on. Commit and push after each sub-slice.
 - Keep CI (`.github/workflows/ci.yml`) green on all three OSes. When you add a dependency, update the workflow in the same slice.
 
 ## Quality gates (CI)

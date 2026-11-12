@@ -428,7 +428,7 @@ Event names for `exhaust.events.on`: `vault-open`, `file-open`, `file-save`, `fi
 
 The slash menu opens when you type `/` at the start of a line or after a blank space. It lists every command registered with the `editor` flag, in command palette order, matched with the same fuzzy matching as the command palette (`scf` finds *Save current file*). `Esc` or `Space` closes it. The list itself is therefore the set of editor commands in the command registry; it is not a separate list.
 
-*TODO-verify*: the Obsidian Help pages do not list the default slash commands, and the nine hotkeys screenshots have not been read to extract command ids. Before slice 3 is finished, list the `editor` commands here from the command registry.
+*TODO-verify*: the Obsidian Help pages do not list the default slash commands, and the nine hotkeys screenshots have not been read to extract command ids. Before 3d is finished, list the `editor` commands here from the command registry.
 
 
 ## Default editing shortcuts

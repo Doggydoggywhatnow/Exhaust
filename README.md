@@ -213,7 +213,7 @@ Exhaust is written in C (C11). There is no web browser or web view anywhere in i
 
 ### Registries
 
-Two registries exist from slice 2, and every feature uses them from the start, so the settings and hotkey screens only add interface later:
+Two registries exist from sub-slice 2d, and every feature uses them from the start, so the settings and hotkey screens only add interface later:
 
 - **Command registry**: each command has an id, a name, a default key and an enabled predicate.
 - **Feature-toggle registry**: each built-in feature registers its on/off switch and options.
@@ -227,17 +227,17 @@ Two registries exist from slice 2, and every feature uses them from the start, s
 
 ### Build order
 
-Each slice is finished, tested and committed before the next. The detailed spec, with "done when" checks, is in [`docs/0.1.0.md`](docs/0.1.0.md).
+Each sub-slice is finished, tested and committed before the next. The detailed spec, with scope, dependencies and a "done when" check for each, is in [`docs/0.1.0.md`](docs/0.1.0.md).
 
-1. **1a** Window and renderer; shaping, bidi, IME and clipboard; buffer and undo tree; widgets, Clay, theme tokens and multi-cursor. **1b** Accessibility: cargo vendor and CI, C wrapper, tree-dump test, keyboard navigation.
-2. Vaults and files, vault manager, registries, platform layer, settings file, `tools/gen_vault`.
-3. Markdown and live preview.
-4. **4a** Index, links, backlinks, tags, properties, link-safe rename. **4b** Search, switcher, palette, outline, bookmarks, random note, footnotes.
-5. Graph view.
-6. **6a** Canvas. **6b** Bases: expression engine, base core, layouts. **6c** Embeds and media: images and SVG, audio, libmpv loader, PDFium loader and viewer, embed syntax. **6d** Math and diagrams. **6e** Templates, daily notes, unique notes, composer, slides, converter, export and import.
-7. Settings, hotkeys, themes and workspaces.
-8. Vim mode, plugins and the optional-feature stubs.
-9. Packaging: zip, AppImage and dmg.
+1. **1a** i window, renderer and text atlas; ii shaping, fonts, bidi, IME and clipboard; iii buffer, undo tree and selections; iv layout, widgets, theme tokens and editor widget. **1b** i AccessKit vendoring and CI; ii C wrapper; iii tree-dump test; iv keyboard navigation.
+2. **2a** vaults, file tree and file actions; **2b** file watching, saving and note names; **2c** tabs, splits, sidebars and drag and drop; **2d** settings file, registries and platform layer; **2e** vault manager and `tools/gen_vault`.
+3. **3a** tokenizer, callouts and HTML subset; **3b** source mode and live preview; **3c** reading mode and folding; **3d** find, rectangular selection, shortcuts and slash commands; **3e** spell check and word count.
+4. **4a** i index schema and indexer; ii links, backlinks and page preview; iii tags and properties; iv link-safe rename. **4b** i search engine and operators; ii saved queries and query blocks; iii quick switcher and command palette; iv outline, bookmarks, random note and footnotes.
+5. **5a** Barnes-Hut layout and rendering; **5b** filters, groups, forces and display; **5c** local graph, animation and keyboard route.
+6. **6a** canvas. **6b** i expression engine; ii base core; iii layouts. **6c** i images including SVG; ii audio; iii libmpv loader; iv PDFium loader and PDF viewer; v embed syntax. **6d** i math; ii Mermaid flowchart and sequence; iii Mermaid class, state, ER, pie and gantt. **6e** i daily notes, templates and dates; ii unique notes and note composer; iii slides; iv format converter and PDF export; v importers and stubs.
+7. **7a** settings framework and Options pages; **7b** built-in feature pages; **7c** hotkeys; **7d** themes and style snippets; **7e** workspaces and file recovery; **7f** status bar, ribbon, high contrast and zoom.
+8. **8a** Vim mode; **8b** Lua runtime and plugin permissions; **8c** labeled stubs.
+9. **9a** Windows zip; **9b** Linux AppImage; **9c** macOS dmg; **9d** add-on package and final checks.
 
 Exhaust must run on Windows, Linux (Wayland and X11) and macOS, with no display-server-specific code.
 
