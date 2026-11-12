@@ -5,6 +5,7 @@
 
 #include "clay.h"
 #include "exhaust_ui.h"
+#include "reading_view.h"
 
 struct ExUi {
     ExRenderer *r;
@@ -154,6 +155,30 @@ ExWidget *ex_widget_editor(ExUi *ui, ExDoc *doc, const char *name) {
     return w;
 }
 
+static int reading_mouse_hook(ExWidget *w, ExMouse kind, float x, float y, ExWidget *under, void *user) {
+    (void)under; (void)user;
+    return w->reading ? ex_readingview_mouse(w->reading, kind, x, y) : 0;
+}
+
+ExWidget *ex_widget_reading(ExUi *ui, const char *text, size_t len, const char *name) {
+    ExWidget *w = new_widget(ui, EX_WIDGET_READING, EX_ROLE_LABEL, name);
+    if (!w) return NULL;
+    w->reading = ex_readingview_create(text, len);
+    if (!w->reading) { free(w->name); free(w); return NULL; }
+    w->width = ex_size_grow();
+    w->height = ex_size_grow();
+    w->bg_token = EX_COLOR_BACKGROUND;
+    w->focusable = 1;
+    w->clip = 1;
+    w->on_mouse = reading_mouse_hook;
+    return w;
+}
+void ex_reading_set_text(ExWidget *w, const char *text, size_t len) { if (w->reading) ex_readingview_set_text(w->reading, text, len); }
+void ex_reading_set_link_handler(ExWidget *w, void (*fn)(ExRSpanKind kind, const char *target, void *user), void *user) { if (w->reading) ex_readingview_set_link_handler(w->reading, fn, user); }
+void ex_reading_scroll(ExWidget *w, float dy) { if (w->reading) ex_readingview_scroll(w->reading, dy); }
+float ex_reading_scroll_y(const ExWidget *w) { return w->reading ? ex_readingview_scroll_y(w->reading) : 0; }
+void ex_reading_set_scroll(ExWidget *w, float y) { if (w->reading) ex_readingview_set_scroll(w->reading, y); }
+
 void ex_widget_add(ExWidget *parent, ExWidget *child) {
     child->parent = parent;
     child->next = NULL;
@@ -168,6 +193,7 @@ void ex_widget_free(ExWidget *w) {
         ExWidget *n = w->next;
         ex_widget_free(w->first_child);
         ex_editor_free(w->editor);
+        ex_readingview_free(w->reading);
         if (w->owned && w->free_owned) w->free_owned(w->owned);
         free(w->name);
         free(w->text);
@@ -459,6 +485,7 @@ void ex_ui_layout(ExUi *ui, ExWidget *root, float width, float height) {
         while (sp > 0) {
             e = stack[--sp];
             for (; e; e = e->next) {
+                if (e->type == EX_WIDGET_READING && e->reading) ex_readingview_set_viewport(e->reading, e->x, e->y, e->w, e->h);
                 if (e->type == EX_WIDGET_EDITOR && e->editor) {
                     ExFont *f = ex_ui_font(ui, e->font_token, 0);
                     ex_editor_set_font(e->editor, f, ui->base_size, ex_theme_size(ui->theme, EX_SIZE_LINE_HEIGHT));
@@ -504,6 +531,7 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
     if (w->type == EX_WIDGET_EDITOR && w->editor) {
         ex_editor_draw(w->editor, r, t, ui->focus == w, blink_on);
     }
+    if (w->type == EX_WIDGET_READING && w->reading) ex_readingview_draw(w->reading, r, t, ui->base_size);
     if (w->type == EX_WIDGET_TREE) tree_draw(ui, w);
     for (c = w->first_child; c; c = c->next) draw_widget(ui, c, blink_on);
     if (w->clip) ex_set_clip(r, 0, 0, -1, -1);
@@ -622,6 +650,7 @@ void ex_ui_key(ExUi *ui, ExKey key, int mods) {
         return;
     }
     if (f && f->type == EX_WIDGET_TREE) { tree_key(ui, f, key); return; }
+    if (f && f->type == EX_WIDGET_READING && f->reading) { ex_readingview_key(f->reading, key); return; }
     if (in_editor) {
         /* Escape in an editor first collapses several cursors or a selection; with a single
          * caret it arms the next Tab to leave the editor instead of typing a tab */

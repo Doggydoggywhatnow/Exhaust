@@ -8,13 +8,14 @@
 
 #include "exhaust_a11y.h"
 #include "exhaust_editor.h"
+#include "exhaust_reading.h"
 #include "exhaust_vault.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef enum ExWidgetType { EX_WIDGET_BOX, EX_WIDGET_LABEL, EX_WIDGET_BUTTON, EX_WIDGET_EDITOR, EX_WIDGET_TREE, EX_WIDGET_TYPE_COUNT } ExWidgetType;
+typedef enum ExWidgetType { EX_WIDGET_BOX, EX_WIDGET_LABEL, EX_WIDGET_BUTTON, EX_WIDGET_EDITOR, EX_WIDGET_TREE, EX_WIDGET_READING, EX_WIDGET_TYPE_COUNT } ExWidgetType;
 
 typedef enum ExRole { EX_ROLE_WINDOW, EX_ROLE_GROUP, EX_ROLE_LABEL, EX_ROLE_BUTTON, EX_ROLE_TEXT_INPUT, EX_ROLE_TREE } ExRole;
 
@@ -59,6 +60,7 @@ struct ExWidget {
     ExClickFn on_click;
     void *on_click_user;
     ExEditor *editor;             /* EX_WIDGET_EDITOR */
+    struct ExReadingView *reading;   /* EX_WIDGET_READING */
     ExVault *vault;               /* EX_WIDGET_TREE: the vault whose rows it shows (not owned) */
     size_t tree_selected;         /* selected row */
     float tree_scroll;            /* pixels */
@@ -102,6 +104,14 @@ ExWidget *ex_widget_box(ExUi *ui, int vertical, const char *name);
 ExWidget *ex_widget_label(ExUi *ui, const char *text);
 ExWidget *ex_widget_button(ExUi *ui, const char *text, ExClickFn fn, void *user);
 ExWidget *ex_widget_editor(ExUi *ui, ExDoc *doc, const char *name);
+/* Reading mode: the note's text drawn as formatted pages to the width of the widget (read only, scrolls, follows links
+ * and folds callouts). The text is copied; use ex_reading_set_text to show another or a changed one. */
+ExWidget *ex_widget_reading(ExUi *ui, const char *text, size_t len, const char *name);
+void ex_reading_set_text(ExWidget *w, const char *text, size_t len);
+void ex_reading_set_link_handler(ExWidget *w, void (*fn)(ExRSpanKind kind, const char *target, void *user), void *user);
+void ex_reading_scroll(ExWidget *w, float dy);
+float ex_reading_scroll_y(const ExWidget *w);
+void ex_reading_set_scroll(ExWidget *w, float y);
 /* The file explorer's tree: shows ex_vault_row() rows with chevrons, keeps a selection,
  * and calls on_open for a file. Up and Down move the selection, Right and Left open
  * and close folders (Left on a closed folder or a file goes to its folder), Enter opens. */

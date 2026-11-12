@@ -4,6 +4,7 @@
 
 #include <hb.h>
 
+#include "editor_fold.h"
 #include "editor_layout.h"
 #include "exhaust_editor.h"
 #include "exhaust_markdown.h"
@@ -46,6 +47,17 @@ struct ExEditor {
     const ExDoc *md_doc;
     unsigned long md_version;
     int md_valid;
+    /* folding: the regions that can be folded (from the tokens), which of them are folded (by the byte offset
+     * where their hidden lines start, moved along with the edits), and the hidden line ranges that follow */
+    int fold_headings, fold_lists;
+    ExFolds folds;
+    unsigned long folds_version;
+    int folds_valid;
+    size_t *folded;
+    size_t nfolded, capfolded;
+    unsigned long folded_version;
+    struct { size_t first, last; } *hid;
+    size_t nhid;
 };
 
 /* ---- clipboard default ---- */
@@ -61,6 +73,7 @@ ExEditor *ex_editor_create(ExDoc *doc) {
     e->line_pct = 150;
     e->clip.get = os_get;
     e->clip.set = os_set;
+    e->fold_headings = e->fold_lists = 1;
     return e;
 }
 
@@ -74,6 +87,9 @@ void ex_editor_free(ExEditor *e) {
     if (!e) return;
     ex_md_free(e->md);
     clear_cache(e);
+    ex_folds_free(&e->folds);
+    free(e->folded);
+    free(e->hid);
     free(e->goal);
     free(e);
 }
@@ -83,6 +99,9 @@ void ex_editor_set_readonly(ExEditor *e, int readonly) { e->readonly = readonly 
 int ex_editor_readonly(const ExEditor *e) { return e->readonly; }
 void ex_editor_set_doc(ExEditor *e, ExDoc *doc) {
     e->md_valid = 0;
+    e->folds_valid = 0;
+    e->nfolded = 0;
+    e->nhid = 0;
     clear_cache(e);
     e->doc = doc;
     e->scroll_y = 0;
@@ -130,6 +149,8 @@ static char *line_text(const ExEditor *e, size_t line, size_t *len) {
 }
 
 static int line_px(const ExEditor *e, ExRenderer *r) { return ex_px(r, e->size); }
+static int gutter_px(ExRenderer *r) { return ex_px(r, 14); }                  /* room for the fold marker */
+static int pad_px(ExRenderer *r) { return gutter_px(r) + ex_px(r, 8); }       /* from the left edge to the text */
 
 static int line_height_px(const ExEditor *e, ExRenderer *r) {
     ExFontMetrics m;
@@ -226,6 +247,268 @@ static LLine *layout_of(ExEditor *e, ExRenderer *r, size_t line, size_t *ls_out,
     if (ls_out) *ls_out = s;
     if (le_out) *le_out = en;
     return l;
+}
+
+
+/* ---- folding ---- */
+
+static long find_folded(const ExEditor *e, size_t hs) {
+    size_t i;
+    for (i = 0; i < e->nfolded; i++) if (e->folded[i] == hs) return (long)i;
+    return -1;
+}
+
+static void add_folded(ExEditor *e, size_t hs) {
+    if (find_folded(e, hs) >= 0) return;
+    if (e->nfolded == e->capfolded) {
+        size_t nc = e->capfolded ? e->capfolded * 2 : 16;
+        size_t *p = realloc(e->folded, nc * sizeof *p);
+        if (!p) return;
+        e->folded = p;
+        e->capfolded = nc;
+    }
+    e->folded[e->nfolded++] = hs;
+}
+
+static void remove_folded(ExEditor *e, size_t i) { e->folded[i] = e->folded[--e->nfolded]; }
+
+static int cmp_hid(const void *x, const void *y) {
+    const size_t *a = x, *b = y;
+    return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
+}
+
+/* The hidden line ranges (sorted, not overlapping) from the folded regions. */
+static void rebuild_hidden(ExEditor *e) {
+    size_t i, n = 0;
+    size_t (*tmp)[2] = malloc((e->nfolded ? e->nfolded : 1) * sizeof *tmp);
+    free(e->hid);
+    e->hid = NULL;
+    e->nhid = 0;
+    if (!tmp) return;
+    for (i = 0; i < e->nfolded; i++) {
+        long k = ex_folds_find_hs(&e->folds, e->folded[i]);
+        if (k < 0) continue;
+        tmp[n][0] = e->folds.r[k].first;
+        tmp[n][1] = e->folds.r[k].last;
+        n++;
+    }
+    qsort(tmp, n, sizeof *tmp, cmp_hid);
+    e->hid = malloc((n ? n : 1) * sizeof *e->hid);
+    if (e->hid) {
+        for (i = 0; i < n; i++) {
+            if (e->nhid && tmp[i][0] <= e->hid[e->nhid - 1].last + 1) {       /* merge nested and touching ranges */
+                if (tmp[i][1] > e->hid[e->nhid - 1].last) e->hid[e->nhid - 1].last = tmp[i][1];
+            } else {
+                e->hid[e->nhid].first = tmp[i][0];
+                e->hid[e->nhid].last = tmp[i][1];
+                e->nhid++;
+            }
+        }
+    }
+    free(tmp);
+}
+
+static int line_hidden(const ExEditor *e, size_t line) {
+    size_t i;
+    for (i = 0; i < e->nhid; i++) {
+        if (line < e->hid[i].first) return 0;
+        if (line <= e->hid[i].last) return 1;
+    }
+    return 0;
+}
+
+/* The screen row of a line: the lines before it minus the hidden ones (a hidden line has the row of its header). */
+static size_t row_of_line(const ExEditor *e, size_t line) {
+    size_t i, hidden = 0;
+    for (i = 0; i < e->nhid; i++) {
+        if (e->hid[i].last < line) hidden += e->hid[i].last - e->hid[i].first + 1;
+        else if (e->hid[i].first <= line) return e->hid[i].first - 1 - hidden;
+        else break;
+    }
+    return line - hidden;
+}
+
+static size_t line_of_row(const ExEditor *e, size_t row) {
+    size_t i, line = row;
+    for (i = 0; i < e->nhid; i++) {
+        if (line >= e->hid[i].first) line += e->hid[i].last - e->hid[i].first + 1;
+        else break;
+    }
+    return line;
+}
+
+static size_t row_count(const ExEditor *e) {
+    size_t i, nl = line_count(e);
+    for (i = 0; i < e->nhid; i++) nl -= e->hid[i].last - e->hid[i].first + 1;
+    return nl;
+}
+
+/* Brings the folds up to date with the text: the folded offsets follow the edits, only regions that still exist
+ * stay folded, and a caret inside hidden text opens the fold that hides it. */
+static void fold_sync(ExEditor *e) {
+    unsigned long version;
+    size_t i;
+    int changed = 0;
+    if (e->mode == EX_EDITOR_PLAIN || (!e->fold_headings && !e->fold_lists)) {
+        if (e->nfolded || e->nhid || e->folds.n) { e->nfolded = 0; rebuild_hidden(e); e->folds.n = 0; e->folds_valid = 0; }
+        return;
+    }
+    ensure_md(e);
+    version = ex_doc_version(e->doc);
+    if (e->folds_valid && e->folds_version == version && e->md_valid) goto reveal;
+    if (e->nfolded && e->folded_version != version) {                      /* move the folded offsets along with the edits */
+        ExDocEdit edits[EX_DOC_EDIT_LOG];
+        int n = ex_doc_edits_since(e->doc, e->folded_version, edits, EX_DOC_EDIT_LOG);
+        if (n < 0) e->nfolded = 0;
+        else {
+            int k;
+            for (k = 0; k < n; k++)
+                for (i = 0; i < e->nfolded; i++) {
+                    size_t p = e->folded[i], o = edits[k].offset, rm = edits[k].removed, ins = edits[k].inserted;
+                    if (p <= o) continue;
+                    e->folded[i] = p >= o + rm ? p - rm + ins : o;
+                }
+        }
+    }
+    e->folded_version = version;
+    ex_folds_compute(&e->folds, e->md, buf(e), e->fold_headings, e->fold_lists);
+    e->folds_version = version;
+    e->folds_valid = 1;
+    for (i = 0; i < e->nfolded;) {                                         /* only regions that still exist stay folded */
+        if (ex_folds_find_hs(&e->folds, e->folded[i]) < 0) { remove_folded(e, i); continue; }
+        i++;
+    }
+    changed = 1;
+reveal:
+    if (changed) rebuild_hidden(e);
+    {
+        size_t k, ns = ex_doc_sel_count(e->doc);
+        int opened = 0;
+        for (k = 0; k < ns && e->nhid; k++) {
+            ExSel s = ex_doc_sel(e->doc, k);
+            size_t line;
+            if (s.anchor != s.head) continue;
+            line = ex_buffer_line_of_offset(buf(e), s.head);
+            if (!line_hidden(e, line)) continue;
+            for (i = 0; i < e->nfolded;) {
+                long f = ex_folds_find_hs(&e->folds, e->folded[i]);
+                if (f >= 0 && e->folds.r[f].first <= line && line <= e->folds.r[f].last) { remove_folded(e, i); opened = 1; continue; }
+                i++;
+            }
+        }
+        if (opened) rebuild_hidden(e);
+    }
+}
+
+/* Where a caret goes that would land in hidden text: back to the end of the header (moving left) or on to the next shown line. */
+static size_t skip_hidden(ExEditor *e, size_t off, int dir) {
+    size_t line, i;
+    if (!e->nhid) return off;
+    line = ex_buffer_line_of_offset(buf(e), off);
+    for (i = 0; i < e->nhid; i++) {
+        if (line < e->hid[i].first) break;
+        if (line <= e->hid[i].last) {
+            if (dir > 0) {
+                size_t nl = e->hid[i].last + 1;
+                return nl < line_count(e) ? ex_buffer_line_start(buf(e), nl) : ex_buffer_size(buf(e));
+            } else {
+                size_t st, en, nx;
+                line_range(e, e->hid[i].first - 1, &st, &en, &nx);
+                return en;
+            }
+        }
+    }
+    return off;
+}
+
+void ex_editor_set_folding(ExEditor *e, int headings, int lists) {
+    headings = headings != 0;
+    lists = lists != 0;
+    if (e->fold_headings == headings && e->fold_lists == lists) return;
+    e->fold_headings = headings;
+    e->fold_lists = lists;
+    e->folds_valid = 0;
+}
+
+/* If the primary caret is in text that is now hidden, it moves to the end of the header line. */
+static void pull_caret_out(ExEditor *e) {
+    ExSel s = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
+    size_t line = ex_buffer_line_of_offset(buf(e), s.head);
+    if (line_hidden(e, line)) ex_doc_set_caret(e->doc, skip_hidden(e, s.head, -1));
+}
+
+void ex_editor_fold(ExEditor *e, ExFoldCmd cmd) {
+    size_t i, maxd = 0, mind = (size_t)-1;
+    fold_sync(e);
+    if (e->mode == EX_EDITOR_PLAIN) return;
+    switch (cmd) {
+    case EX_FOLD_ALL:
+        for (i = 0; i < e->folds.n; i++) add_folded(e, e->folds.r[i].hs);
+        break;
+    case EX_FOLD_UNFOLD_ALL:
+        e->nfolded = 0;
+        break;
+    case EX_FOLD_MORE: {                                  /* fold the deepest regions that are shown and still open */
+        for (i = 0; i < e->folds.n; i++) {
+            const ExFoldRange *f = &e->folds.r[i];
+            if (line_hidden(e, f->hdr) || find_folded(e, f->hs) >= 0) continue;
+            if (f->depth >= maxd) maxd = f->depth;
+        }
+        for (i = 0; i < e->folds.n; i++) {
+            const ExFoldRange *f = &e->folds.r[i];
+            if (line_hidden(e, f->hdr) || find_folded(e, f->hs) >= 0) continue;
+            if (f->depth == maxd) add_folded(e, f->hs);
+        }
+        break;
+    }
+    case EX_FOLD_LESS: {                                  /* open the shallowest folded regions */
+        for (i = 0; i < e->nfolded; i++) {
+            long k = ex_folds_find_hs(&e->folds, e->folded[i]);
+            if (k >= 0 && e->folds.r[k].depth < mind) mind = e->folds.r[k].depth;
+        }
+        for (i = 0; i < e->nfolded;) {
+            long k = ex_folds_find_hs(&e->folds, e->folded[i]);
+            if (k >= 0 && e->folds.r[k].depth == mind) { remove_folded(e, i); continue; }
+            i++;
+        }
+        break;
+    }
+    case EX_FOLD_TOGGLE_LINE: {
+        ExSel p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
+        size_t line = ex_buffer_line_of_offset(buf(e), p.head);
+        long k = ex_folds_find_hdr(&e->folds, line);
+        if (k < 0) {                                       /* not on a header: the innermost region around the line */
+            for (i = 0; i < e->folds.n; i++)
+                if (e->folds.r[i].hdr < line && line <= e->folds.r[i].last) k = (long)i;
+        }
+        if (k >= 0) {
+            long f = find_folded(e, e->folds.r[k].hs);
+            if (f >= 0) remove_folded(e, (size_t)f); else add_folded(e, e->folds.r[k].hs);
+        }
+        break;
+    }
+    }
+    rebuild_hidden(e);
+    pull_caret_out(e);
+}
+
+size_t ex_editor_fold_count(ExEditor *e) { fold_sync(e); return e->nfolded; }
+size_t ex_editor_region_count(ExEditor *e) { fold_sync(e); return e->folds.n; }
+int ex_editor_line_hidden(ExEditor *e, size_t line) { fold_sync(e); return line_hidden(e, line); }
+size_t ex_editor_row_count(ExEditor *e) { fold_sync(e); return row_count(e); }
+size_t ex_editor_row_of_line(ExEditor *e, size_t line) { fold_sync(e); return row_of_line(e, line); }
+int ex_editor_toggle_fold_at_line(ExEditor *e, size_t line) {
+    long k;
+    fold_sync(e);
+    k = ex_folds_find_hdr(&e->folds, line);
+    if (k < 0) return 0;
+    {
+        long f = find_folded(e, e->folds.r[k].hs);
+        if (f >= 0) remove_folded(e, (size_t)f); else add_folded(e, e->folds.r[k].hs);
+    }
+    rebuild_hidden(e);
+    pull_caret_out(e);
+    return 1;
 }
 
 static float x_of(ExEditor *e, ExRenderer *r, size_t line, size_t offset) {
@@ -346,10 +629,11 @@ static void ensure_visible(ExEditor *e, ExRenderer *r) {
     int lh;
     float top, bottom;
     if (e->vh <= 0 || !e->font) return;
+    fold_sync(e);
     p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
     line = ex_buffer_line_of_offset(buf(e), p.head);
     lh = line_height_px(e, r);
-    top = (float)line * (float)lh;
+    top = (float)row_of_line(e, line) * (float)lh;
     bottom = top + (float)lh;
     if (top < e->scroll_y) e->scroll_y = top;
     else if (bottom > e->scroll_y + e->vh) e->scroll_y = bottom - e->vh;
@@ -385,25 +669,34 @@ static void move_horizontal(ExEditor *e, ExRenderer *r, int dir, int word, int s
         ExSel s = ex_doc_sel(e->doc, i);
         if (!shift && s.anchor != s.head) heads[i] = dir < 0 ? lo(s) : hi(s); /* collapse to the edge */
         else heads[i] = word ? word_move(e, s.head, dir) : (dir < 0 ? prev_boundary(e, s.head) : next_boundary(e, s.head));
+        heads[i] = skip_hidden(e, heads[i], dir);
     }
     set_heads(e, r, heads, shift, 0);
     free(heads);
 }
 
 static void move_vertical(ExEditor *e, ExRenderer *r, int lines, int shift) {
-    size_t n = ex_doc_sel_count(e->doc), i, nl = line_count(e);
+    size_t n = ex_doc_sel_count(e->doc), i, rows;
     size_t *heads = malloc((n ? n : 1) * sizeof *heads);
     if (!heads) return;
+    fold_sync(e);
+    rows = row_count(e);
     sync_goal(e, n);
     for (i = 0; i < n; i++) {
         ExSel s = ex_doc_sel(e->doc, i);
         size_t line = ex_buffer_line_of_offset(buf(e), s.head), target;
         float x = (e->last_vertical && e->goal && e->goal[i] >= 0) ? e->goal[i] : x_of(e, r, line, s.head);
-        long t = (long)line + lines;
+        long t = (long)row_of_line(e, line) + lines;                 /* moves by shown rows: hidden lines are skipped */
         if (e->goal) e->goal[i] = x;
         if (t < 0) { heads[i] = 0; if (e->goal) e->goal[i] = -1; continue; }
-        if ((size_t)t >= nl) { heads[i] = ex_buffer_size(buf(e)); if (e->goal) e->goal[i] = -1; continue; }
-        target = (size_t)t;
+        if ((size_t)t >= rows) {
+            size_t last = line_of_row(e, rows - 1), st, en, nx;
+            if (last + 1 >= line_count(e)) heads[i] = ex_buffer_size(buf(e));
+            else { line_range(e, last, &st, &en, &nx); heads[i] = en; }
+            if (e->goal) e->goal[i] = -1;
+            continue;
+        }
+        target = line_of_row(e, (size_t)t);
         heads[i] = offset_at_x(e, r, target, x);
     }
     set_heads(e, r, heads, shift, 1);
@@ -426,7 +719,9 @@ static void move_line_edge(ExEditor *e, ExRenderer *r, int to_end, int shift) {
 
 static void move_doc_edge(ExEditor *e, ExRenderer *r, int to_end, int shift) {
     size_t heads[1];
+    fold_sync(e);
     heads[0] = to_end ? ex_buffer_size(buf(e)) : 0;
+    if (to_end) heads[0] = skip_hidden(e, heads[0], -1);                 /* a folded end of the text: the end of its header */
     /* one caret at the edge: keep it simple */
     if (!shift) { ex_doc_set_caret(e->doc, heads[0]); sync_goal(e, 1); ensure_visible(e, r); return; }
     {
@@ -614,11 +909,13 @@ void ex_editor_key(ExEditor *e, ExRenderer *r, ExKey key, int mods) {
 
 static size_t point_to_offset(ExEditor *e, ExRenderer *r, float x, float y) {
     int lh = line_height_px(e, r);
-    long line = (long)floorf((y - e->vy + e->scroll_y) / (float)(lh > 0 ? lh : 1));
-    size_t nl = line_count(e);
-    if (line < 0) line = 0;
-    if ((size_t)line >= nl) line = (long)nl - 1;
-    return offset_at_x(e, r, (size_t)line, x - e->vx - (float)ex_px(r, 8));
+    long row = (long)floorf((y - e->vy + e->scroll_y) / (float)(lh > 0 ? lh : 1));
+    size_t rows;
+    fold_sync(e);
+    rows = row_count(e);
+    if (row < 0) row = 0;
+    if ((size_t)row >= rows) row = (long)rows - 1;
+    return offset_at_x(e, r, line_of_row(e, (size_t)row), x - e->vx - (float)pad_px(r));
 }
 
 static void word_bounds(ExEditor *e, size_t off, size_t *a, size_t *b) {
@@ -640,6 +937,14 @@ static void word_bounds(ExEditor *e, size_t off, size_t *a, size_t *b) {
 void ex_editor_mouse(ExEditor *e, ExRenderer *r, ExMouse kind, float x, float y, int mods, int clicks) {
     size_t off;
     if (!e->font) return;
+    if (kind == EX_MOUSE_DOWN && x >= e->vx && x < e->vx + (float)gutter_px(r) && e->mode != EX_EDITOR_PLAIN) {   /* the gutter: fold or open */
+        size_t row = (size_t)floorf((y - e->vy + e->scroll_y) / (float)line_height_px(e, r)), line;
+        fold_sync(e);
+        if (y >= e->vy && row < row_count(e)) {
+            line = line_of_row(e, row);
+            if (ex_editor_toggle_fold_at_line(e, line)) return;
+        }
+    }
     off = point_to_offset(e, r, x, y);
     if (kind == EX_MOUSE_DOWN) {
         ExSel s;
@@ -734,12 +1039,16 @@ void ex_editor_scroll(ExEditor *e, float dy) {
 /* ---- drawing ---- */
 
 void ex_editor_caret_rect(ExEditor *e, ExRenderer *r, float *x, float *y, float *w, float *h) {
-    ExSel p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
-    size_t line = ex_buffer_line_of_offset(buf(e), p.head);
+    ExSel p;
+    size_t line;
     int lh = line_height_px(e, r);
-    float cx = e->vx + (float)ex_px(r, 8) + x_of(e, r, line, p.head);
+    float cx;
+    fold_sync(e);
+    p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
+    line = ex_buffer_line_of_offset(buf(e), p.head);
+    cx = e->vx + (float)pad_px(r) + x_of(e, r, line, p.head);
     if (x) *x = cx;
-    if (y) *y = e->vy + (float)line * (float)lh - e->scroll_y;
+    if (y) *y = e->vy + (float)row_of_line(e, line) * (float)lh - e->scroll_y;
     if (w) *w = (float)ex_px(r, 1.5f);
     if (h) *h = (float)lh;
 }
@@ -773,7 +1082,7 @@ static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
                              int focused, int blink_on, ExColor sel_c, ExColor cur_c, ExColor comp_c) {
     size_t st, en, nx, si, nsel = ex_doc_sel_count(e->doc), i;
     LLine *ll = layout_of(e, r, line, &st, &en);
-    float left = e->vx + (float)ex_px(r, 8);
+    float left = e->vx + (float)pad_px(r);
     int base_ascent = fm->ascent;
     if (!ll) return;
     line_range(e, line, &st, &en, &nx);
@@ -800,7 +1109,7 @@ static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
     }
     if (ll->rule) {
         ExColor c = ex_theme_color(t, EX_COLOR_BORDER);
-        ex_fill_rect(r, left, y + (float)lh / 2.0f, e->vw - 2.0f * (float)ex_px(r, 8), (float)ex_px(r, 1.5f), c);
+        ex_fill_rect(r, left, y + (float)lh / 2.0f, e->vw - (float)pad_px(r) - (float)ex_px(r, 8), (float)ex_px(r, 1.5f), c);
     }
     for (i = 0; i < ll->n; i++) {
         LRun *run = &ll->runs[i];
@@ -844,28 +1153,58 @@ static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
     ll_free(ll);
 }
 
+/* The fold marker of a header line: a triangle in the gutter (pointing right when folded, down when open; open ones only
+ * show on the caret's line), and three dots after the text of a folded header. */
+static void draw_fold_marker(ExEditor *e, ExRenderer *r, const ExTheme *t, size_t line, float y, int lh, int caret_line) {
+    long k = ex_folds_find_hdr(&e->folds, line);
+    int folded;
+    float g = (float)gutter_px(r), side = g * 0.5f, cx, cy;
+    ExColor c;
+    if (k < 0) return;
+    folded = find_folded(e, e->folds.r[k].hs) >= 0;
+    if (!folded && !caret_line) return;
+    c = ex_theme_color(t, folded ? EX_COLOR_TEXT : EX_COLOR_TEXT_MUTED);
+    cx = e->vx + g * 0.5f;
+    cy = y + (float)lh / 2.0f;
+    if (folded) ex_fill_triangle(r, cx - side * 0.35f, cy - side * 0.5f, cx - side * 0.35f, cy + side * 0.5f, cx + side * 0.5f, cy, c);
+    else ex_fill_triangle(r, cx - side * 0.5f, cy - side * 0.3f, cx + side * 0.5f, cy - side * 0.3f, cx, cy + side * 0.4f, c);
+    if (folded) {
+        size_t st, en, nx;
+        float x;
+        ExFontMetrics fm;
+        line_range(e, line, &st, &en, &nx);
+        x = e->vx + (float)pad_px(r) + x_of(e, r, line, en) + (float)ex_px(r, 6);
+        if (ex_font_metrics(e->font, line_px(e, r), &fm) == 0)
+            ex_text_draw(r, e->font, e->size, x, y + (float)(lh - fm.line_height) / 2.0f, "...", 3, ex_theme_color(t, EX_COLOR_TEXT_MUTED));
+    }
+}
+
 void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, int blink_on) {
     int lh, px, pad;
-    size_t nl = line_count(e), first, last, line, nsel = ex_doc_sel_count(e->doc), si;
+    size_t nl = line_count(e), first, last, line, row, rows, caret_line, nsel = ex_doc_sel_count(e->doc), si;
     ExFontMetrics fm;
     ExColor text = ex_theme_color(t, EX_COLOR_TEXT), sel_c = ex_theme_color(t, EX_COLOR_SELECTION);
     ExColor cur_c = ex_theme_color(t, EX_COLOR_CURSOR), comp_c = ex_theme_color(t, EX_COLOR_TEXT_MUTED);
     if (!e->font) return;
     lh = line_height_px(e, r);
     px = line_px(e, r);
-    pad = ex_px(r, 8);
+    pad = pad_px(r);
     if (ex_font_metrics(e->font, px, &fm)) return;
     ex_set_clip(r, (int)e->vx, (int)e->vy, (int)e->vw, (int)e->vh);
+    fold_sync(e);
+    rows = row_count(e);
     first = (size_t)(e->scroll_y / (float)lh);
     last = first + (size_t)(e->vh / (float)lh) + 1;
-    if (last >= nl) last = nl - 1;
-    for (line = first; line <= last && line < nl; line++) {
+    if (last >= rows) last = rows - 1;
+    caret_line = ex_buffer_line_of_offset(buf(e), ex_doc_sel(e->doc, ex_doc_primary(e->doc)).head);
+    for (row = first; row <= last && row < rows; row++) {
         size_t len, st, en, nx;
         char *txt;
         const ExShaped *sh;
-        float y = e->vy + (float)line * (float)lh - e->scroll_y;
+        float y = e->vy + (float)row * (float)lh - e->scroll_y;
         float ty = y + (float)(lh - fm.line_height) / 2.0f;
-        if (e->mode != EX_EDITOR_PLAIN) { draw_layout_line(e, r, t, line, nl, y, lh, &fm, focused, blink_on, sel_c, cur_c, comp_c); continue; }
+        line = line_of_row(e, row);
+        if (e->mode != EX_EDITOR_PLAIN) { draw_layout_line(e, r, t, line, nl, y, lh, &fm, focused, blink_on, sel_c, cur_c, comp_c); draw_fold_marker(e, r, t, line, y, lh, line == caret_line); continue; }
         txt = line_text(e, line, &len);
         if (!txt) continue;
         line_range(e, line, &st, &en, &nx);

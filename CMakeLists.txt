@@ -229,8 +229,9 @@ elseif(WIN32)
 endif()
 
 # The Markdown tokenizer and the HTML subset: only the UTF-8 helpers, so the fuzz targets can link just these.
-add_library(exhaust_markdown STATIC src/markdown/html.c src/markdown/markdown.c src/markdown/md_inline.c)
-target_include_directories(exhaust_markdown PRIVATE src/markdown)
+add_library(exhaust_markdown STATIC src/markdown/html.c src/markdown/markdown.c src/markdown/md_inline.c src/markdown/reading.c third_party/md4c/md4c.c)
+target_include_directories(exhaust_markdown PRIVATE src/markdown third_party/md4c)
+set_source_files_properties(third_party/md4c/md4c.c PROPERTIES COMPILE_OPTIONS "$<$<NOT:$<C_COMPILER_ID:MSVC>>:-w>")
 target_include_directories(exhaust_markdown PUBLIC include)
 target_link_libraries(exhaust_markdown PUBLIC exhaust_unicode)
 
@@ -265,7 +266,7 @@ if(EXHAUST_A11Y)
   target_link_libraries(exhaust_a11y PUBLIC accesskit)
 endif()
 
-add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/editor_layout.c src/ui/ui.c src/ui/panes.c src/ui/vault_screen.c ${THEME_C})
+add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/editor_layout.c src/ui/editor_fold.c src/ui/reading_view.c src/ui/ui.c src/ui/panes.c src/ui/vault_screen.c ${THEME_C})
 target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
 target_link_libraries(exhaust_ui PUBLIC exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace exhaust_markdown clay_impl)
 if(NOT MSVC)
@@ -430,11 +431,22 @@ add_test(NAME html COMMAND test_html ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/regr
 
 add_executable(test_live_preview tests/test_live_preview.c)
 target_link_libraries(test_live_preview PRIVATE exhaust_ui exhaust_markdown)
+add_executable(test_reading_view tests/test_reading_view.c)
+target_link_libraries(test_reading_view PRIVATE exhaust_ui exhaust_markdown)
+target_include_directories(test_reading_view PRIVATE src/ui)
+add_test(NAME reading_view COMMAND test_reading_view ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/sample_note.md)
+add_executable(test_folding tests/test_folding.c)
+target_link_libraries(test_folding PRIVATE exhaust_ui exhaust_markdown)
+add_test(NAME reading_mode_folding COMMAND test_folding)
 add_test(NAME live_preview COMMAND test_live_preview ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/sample_note.md)
 
 add_executable(test_incremental_tokenize tests/test_incremental_tokenize.c)
 target_link_libraries(test_incremental_tokenize PRIVATE exhaust_ui exhaust_markdown)
 add_test(NAME incremental_tokenize COMMAND test_incremental_tokenize ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/sample_note.md)
+
+add_executable(test_reading tests/test_reading.c)
+target_link_libraries(test_reading PRIVATE exhaust_markdown exhaust_platform)
+add_test(NAME reading_mode COMMAND test_reading ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/sample_note.md ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/reading_sample.txt)
 
 add_executable(settings_child tests/settings_child.c)
 target_link_libraries(settings_child PRIVATE exhaust_settings)

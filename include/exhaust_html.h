@@ -45,6 +45,8 @@ int ex_html_is_block_tag(ExHtmlTag t);
 const char *ex_html_attr(const ExHtmlNode *n, const char *name);
 /* Is this URL one the subset allows (http, https, mailto, relative or a #fragment)? */
 int ex_html_url_allowed(const char *url, size_t len);
+/* Text with the character references decoded (&amp;, &#65;, ...); malloc'ed. */
+char *ex_html_decode(const char *s, size_t len);
 /* The text of the whole tree, tags removed (for search and tests). */
 char *ex_html_text(const ExHtml *h);
 /* The cleaned fragment written back as HTML (for tests and the clipboard). malloc'ed. */

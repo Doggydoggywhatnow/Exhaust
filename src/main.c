@@ -1,4 +1,5 @@
 #include <signal.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -127,6 +128,7 @@ static void banner_for_note(App *a, ExNote *n) {
 
 /* The editing mode a tab asks for ("live" is live preview, "source" is source mode; "reading" waits for sub-slice 3c). */
 static ExEditorMode editor_mode_for(const char *mode) { return mode && strcmp(mode, "source") == 0 ? EX_EDITOR_SOURCE : EX_EDITOR_LIVE; }
+static int is_reading(const char *mode) { return mode && strcmp(mode, "reading") == 0; }
 
 static void stop_showing_diff(App *a) {
     if (a->diff_doc) {
@@ -206,6 +208,38 @@ static ExWidget *info_label(App *a, const char *text) {
 
 /* What a tab shows. Notes open here (not when the session is restored), so a note that is not on
  * screen costs nothing, and a missing file only shows a message: its tab stays in the session. */
+/* A note of the vault by its name (case-insensitive, without the extension); the link rules of 4a will replace this. */
+static void open_path(App *a, ExId group, const char *rel);
+static const ExNode *find_note_node(const ExNode *n, const char *name, size_t len) {
+    size_t i;
+    if (!n) return NULL;
+    if (!n->is_dir) {
+        const char *base = strrchr(n->rel, '/');
+        size_t bl;
+        base = base ? base + 1 : n->rel;
+        bl = strlen(base);
+        if (bl > 3 && strcmp(base + bl - 3, ".md") == 0) bl -= 3;
+        if (bl == len) { size_t k; for (k = 0; k < len && tolower((unsigned char)base[k]) == tolower((unsigned char)name[k]); k++) {} if (k == len) return n; }
+        return NULL;
+    }
+    for (i = 0; i < n->nkids; i++) { const ExNode *f = find_note_node(n->kids[i], name, len); if (f) return f; }
+    return NULL;
+}
+
+static void on_reading_link(ExRSpanKind kind, const char *target, void *user) {
+    App *a = user;
+    char msg[400];
+    if (kind == EX_RSK_LINK_EXTERNAL && target && (strncmp(target, "http://", 7) == 0 || strncmp(target, "https://", 8) == 0 || strncmp(target, "mailto:", 7) == 0)) {
+        if (!SDL_OpenURL(target)) { snprintf(msg, sizeof msg, "Could not open %s", target); set_status(a, msg); }
+    } else if (kind == EX_RSK_LINK_INTERNAL && target && a->vault) {
+        size_t len = strcspn(target, "#");
+        const ExNode *n = find_note_node(ex_vault_root(a->vault), target, len);
+        if (n) open_path(a, 0, n->rel);
+        else { snprintf(msg, sizeof msg, "No note named %.*s: link following arrives with the link index (sub-slice 4a).", (int)len, target); set_status(a, msg); }
+    } else if (kind == EX_RSK_TAG) set_status(a, "Searching by tag arrives with search (sub-slice 4b).");
+    else if (kind == EX_RSK_LINK_EXTERNAL) set_status(a, "Only web and e-mail links are opened.");
+}
+
 static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
     App *a = user;
     char msg[600];
@@ -220,17 +254,29 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
     if (strcmp(t->view, "graph") == 0) return info_label(a, "The graph view arrives in a later sub-slice.");
     if (!t->path[0]) return info_label(a, "An empty tab. Open a note from the file explorer, or create one with New note.");
     if (!a->notes) return info_label(a, "Notes cannot be edited because the recovery journal could not be opened.");
-    n = ex_notes_open(a->notes, t->path, &res);
+    n = note_for_tab(a, t->id);                                                 /* switching between reading and editing keeps the note open */
+    if (!n) n = ex_notes_open(a->notes, t->path, &res);
     if (!n) {
         snprintf(msg, sizeof msg, res == EX_OPEN_INVALID_UTF8 ? "%s is not a UTF-8 text file, so Exhaust will not open or change it."
                                  : res == EX_OPEN_NOT_FOUND ? "%s does not exist any more. Close this tab, or restore the file." : "%s could not be opened.", t->path);
         return info_label(a, msg);
     }
+    if (is_reading(t->mode)) {                                                  /* reading mode: the note as formatted pages */
+        size_t tl = 0;
+        char *txt = ex_buffer_text(ex_doc_buffer(ex_note_doc(n)), &tl);
+        ExWidget *rv = txt ? ex_widget_reading(a->ui, txt, tl, t->path) : NULL;
+        free(txt);
+        if (rv) {
+            ex_reading_set_link_handler(rv, on_reading_link, a);
+            if (!note_for_tab(a, t->id)) remember_tab_note(a, t->id, n);
+            return rv;
+        }
+    }
     ed = ex_widget_editor(a->ui, ex_note_doc(n), t->path);
     if (!ed) return NULL;
     ex_editor_set_state(ed->editor, t->cursor_line, t->cursor_column, t->scroll_y);
     ex_editor_set_mode(ed->editor, editor_mode_for(t->mode));
-    remember_tab_note(a, t->id, n);
+    if (!note_for_tab(a, t->id)) remember_tab_note(a, t->id, n);
     if (res == EX_OPEN_RECOVERED) show_banner(a, BANNER_RECOVERED, "Exhaust closed unexpectedly. The text you typed was restored from the recovery journal.", "OK", NULL, NULL);
     else if (res == EX_OPEN_CONFLICT && ex_note_has_conflict(n)) show_conflict_banner(a);
     a->banner_note = n;
@@ -267,7 +313,8 @@ static void open_path(App *a, ExId group, const char *rel) {
     ExId t = ex_ws_find_tab(a->ws, rel);
     if (t) { ex_ws_activate(a->ws, t); a->focus_tab = t; return; }
     t = ex_ws_new_tab(a->ws, group, rel, "note");
-    if (t && strcmp(ex_settings_get(a->settings, "editor", "default_mode"), "source") == 0) ex_ws_set_tab_mode(a->ws, t, "source");
+    if (t && strcmp(ex_settings_get(a->settings, "editor", "default_view"), "reading") == 0) ex_ws_set_tab_mode(a->ws, t, "reading");
+    else if (t && strcmp(ex_settings_get(a->settings, "editor", "default_mode"), "source") == 0) ex_ws_set_tab_mode(a->ws, t, "source");
     a->focus_tab = t;
 }
 
@@ -346,6 +393,29 @@ static void cmd_toggle_mode(void *u) {
     ex_ws_set_tab_mode(a->ws, tab, next);
     if (a->editor && a->editor->editor && !a->diff_doc) ex_editor_set_mode(a->editor->editor, editor_mode_for(next));
 }
+static void capture_tab_state(App *a);
+static void cmd_toggle_reading(void *u) {
+    App *a = u;
+    ExId tab = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+    const ExTab *t = tab ? ex_ws_tab(a->ws, tab) : NULL;
+    const char *next;
+    ExWidget *w;
+    if (!t || !note_for_tab(a, tab) || a->diff_doc) return;
+    if (is_reading(t->mode)) next = strcmp(ex_settings_get(a->settings, "editor", "default_mode"), "source") == 0 ? "source" : "live";
+    else next = "reading";
+    capture_tab_state(a);
+    ex_ws_set_tab_mode(a->ws, tab, next);
+    t = ex_ws_tab(a->ws, tab);
+    w = make_content(a->panes, t, a);
+    if (w) { ex_panes_replace_content(a->panes, tab, w); a->focus_tab = tab; }
+}
+static int has_note_tab(void *u) { App *a = u; ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws)); return t && note_for_tab(a, t) != NULL; }
+static void fold_cmd(App *a, ExFoldCmd cmd) { if (a->editor && a->editor->editor) ex_editor_fold(a->editor->editor, cmd); }
+static void cmd_fold_all(void *u) { fold_cmd(u, EX_FOLD_ALL); }
+static void cmd_unfold_all(void *u) { fold_cmd(u, EX_FOLD_UNFOLD_ALL); }
+static void cmd_fold_more(void *u) { fold_cmd(u, EX_FOLD_MORE); }
+static void cmd_fold_less(void *u) { fold_cmd(u, EX_FOLD_LESS); }
+static void cmd_fold_toggle(void *u) { fold_cmd(u, EX_FOLD_TOGGLE_LINE); }
 static int has_editor(void *u) { return ((App *)u)->editor != NULL; }
 static void cmd_new_note(void *u) { on_new_note(NULL, "", u); }
 static int has_notes(void *u) { return ((App *)u)->notes != NULL && ((App *)u)->vault != NULL; }
@@ -372,6 +442,12 @@ static void register_features_and_commands(App *a) {
     ex_commands_bind(a->commands, "app.change-theme", cmd_change_theme, NULL, a);
     ex_commands_bind(a->commands, "app.change-vault", cmd_change_vault, NULL, a);
     ex_commands_bind(a->commands, "app.toggle-live-preview-source-mode", cmd_toggle_mode, has_editor, a);
+    ex_commands_bind(a->commands, "editor.fold-all-headings-and-lists", cmd_fold_all, has_editor, a);
+    ex_commands_bind(a->commands, "editor.unfold-all-headings-and-lists", cmd_unfold_all, has_editor, a);
+    ex_commands_bind(a->commands, "editor.fold-more", cmd_fold_more, has_editor, a);
+    ex_commands_bind(a->commands, "editor.fold-less", cmd_fold_less, has_editor, a);
+    ex_commands_bind(a->commands, "editor.toggle-fold-on-the-current-line", cmd_fold_toggle, has_editor, a);
+    ex_commands_bind(a->commands, "app.toggle-reading-view", cmd_toggle_reading, has_note_tab, a);
     ex_commands_bind(a->commands, "app.create-new-note", cmd_new_note, has_notes, a);
     ex_commands_bind(a->commands, "app.close-current-tab", cmd_close_tab, has_tab, a);
 }
@@ -431,6 +507,14 @@ static void sync_ui(App *a) {
     t = ex_ws_group_active(a->ws, g);
     c = t ? ex_panes_content(a->panes, t) : NULL;
     a->editor = c && c->type == EX_WIDGET_EDITOR ? c : NULL;
+    {                                                                                /* the fold settings apply to every editor */
+        int fh = ex_settings_get_bool(a->settings, "editor", "fold_heading"), fi = ex_settings_get_bool(a->settings, "editor", "fold_indent");
+        size_t i;
+        for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
+            ExWidget *w = ex_panes_content(a->panes, ex_ws_tab_at(a->ws, i));
+            if (w && w->type == EX_WIDGET_EDITOR && w->editor) ex_editor_set_folding(w->editor, fh, fi);
+        }
+    }
     a->note = t ? note_for_tab(a, t) : NULL;
     if (a->note != a->banner_note && !a->diff_doc) banner_for_note(a, a->note);
     if (a->focus_tab && a->focus_tab == t && a->editor) { ex_ui_set_focus(a->ui, a->editor); a->focus_tab = 0; }
@@ -897,9 +981,10 @@ int main(int argc, char **argv) {
             case SDL_EVENT_MOUSE_WHEEL: {
                 float density = SDL_GetWindowPixelDensity(ex_renderer_window(app.r));
                 ExWidget *under = ex_ui_widget_at(app.root, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
-                while (under && under->type != EX_WIDGET_EDITOR) under = under->parent;   /* the editor under the pointer, not only the active one */
+                while (under && under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING) under = under->parent;   /* the editor or reading view under the pointer, not only the active one */
                 if (!under) under = app.editor;
-                if (under && under->editor) ex_editor_scroll(under->editor, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
+                if (under && under->type == EX_WIDGET_READING) ex_reading_scroll(under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
+                else if (under && under->editor) ex_editor_scroll(under->editor, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 break;
             }
             case SDL_EVENT_KEY_DOWN:

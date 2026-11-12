@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "exhaust_ui.h"
+#include "reading_view.h"
 
 static ExA11yRole role_of(const ExWidget *w) {
     switch (w->role) {
@@ -26,6 +27,10 @@ static int sync_widget(const ExUi *ui, const ExWidget *w, uint64_t parent, ExA11
     ex_a11y_set_bounds(t, w->id, w->x, w->y, w->w, w->h);
     if (w->type == EX_WIDGET_EDITOR && w->editor) {
         char *text = ex_buffer_text(ex_doc_buffer(ex_editor_doc(w->editor)), NULL);
+        ex_a11y_set_value(t, w->id, text ? text : "");
+        free(text);
+    } else if (w->type == EX_WIDGET_READING && w->reading) {
+        char *text = ex_readingview_plain_text(w->reading);         /* a screen reader reads the note as plain text */
         ex_a11y_set_value(t, w->id, text ? text : "");
         free(text);
     } else {

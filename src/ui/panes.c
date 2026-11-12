@@ -61,6 +61,16 @@ static Cached *cached(ExPanes *p, ExId tab) {
     return NULL;
 }
 
+void ex_panes_replace_content(ExPanes *p, ExId tab, ExWidget *content) {
+    Cached *c = cached(p, tab);
+    if (!c || !content) { ex_widget_free(content); return; }
+    ex_ui_release(p->ui, c->w);
+    if (c->w->parent) ex_widget_remove(c->w->parent, c->w);
+    ex_widget_free(c->w);
+    c->w = content;
+    p->built_layout = (unsigned long)-1;                       /* the next update puts the new widget in place */
+}
+
 ExWidget *ex_panes_content(ExPanes *p, ExId tab) { Cached *c = cached(p, tab); return c ? c->w : NULL; }
 
 static int within(const ExWidget *w, float x, float y) { return w && x >= w->x && y >= w->y && x < w->x + w->w && y < w->y + w->h; }

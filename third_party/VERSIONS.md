@@ -16,6 +16,7 @@ and what was left out of the vendored copy.
 | libpng | 1.6.59 (commit `cd952f49f95bb27154ae77dbb103032d95f6e580`) | https://github.com/pnggroup/libpng | `libpng/LICENSE` | libpng License |
 | AccessKit C bindings (accesskit-c 0.23.2; Rust crates accesskit 0.25.1, accesskit_windows 0.35.1, accesskit_macos 0.27.1, accesskit_unix 0.24.0, and their dependencies) | commit `99023c87eca49531a8e1efc4657e35779257a463` of https://github.com/AccessKit/accesskit-c | https://github.com/AccessKit/accesskit-c | `accesskit-c/LICENSE-MIT`, `LICENSE-APACHE`, `LICENSE.chromium` | MIT or Apache-2.0 (parts derived from Chromium: BSD-style) |
 | Clay (layout engine, single header) | commit `e6cc36941ab2af5d81107617039d6f527a1c660b` (no release tag; main branch, May 2026) | https://github.com/nicbarker/clay | `clay/LICENSE.md` | zlib/libpng license |
+| md4c (Markdown parser, for reading mode and exports) | 0.5.2 (tag `release-0.5.2`, commit `729e6b8b320caa96328968ab27d7db2235e4fb47`) | https://github.com/mity/md4c | `md4c/LICENSE.md` | MIT |
 | Unicode data (grapheme break, emoji, Indic conjunct break) | 17.0.0 | https://github.com/unicode-org/unicodetools (`unicodetools/data/ucd/17.0.0`) | `unicode/LICENSE.txt` | Unicode License v3 |
 | Test fonts (Noto subsets, tests only) | see `tests/fonts/README.md` | notofonts, googlefonts/noto-emoji | `tests/fonts/OFL-Noto.txt` | SIL Open Font License 1.1 |
 
@@ -67,3 +68,7 @@ and what was left out of the vendored copy.
   Apache-2.0, Unlicense, Zlib or dual licenses of those (`r-efi` lists LGPL-2.1+ as
   a third option; Exhaust uses it under MIT); their license files are installed
   under `share/exhaust/licenses/rust/`.
+
+- **md4c**: only `src/md4c.c`, `src/md4c.h` and `LICENSE.md` (the HTML renderer, the
+  command line tool, the tests and the build files were left out). Compiled as C in its default
+  UTF-8 mode (its own Unicode tables are inside `md4c.c`; it needs no other library).

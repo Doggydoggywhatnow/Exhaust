@@ -90,6 +90,23 @@ ExEditorMode ex_editor_mode(const ExEditor *e);
 size_t ex_editor_line_display(ExEditor *e, ExRenderer *r, size_t line, char *out, size_t cap);
 /* The Markdown tokens of the document as the editor last saw them (NULL in plain mode). */
 const struct ExMd *ex_editor_tokens(ExEditor *e);
+/* Folding of headings and list items (sub-slice 3c), in source mode and live preview. A heading folds the lines up to
+ * the next heading of the same or a higher level, a list item its continuation lines and nested items. Folds are a
+ * view of the text: the text is never changed, a caret that lands in hidden text opens the fold, and the folded
+ * regions follow the edits (a region that no longer exists is shown again). They are not saved in the session. */
+typedef enum ExFoldCmd { EX_FOLD_ALL, EX_FOLD_UNFOLD_ALL, EX_FOLD_MORE, EX_FOLD_LESS, EX_FOLD_TOGGLE_LINE } ExFoldCmd;
+/* Which kinds of regions can be folded (the settings editor.fold_heading and editor.fold_indent). */
+void ex_editor_set_folding(ExEditor *e, int headings, int lists);
+/* MORE folds the regions of the deepest level that are shown and open; LESS opens the shallowest folded level. */
+void ex_editor_fold(ExEditor *e, ExFoldCmd cmd);
+size_t ex_editor_fold_count(ExEditor *e);      /* folded regions that hide something now */
+size_t ex_editor_region_count(ExEditor *e);    /* regions that could be folded */
+int ex_editor_line_hidden(ExEditor *e, size_t line);
+size_t ex_editor_row_count(ExEditor *e);       /* lines shown: all lines minus the hidden ones */
+size_t ex_editor_row_of_line(ExEditor *e, size_t line);
+/* Folds or opens the region whose header is this line; 0 if the line is not a header. */
+int ex_editor_toggle_fold_at_line(ExEditor *e, size_t line);
+
 /* The primary caret as a line and the byte offset in that line (both 0-based), and the scroll
  * position, for the session file. Setting clamps to the text and never lands inside a character:
  * a note that changed since the session was saved still opens near the same place. */

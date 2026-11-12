@@ -166,6 +166,9 @@ static char *decode(const char *s, size_t len) {
     return out;
 }
 
+/* The text with character references decoded (malloc'ed). */
+char *ex_html_decode(const char *s, size_t len) { return decode(s, len); }
+
 /* ---- urls ---- */
 
 int ex_html_url_allowed(const char *url, size_t len) {

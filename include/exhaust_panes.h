@@ -41,6 +41,9 @@ ExWidget *ex_panes_root(ExPanes *p);
 /* Rebuilds the widgets if the workspace's layout changed and refreshes which pane is active.
  * Call once per frame, before layout. */
 void ex_panes_update(ExPanes *p);
+/* Swaps the content widget of a tab for another (reading mode instead of the editor, say) without telling the
+ * application the tab closed. The old widget is freed. */
+void ex_panes_replace_content(ExPanes *p, ExId tab, ExWidget *content);
 /* The content widget of a tab if it has been created. */
 ExWidget *ex_panes_content(ExPanes *p, ExId tab);
 /* The pane (group) that is under a window position (after the last layout), or 0. */

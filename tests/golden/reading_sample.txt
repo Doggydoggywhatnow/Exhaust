@@ -1,0 +1,42 @@
+H1 Heading one
+H1 Setext heading
+H2 Heading two
+H6 Heading six
+P A paragraph with *emphasis*, *underscores*, **strong**, ***both***, ~~strike~~, ==highlight==, `code span`, and an escaped * star. A second line with a hard break at the end\nand a third line. Inline math $a^2 + b^2 = c^2$ and display math $x = y$ in text.
+P Links: [[Wikilink]], [[Page|alias]], [[Page#Heading]], [[Page#^block]], ![[embed.png|100]], [text](https://example.com), ![img: alt -> image.png], [https://auto.link](https://auto.link), [https://bare.example/path?x=1#frag](https://bare.example/path?x=1#frag), and a footnote[^1] or inline[^2].
+P Tags #tag and #nested/tag-two but not #123 or a#b. A block id follows.
+P Comment  inline and **html** \n inline .
+> P A quote continues here
+> > P nested quote
+[!note] TITLE **A callout title**
+[!note] P Callout body with **strong**.
+[!note] • P list in callout
+[!warning-] TITLE **Closed and foldable**
+[!warning-] P Hidden by default.
+[!abstract+] TITLE **Open foldable alias**
+[!abstract+] P Summary.
+[!note] TITLE **Unknown type**
+[!note] P Falls back to note.
+• P bullet one
+• P bullet two
+  • P nested bullet continued line
+• [ ] P open task
+• [x] P done task
+• [x] P other task
+1. P ordered one
+2. P ordered two
+  1. P nested ordered
+3. P different delimiter
+CODE python: def f():\n    return 1
+CODE: tilde fence
+CODE: indented code\nmore code
+MATH: \int_0^1 x\,dx
+ROW(header) |:l Left |:c Center |:r Right
+ROW |:l a |:c **b** |:r [[c|alias]]
+ROW |:l d |:c e |:r 
+HR
+P An HTML block
+P Final paragraph with a URL [https://example.org/end](https://example.org/end).
+FOOTNOTES
+1. P The footnote text, continued here.
+2. P footnote text
