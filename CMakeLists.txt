@@ -269,8 +269,40 @@ target_include_directories(exhaust_markdown PUBLIC include)
 target_link_libraries(exhaust_markdown PUBLIC exhaust_unicode)
 
 # UTF-8 and grapheme clusters: no dependencies, so the fuzz targets can link just this.
-add_library(exhaust_unicode STATIC src/text/utf8.c src/text/grapheme.c src/text/grapheme_data.c)
+add_library(exhaust_unicode STATIC src/text/utf8.c src/text/grapheme.c src/text/grapheme_data.c src/text/nfc.c src/text/nfc_data.c)
 target_include_directories(exhaust_unicode PUBLIC include PRIVATE src/text)
+
+
+# SQLite (public domain) with FTS5, for the index. Every connection is used by one thread at a time (SQLITE_THREADSAFE=2).
+find_package(Threads REQUIRED)
+add_library(sqlite3_static STATIC third_party/sqlite/sqlite3.c)
+target_include_directories(sqlite3_static PUBLIC third_party/sqlite)
+target_compile_definitions(sqlite3_static PRIVATE SQLITE_ENABLE_FTS5 SQLITE_ENABLE_DBSTAT_VTAB SQLITE_THREADSAFE=2 SQLITE_OMIT_LOAD_EXTENSION
+  SQLITE_DQS=0 SQLITE_DEFAULT_MEMSTATUS=0 SQLITE_OMIT_DEPRECATED SQLITE_OMIT_SHARED_CACHE SQLITE_DEFAULT_WAL_SYNCHRONOUS=1)
+target_link_libraries(sqlite3_static PUBLIC Threads::Threads)
+if(NOT MSVC)
+  target_compile_options(sqlite3_static PRIVATE -w)
+  target_link_libraries(sqlite3_static PUBLIC m)
+else()
+  target_compile_options(sqlite3_static PRIVATE /w)
+endif()
+# libyaml (MIT), to read the properties of a note.
+add_library(yaml_static STATIC third_party/libyaml/src/api.c third_party/libyaml/src/dumper.c third_party/libyaml/src/emitter.c
+  third_party/libyaml/src/loader.c third_party/libyaml/src/parser.c third_party/libyaml/src/reader.c third_party/libyaml/src/scanner.c
+  third_party/libyaml/src/writer.c)
+target_include_directories(yaml_static PUBLIC third_party/libyaml/include PRIVATE third_party/libyaml/src)
+target_compile_definitions(yaml_static PUBLIC YAML_DECLARE_STATIC PRIVATE YAML_VERSION_MAJOR=0 YAML_VERSION_MINOR=2 YAML_VERSION_PATCH=5 "YAML_VERSION_STRING=\"0.2.5\"")
+if(NOT MSVC)
+  target_compile_options(yaml_static PRIVATE -w)
+  target_compile_definitions(yaml_static PRIVATE _POSIX_C_SOURCE=200809L)   # strdup under -std=c11 (without it the pointer is cut to 32 bits)
+else()
+  target_compile_options(yaml_static PRIVATE /w)
+endif()
+
+# The index: SQLite database in the OS cache folder, the extractor and the indexer thread (sub-slices 4a, 4b).
+add_library(exhaust_index STATIC src/index/db.c src/index/extract.c src/index/props.c src/index/indexer.c src/index/store_extra.c src/index/store_v3.c src/index/links.c src/index/propquery.c src/index/propedit.c src/index/rename.c)
+target_include_directories(exhaust_index PUBLIC include PRIVATE src/index)
+target_link_libraries(exhaust_index PUBLIC exhaust_notes exhaust_markdown exhaust_unicode exhaust_find exhaust_ini sqlite3_static yaml_static)
 
 add_library(exhaust_text STATIC src/text/font.c
   src/text/fontdb.c src/text/shape.c src/text/fonts_table.c ${FONTS_C})
@@ -397,6 +429,11 @@ if(EXHAUST_FUZZ)
   target_link_options(fuzz_utf8 PRIVATE -fsanitize=fuzzer,address,undefined)
   target_link_libraries(fuzz_utf8 PRIVATE exhaust_unicode)
   target_compile_options(exhaust_markdown PRIVATE -fsanitize=fuzzer-no-link,address,undefined)
+  target_compile_options(exhaust_index PRIVATE -fsanitize=fuzzer-no-link,address,undefined)
+  add_executable(fuzz_frontmatter tests/fuzz/fuzz_frontmatter.c)
+  target_compile_options(fuzz_frontmatter PRIVATE -fsanitize=fuzzer,address,undefined)
+  target_link_options(fuzz_frontmatter PRIVATE -fsanitize=fuzzer,address,undefined)
+  target_link_libraries(fuzz_frontmatter PRIVATE exhaust_index)
   foreach(fz fuzz_markdown fuzz_html)
     add_executable(${fz} tests/fuzz/${fz}.c)
     target_compile_options(${fz} PRIVATE -fsanitize=fuzzer,address,undefined)
@@ -455,6 +492,34 @@ add_test(NAME gen_vault COMMAND test_gen_vault $<TARGET_FILE:gen_vault>)
 add_executable(test_vault_manager tests/test_vault_manager.c)
 target_link_libraries(test_vault_manager PRIVATE exhaust_ui)
 add_test(NAME vault_manager COMMAND test_vault_manager)
+
+add_executable(test_index tests/test_index.c)
+target_link_libraries(test_index PRIVATE exhaust_index exhaust_platform)
+add_dependencies(test_index gen_vault)
+foreach(m cold rebuild compat size)
+  add_test(NAME index_${m} COMMAND test_index $<TARGET_FILE:gen_vault> ${m})
+endforeach()
+add_test(NAME ui_not_blocked COMMAND test_index $<TARGET_FILE:gen_vault> ui)
+
+add_executable(test_links tests/test_links.c)
+target_link_libraries(test_links PRIVATE exhaust_index exhaust_platform)
+add_dependencies(test_links gen_vault)
+add_test(NAME links COMMAND test_links ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/links_vault ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/links_sample.txt)
+add_test(NAME unlinked_lookup COMMAND test_links --lookup $<TARGET_FILE:gen_vault>)
+
+add_executable(test_props tests/test_props.c)
+target_link_libraries(test_props PRIVATE exhaust_index exhaust_platform)
+add_test(NAME properties COMMAND test_props)
+add_executable(test_rename tests/test_rename.c)
+target_link_libraries(test_rename PRIVATE exhaust_index exhaust_platform)
+foreach(c wikilink embed markdown_relative markdown_url_encoded property_links heading_and_block moved_note duplicates folder_move crlf_and_bom dry_run)
+  add_test(NAME rename_${c} COMMAND test_rename ${c})
+endforeach()
+# The frontmatter fuzz target run over random mutations of sample notes (libFuzzer runs it for 60 seconds in CI).
+add_executable(test_frontmatter_random tests/fuzz/fuzz_frontmatter.c tests/fuzz/mutate_driver.c)
+target_link_libraries(test_frontmatter_random PRIVATE exhaust_index)
+add_test(NAME frontmatter_random COMMAND test_frontmatter_random 20000 ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/links_vault/Home.md
+  ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/links_vault/Beta.md ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/sample_note.md)
 
 add_executable(test_tokenizer tests/test_tokenizer.c)
 target_link_libraries(test_tokenizer PRIVATE exhaust_markdown exhaust_platform)

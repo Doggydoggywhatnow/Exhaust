@@ -1,0 +1,58 @@
+== Alpha.md
+out 5 kind=0 [Beta] -> Beta.md
+out 5 kind=0 [Home] -> Home.md
+back Delta.md:3 [Alpha]
+back Home.md:6 [Alpha]
+back Home.md:6 [alpha]
+back folder/Gamma.md:3 [../Alpha.md]
+back other/Gamma.md:3 [Alpha]
+mention Beta.md:13
+mention Delta.md:3
+mention Delta.md:4
+== Beta.md
+back Alpha.md:5 [Beta]
+back Home.md:6 [Beta]
+back Home.md:6 [Beta]
+back Home.md:8 [Bee]
+mention Delta.md:3
+== Café.md
+back Home.md:8 [Café]
+back Home.md:8 [CAFÉ]
+== Delta.md
+out 3 kind=0 [Alpha] -> Alpha.md
+== Home.md
+out 6 kind=0 [Alpha] -> Alpha.md
+out 6 kind=0 [alpha] |the lower one -> Alpha.md
+out 6 kind=0 [Beta] #Section -> Beta.md
+out 6 kind=0 [Beta] ^para -> Beta.md
+out 6 kind=0 [Missing note] -> UNRESOLVED
+out 7 kind=0 [Start] -> Home.md
+out 7 kind=0 [folder/Gamma] -> folder/Gamma.md
+out 7 kind=2 [folder/Gamma.md] |Md link -> folder/Gamma.md
+out 7 kind=2 [notes/My Note.md] |Spaced -> notes/My Note.md
+out 7 kind=1 [pic.png] -> pic.png
+out 7 kind=3 [pic.png] |alt -> pic.png
+out 8 kind=0 [Café] -> Café.md
+out 8 kind=0 [CAFÉ] -> Café.md
+out 8 kind=0 [Bee] -> Beta.md
+out 8 kind=2 [] |#self -> Home.md
+out 8 kind=0 [] #Home -> Home.md
+back Alpha.md:5 [Home]
+back notes/My Note.md:3 [Home]
+mention Beta.md:13
+mention Beta.md:13
+mention Café.md:3
+== folder/Gamma.md
+out 3 kind=0 [Gamma] -> folder/Gamma.md
+out 3 kind=2 [../Alpha.md] |up -> Alpha.md
+out 3 kind=0 [other/Gamma] -> other/Gamma.md
+back Home.md:7 [folder/Gamma]
+back Home.md:7 [folder/Gamma.md]
+mention other/Gamma.md:1
+== notes/My Note.md
+out 3 kind=0 [Home] |home -> Home.md
+back Home.md:7 [notes/My Note.md]
+== other/Gamma.md
+out 3 kind=0 [Alpha] -> Alpha.md
+back folder/Gamma.md:3 [other/Gamma]
+mention folder/Gamma.md:1

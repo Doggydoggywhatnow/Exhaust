@@ -1050,6 +1050,42 @@ opened = 1731400000     # when it was last opened, seconds since the Unix epoch
 
 The section name carries the vault id: the first 32 hexadecimal digits of the SHA-256 of the canonical absolute path (see "Journal and session state"). When a vault is moved on disk and re-added, it gets a new id and a new section. Unknown keys and sections are kept and written back unchanged.
 
+## Index
+
+*Since 0.1.0 (sub-slice 4a-i).* The index is a SQLite database (`include/exhaust_index.h`) at `<cache>/vaults/<vault-id>/index.db`, where `<cache>` is the OS cache folder of "Where they live" below and `<vault-id>` the vault's id. It is never inside the vault. It is a cache: Settings has a *Rebuild vault cache* button that empties it and reads every note again, and a file that cannot be opened, is damaged or has a newer `user_version` than the program knows is deleted and made again. The database is in WAL mode: one writer connection (the indexer thread) and one read-only connection for each other thread that needs it.
+
+**Schema.** `PRAGMA user_version` holds the schema version. A migration only adds tables, indexes and nullable or defaulted columns; no column is renamed, dropped or retyped. A migration that adds something filled from the notes also sets `files.indexed` to 0, so the next sync reads every note again. Notes are read as editing text: without the byte-order mark and, for files with CRLF throughout, with LF, so every offset in the index is an offset into what the editor holds.
+
+| Version | Tables added |
+| --- | --- |
+| 1 (0.1.0, 4a-i) | `files`, `fts`, `lines`, `sections`, `blocks`, `tasks` |
+| 2 (0.1.0, 4a-ii) | `names`, `links` |
+| 3 (0.1.0, 4a-iii) | `tags`, `props` |
+
+- `files(id, path, kind, size, mtime, hash, indexed)`: every file of the vault that is not hidden (no name starting with a dot) and not excluded. `path` is relative to the vault with `/` separators; `kind` is the `ExFileKind` of the file name (1 Markdown note); `size` and `mtime` (nanoseconds) are what the sync compares; `hash` is the first 16 bytes of the SHA-256 of a note's text (NULL for other files and for a note that is not valid UTF-8); `indexed` is 0 until the note has been read.
+- `fts`: an FTS5 table with the `trigram` tokenizer and `detail=none`, contentless; its rowid is `files.id` and its one column the text of the note. It serves only to find the notes that can hold a text: the search takes the three-character pieces of the query and asks for the notes that contain all of them, then checks those notes themselves (so a phrase, a regular expression or `line:` is always decided on the real text). A query under three characters scans every note.
+- `lines(file_id, count, offsets)`: for each note, the number of lines and the start of every line as a list of variable-length integers (the difference to the line before).
+- `sections(file_id, ord, level, title, start, end_, section_end, line)`: the headings of a note; `section_end` is where the next heading of the same or a higher level starts (or the end of the note).
+- `blocks(file_id, block_id, start, end_, line)`: the paragraph, list item or quote that ends in a `^block-id`.
+- `tasks(file_id, start, end_, line, state, text)`: a task line (`- [ ]`); state 0 open, 1 done, 2 any other character.
+
+- `names(file_id, kind, key, text)`: what a link can call a file. Kind 0 is the file name (a note without `.md`, any other file with its extension), kind 1 the path from the vault (the same rule), kind 2 an alias (the `aliases` property of a note, a list or a text separated by commas). `key` is the name key; `text` the name as written.
+- `links(file_id, ord, kind, target, target_key, name_key, heading, block, alias, start, end_, line)`: every link of a note in the order of the note: wikilinks (kind 0), embeds (1), Markdown links (2), Markdown images (3) and wikilinks inside properties (4). `target` is as written (decoded for Markdown links, `./` removed), without `#heading`, `#^block` and alias; it is empty for a link inside the same note. Web links and other links with a scheme are not stored. `name_key` is the key of the last part of `target` without `.md`: backlinks look for the links whose `name_key` is one of a note's names and then resolve each one.
+- `tags(file_id, ord, start, tag, tag_key, line, in_props)`: a tag in the text (`#tag`) or in the `tags` property; `tag` without the `#`, `tag_key` its name key.
+- `props(file_id, ord, name, name_key, type, value, start, end_, line)`: the properties of the frontmatter, in order; `type` is 0 text, 1 list, 2 number, 3 checkbox, 4 date, 5 datetime, 6 links; `value` is the text of a scalar or the items of a list joined by a line break; `start` and `end_` are the bytes of the lines the property occupies. A frontmatter that is not valid YAML (or that uses a flow mapping at the top, a key that is not at the start of a line, or a key twice) has no properties.
+
+**Links resolve** by name key. `[[Note]]` finds the file whose name key is that of `Note` (a file name without `.md`, or with the extension for other files), then a note with that alias; `[[Folder/Note]]` finds a path that equals or ends with it; if several fit, the one in the folder of the note that holds the link wins, then the shorter path, then the path that sorts first. A Markdown link `[t](a/b.md)` is first tried as a path from its own note's folder (also `../`), then from the vault.
+
+The trigram tables (`fts_*`) are at most 4 times the size of the notes' text (`ctest -R index_size` prints the ratio, 0.56 on the generated performance vault). Names are compared by a *name key*: Unicode NFC, then full case folding, then NFC again (`ex_name_key`).
+
+## Properties
+
+*Since 0.1.0 (sub-slice 4a-iii).* The frontmatter of a note (the first lines, between two lines of `---`) is YAML, read with libyaml. A property is a key at the start of a line; its value is a scalar, a list or something else (a nested mapping reads as text). Types: **text**, **list** (a YAML sequence), **number** (a plain integer or decimal), **checkbox** (plain `true` or `false`), **date** (`YYYY-MM-DD`), **datetime** (`YYYY-MM-DDTHH:MM`, seconds and a zone are allowed, a space may replace the `T`) and **links** (a value that holds `[[...]]`). Quoted values are text (or links). `tags`, `aliases` and `cssclasses` have meaning: tags and aliases may be a list or a text separated by commas (and for tags spaces); `cssclasses` become style classes of the note.
+
+Editing is text surgery: changing, adding, removing, renaming or retyping a property replaces only the lines of that property (a new property goes before the closing `---`; a note without frontmatter gets one at the top); no other byte moves. A note whose frontmatter is not valid YAML is never edited. Values that would change meaning without quotes (`true`, numbers, dates, text with `: ` or ` #`, a leading `-`, `[`, `{`, `&`...) are written in double quotes. A list is written as a block list. Property names cannot contain `: # " ' [ ] { } ,` or a control or line-break character.
+
+**Vault-wide types.** `.exhaust/types.ini` holds `[types]` with one line `name = type` (`text`, `list`, `number`, `checkbox`, `date`, `datetime` or `links`) for each property whose type the user changed; without a line the type is read from the values (the most common one). *Change type* converts the value of every note that has the property when it fits the new type (a text becomes a one item list, a list becomes its items joined with `, `, a text becomes `[[text]]` links, numbers, dates and checkboxes are only taken when the text already has that form) and leaves the others as they are. *Rename* changes the key in every note that has it and moves the type entry.
+
 ## Vault folders that Exhaust owns
 
 Inside a vault, `.exhaust` holds Exhaust's own plain-text files (settings, themes, snippets, hotkeys, workspaces, plugins) and `.trash` holds notes deleted with `trash_mode = vault_trash` (the deleted file keeps its path relative to the vault). Both are hidden from the file explorer, search, links and the graph. Other names that start with a dot are hidden from the explorer and never indexed.
