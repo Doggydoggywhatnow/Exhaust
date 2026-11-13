@@ -300,7 +300,7 @@ else()
 endif()
 
 # The index: SQLite database in the OS cache folder, the extractor and the indexer thread (sub-slices 4a, 4b).
-add_library(exhaust_index STATIC src/index/db.c src/index/extract.c src/index/props.c src/index/indexer.c src/index/store_extra.c src/index/store_v3.c src/index/links.c src/index/propquery.c src/index/propedit.c src/index/rename.c)
+add_library(exhaust_index STATIC src/index/db.c src/index/extract.c src/index/props.c src/index/indexer.c src/index/store_extra.c src/index/store_v3.c src/index/links.c src/index/propquery.c src/index/propedit.c src/index/rename.c src/index/search.c)
 target_include_directories(exhaust_index PUBLIC include PRIVATE src/index)
 target_link_libraries(exhaust_index PUBLIC exhaust_notes exhaust_markdown exhaust_unicode exhaust_find exhaust_ini sqlite3_static yaml_static)
 
@@ -510,6 +510,13 @@ add_test(NAME unlinked_lookup COMMAND test_links --lookup $<TARGET_FILE:gen_vaul
 add_executable(test_props tests/test_props.c)
 target_link_libraries(test_props PRIVATE exhaust_index exhaust_platform)
 add_test(NAME properties COMMAND test_props)
+add_executable(test_search tests/test_search.c)
+target_link_libraries(test_search PRIVATE exhaust_index exhaust_platform)
+add_dependencies(test_search gen_vault)
+foreach(c text or_not_group regex file path content case tag line block section task task_todo task_done property results)
+  add_test(NAME search_${c} COMMAND test_search ${c})
+endforeach()
+add_test(NAME search_perf COMMAND test_search perf $<TARGET_FILE:gen_vault>)
 add_executable(test_rename tests/test_rename.c)
 target_link_libraries(test_rename PRIVATE exhaust_index exhaust_platform)
 foreach(c wikilink embed markdown_relative markdown_url_encoded property_links heading_and_block moved_note duplicates folder_move crlf_and_bom dry_run)
@@ -624,3 +631,6 @@ add_test(NAME renderer_smoke
   COMMAND test_renderer_smoke ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden)
 set_tests_properties(renderer_smoke PROPERTIES
   ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
+
+# Timing tests must not compete with other tests for the processor.
+set_tests_properties(search_perf ui_not_blocked index_cold PROPERTIES RUN_SERIAL TRUE)

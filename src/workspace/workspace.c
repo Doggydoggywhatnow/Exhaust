@@ -48,6 +48,19 @@ struct ExWorkspace {
 
 static char *dup_str(const char *s) { size_t n = strlen(s); char *p = malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
 static void touch(ExWorkspace *ws) { ws->revision++; }
+const char *ex_ws_search_text(const ExWorkspace *ws) { return ws->search ? ws->search : ""; }
+void ex_ws_set_search_text(ExWorkspace *ws, const char *text) {
+    size_t n = strlen(text);
+    char *c;
+    if (ws->search && !strcmp(ws->search, text)) return;
+    c = malloc(n + 1);
+    if (!c) return;
+    memcpy(c, text, n + 1);
+    free(ws->search);
+    ws->search = c;
+    ws->revision++;
+}
+
 static void touch_layout(ExWorkspace *ws) { ws->revision++; ws->layout_revision++; }
 
 /* ---- lookup ---- */

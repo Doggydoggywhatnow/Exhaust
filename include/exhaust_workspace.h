@@ -111,6 +111,10 @@ const char *ex_ws_panel(const ExWorkspace *ws, ExSide side, size_t i);
 int ex_ws_open_panel(ExWorkspace *ws, ExSide side, const char *name);   /* adds it if not there */
 int ex_ws_close_panel(ExWorkspace *ws, ExSide side, const char *name);
 
+/* ---- the active search text (session.ini [search] text) ---- */
+const char *ex_ws_search_text(const ExWorkspace *ws);       /* "" if none */
+void ex_ws_set_search_text(ExWorkspace *ws, const char *text);
+
 /* ---- the session file ---- */
 char *ex_ws_serialize(const ExWorkspace *ws, size_t *len);          /* session.ini text, malloc'ed */
 /* Replaces the state with the text's. Keeps unknown sections and keys for writing back. Bad or

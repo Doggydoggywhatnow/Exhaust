@@ -44,6 +44,7 @@ int main(void) {
     ex_session_tick(s, ws, now);
     ex_session_tick(s, ws, now + 100);
     CHECK(ex_session_writes(s) == 0);
+    ex_ws_set_search_text(ws, "tag:#work -file:draft");           /* the active search text is part of the session */
     ex_ws_set_tab_state(ws, ex_ws_tab_at(ws, 0), 9, 9, 9.0f);   /* another change restarts the wait */
     ex_session_tick(s, ws, now + 200);
     ex_session_tick(s, ws, now + 400);
@@ -60,6 +61,7 @@ int main(void) {
     CHECK(ex_session_load(s, re) == 1);
     t2 = ex_ws_serialize(re, &l2);
     CHECK(l1 == l2 && memcmp(t1, t2, l1) == 0);
+    CHECK(!strcmp(ex_ws_search_text(re), "tag:#work -file:draft"));
     CHECK(ex_ws_group_count(re) == 3 && ex_ws_tab_count(re) == 3 && ex_ws_sidebar_width(re, EX_SIDE_LEFT) == 333);
     /* loading is not a change: nothing is written again */
     ex_session_tick(s, re, now + 5000);

@@ -213,7 +213,9 @@ static const char *const OLD_ROWS[] = {
     "INSERT INTO fts(rowid, body) VALUES(1, 'gone'), (2, 'home');"
     "INSERT INTO lines(file_id, count, offsets) VALUES(1, 1, x'00');",
     "",
+    "",
 };
+_Static_assert(sizeof OLD_ROWS / sizeof OLD_ROWS[0] == EX_INDEX_SCHEMA_VERSION, "OLD_ROWS needs an entry for every schema version");
 
 static void test_compat(const char *tool) {
     int v;

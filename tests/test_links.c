@@ -17,7 +17,6 @@ static int failures;
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "%s:%d: check failed: %s\n", __FILE__, __LINE__, #c); failures++; } } while (0)
 
 typedef struct Out { char *v; size_t n, cap; } Out;
-static void out_add(Out *o, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 #include <stdarg.h>
 static void out_add(Out *o, const char *fmt, ...) {
     va_list ap;
@@ -168,7 +167,9 @@ static void lookup(const char *tool) {
         CHECK(ex_links_unlinked(w, root, path, &men, &n) == 0);
         printf("%s: %zu mentions; %zu candidates, %ld note files read of %ld notes\n", path, n, cands, ex_index_note_reads() - before, ex_index_file_count(w, EX_KIND_MARKDOWN));
         CHECK(ex_index_note_reads() - before <= (long)cands);
-        CHECK(ex_index_note_reads() - before < 100);
+        /* the generated vault differs a little between compilers (the order the generator draws its random numbers in is not
+         * fixed by C), so "far fewer than all the notes" is stated relative to the vault: under a twentieth of them */
+        CHECK(ex_index_note_reads() - before < ex_index_file_count(w, EX_KIND_MARKDOWN) / 20);
         ex_mentions_free(men, n);
         free(ids); free(title); free(path);
     }
