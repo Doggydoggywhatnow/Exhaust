@@ -300,9 +300,14 @@ else()
 endif()
 
 # The index: SQLite database in the OS cache folder, the extractor and the indexer thread (sub-slices 4a, 4b).
-add_library(exhaust_index STATIC src/index/db.c src/index/extract.c src/index/props.c src/index/indexer.c src/index/store_extra.c src/index/store_v3.c src/index/links.c src/index/propquery.c src/index/propedit.c src/index/rename.c src/index/search.c)
+add_library(exhaust_index STATIC src/index/db.c src/index/extract.c src/index/props.c src/index/indexer.c src/index/store_extra.c src/index/store_v3.c src/index/links.c src/index/propquery.c src/index/propedit.c src/index/rename.c src/index/search.c src/index/query.c)
 target_include_directories(exhaust_index PUBLIC include PRIVATE src/index)
 target_link_libraries(exhaust_index PUBLIC exhaust_notes exhaust_markdown exhaust_unicode exhaust_find exhaust_ini sqlite3_static yaml_static)
+
+# Finding your way: quick switcher, command palette, outline, bookmarks, random note, footnotes (sub-slices 4b-iii, 4b-iv).
+add_library(exhaust_nav STATIC src/nav/switcher.c src/nav/outline.c src/nav/footnotes.c src/nav/random.c src/nav/bookmarks.c)
+target_include_directories(exhaust_nav PUBLIC include PRIVATE src/index)
+target_link_libraries(exhaust_nav PUBLIC exhaust_index exhaust_settings exhaust_vault exhaust_ini exhaust_markdown)
 
 add_library(exhaust_text STATIC src/text/font.c
   src/text/fontdb.c src/text/shape.c src/text/fonts_table.c ${FONTS_C})
@@ -510,6 +515,16 @@ add_test(NAME unlinked_lookup COMMAND test_links --lookup $<TARGET_FILE:gen_vaul
 add_executable(test_props tests/test_props.c)
 target_link_libraries(test_props PRIVATE exhaust_index exhaust_platform)
 add_test(NAME properties COMMAND test_props)
+add_executable(test_switcher tests/test_switcher.c)
+target_link_libraries(test_switcher PRIVATE exhaust_nav exhaust_platform)
+add_test(NAME switcher COMMAND test_switcher)
+add_executable(test_nav tests/test_nav.c)
+target_link_libraries(test_nav PRIVATE exhaust_nav exhaust_platform)
+add_test(NAME navigation_panes COMMAND test_nav)
+add_executable(test_query tests/test_query.c)
+target_link_libraries(test_query PRIVATE exhaust_index exhaust_platform)
+add_test(NAME query_block COMMAND test_query blocks)
+add_test(NAME saved_queries COMMAND test_query saved)
 add_executable(test_search tests/test_search.c)
 target_link_libraries(test_search PRIVATE exhaust_index exhaust_platform)
 add_dependencies(test_search gen_vault)

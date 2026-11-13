@@ -87,7 +87,7 @@ static void t_regex(void) {
     run("/qu[a-z]+k/", "Alpha.md");
     run("/^Lazy dog\\./", "Beta.md");
     run("/F[Oo]x/ -brown", "notes/Fox diary.md");
-    { char err[100]; CHECK(ex_search_parse("/[unclosed/", err, sizeof err) != NULL); }   /* a pattern that does not compile fails when it runs */
+    { char err[100]; ExSearch *p = ex_search_parse("/[unclosed/", err, sizeof err); CHECK(p != NULL); ex_search_free(p); }   /* a pattern that does not compile fails when it runs */
     {
         ExSearch *q = ex_search_parse("/[unclosed/", NULL, 0);
         ExSearchOptions o; ExSearchResult *r = NULL; size_t n = 0;

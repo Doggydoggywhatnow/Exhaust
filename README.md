@@ -108,6 +108,7 @@ PDFs open in a tab and embed in notes (needs the optional PDF library).
 ## Finding things
 
 - **Search**: full text over the vault with the operators `file:`, `path:`, `content:`, `match-case:`, `ignore-case:`, `tag:`, `line:`, `block:`, `section:`, `task:`, `task-todo:` and `task-done:`, property filters like `[property:value]`, regular expressions, `OR`, `-` for not, parentheses and quotes. Matching works on parts of words. Results show context (with an option for more), can be sorted, copied, collapsed and saved as a query.
+*Build status (sub-slices 4b-i to 4b-iv):* the search engine (`include/exhaust_search.h`) with every operator, saved queries and `query` blocks (`include/exhaust_query.h`), the quick switcher and command palette matching, outline reordering, bookmarks, the random note and the footnote list (`include/exhaust_nav.h`) are done as functions with tests; the panels and dialogs that show them are the next step ("first usable build" review).
 - **Embedded search**: a `query` code block in a note shows live search results. The same result options apply.
 - **Quick switcher**: `Ctrl+O`, fuzzy match by name or alias, `Enter` to create a note that doesn't exist.
 - **Command palette**: `Ctrl+P`, fuzzy match every command, with pinned commands.
