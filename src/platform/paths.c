@@ -188,17 +188,6 @@ int ex_platform_file_exists(const char *path) {
     return SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE;
 }
 
-char *ex_platform_read_file(const char *path, size_t *len) {
-    size_t n = 0;
-    void *data = SDL_LoadFile(path, &n);
-    char *out;
-    if (!data) return NULL;
-    out = malloc(n + 1);
-    if (out) { memcpy(out, data, n); out[n] = 0; if (len) *len = n; }
-    SDL_free(data);
-    return out;
-}
-
 int ex_platform_write_file_atomic(const char *path, const void *data, size_t len) {
     size_t n = strlen(path);
     char *tmp = malloc(n + 8);

@@ -23,6 +23,40 @@
 #include <unistd.h>
 #endif
 
+/* Reads a whole file: one allocation, and on POSIX systems just open, fstat, read and close (searching reads thousands of notes). */
+char *ex_platform_read_file(const char *path, size_t *len) {
+#ifdef _WIN32
+    size_t n = 0;
+    void *data = SDL_LoadFile(path, &n);
+    char *out;
+    if (!data) return NULL;
+    out = malloc(n + 1);
+    if (out) { memcpy(out, data, n); out[n] = 0; if (len) *len = n; }
+    SDL_free(data);
+    return out;
+#else
+    struct stat st;
+    char *out;
+    size_t got = 0, cap;
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return NULL;
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) { close(fd); return NULL; }
+    cap = (size_t)st.st_size;
+    out = malloc(cap + 1);
+    if (!out) { close(fd); return NULL; }
+    while (got < cap) {
+        ssize_t r = read(fd, out + got, cap - got);
+        if (r < 0 && errno == EINTR) continue;
+        if (r <= 0) break;
+        got += (size_t)r;
+    }
+    close(fd);
+    out[got] = 0;
+    if (len) *len = got;
+    return out;
+#endif
+}
+
 static char *dup_str(const char *s) {
     size_t n = strlen(s);
     char *p = malloc(n + 1);

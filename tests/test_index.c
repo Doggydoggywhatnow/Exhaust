@@ -319,7 +319,7 @@ static void test_ui(const char *tool) {
         t = seconds();
         while (ex_queue_pop(q, &m)) { if (m.type == EX_MSG_INDEX_DONE) { done = 1; CHECK(((ExIndexDoneMsg *)m.payload)->ok); } if (m.free_payload) m.free_payload(m.payload); }
         (void)ex_index_file_count(r, -1);                               /* what a frame reads from the index */
-        if (ex_index_candidates(r, "Notes", 5, &ids, &n, NULL) == 0) free(ids);
+        if (ex_index_candidates(r, "Copper anchor", 13, &ids, &n, NULL) == 0) free(ids);      /* a lookup that gives a screenful, as the UI asks for */
         t = seconds() - t;
         if (t > worst) worst = t;
         frames++;

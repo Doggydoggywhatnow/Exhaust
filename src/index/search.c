@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <SDL3/SDL.h>
+
 #include "exhaust_find.h"
 #include "exhaust_nfc.h"
 #include "exhaust_search.h"
@@ -24,6 +26,7 @@ struct Node {
     ExFind *find;
     Match *cache; size_t ncache; unsigned long cache_serial; int cache_over;
     Scope scope;
+    int plain_ascii, match_case;                   /* a plain ASCII term is looked for by a scan of its own */
     /* properties */
     char *pname, *pkey, *pvalue, *pvkey; int pop;
 };
@@ -397,7 +400,25 @@ static void leaf_matches(Node *n, Ctx *c) {
     n->ncache = 0;
     n->cache_over = 0;
     free(n->cache); n->cache = NULL;
-    {
+    if (n->plain_ascii) {                      /* a scan without the regular expression engine: ASCII letters fold, other bytes match exactly */
+        size_t cap = 0, nl = strlen(n->text), i;
+        unsigned char f0 = (unsigned char)n->text[0], lo0 = (unsigned char)((f0 >= 'A' && f0 <= 'Z') ? f0 + 32 : f0), up0 = (unsigned char)((lo0 >= 'a' && lo0 <= 'z') ? lo0 - 32 : lo0);
+        for (i = 0; i + nl <= c->len; i++) {
+            unsigned char b = (unsigned char)c->text[i];
+            size_t k;
+            if (n->match_case ? b != f0 : (b != lo0 && b != up0)) continue;
+            for (k = 1; k < nl; k++) {
+                unsigned char x = (unsigned char)c->text[i + k], y = (unsigned char)n->text[k];
+                if (!n->match_case) { if (x >= 'A' && x <= 'Z') x = (unsigned char)(x + 32); if (y >= 'A' && y <= 'Z') y = (unsigned char)(y + 32); }
+                if (x != y) break;
+            }
+            if (k < nl) continue;
+            if (n->ncache >= 5000) { n->cache_over = 1; break; }
+            if (n->ncache == cap) { size_t nc = cap ? cap * 2 : 8; Match *nv = realloc(n->cache, nc * sizeof *nv); if (!nv) break; n->cache = nv; cap = nc; }
+            n->cache[n->ncache].start = i; n->cache[n->ncache].end = i + nl; n->ncache++;
+            i += nl - 1;
+        }
+    } else {
         size_t cap = 0;
         while (n->find && ex_find_next(n->find, c->text, c->len, pos, &s, &e) == EX_FIND_MATCH) {
             if (n->ncache >= 5000) { n->cache_over = 1; break; }
@@ -410,6 +431,23 @@ static void leaf_matches(Node *n, Ctx *c) {
 }
 
 static int find_in(ExFind *f, const char *s, size_t len) { size_t a, b; return f && ex_find_next(f, s, len, 0, &a, &b) == EX_FIND_MATCH; }
+
+/* Does the term occur in a short string (a name or a path)? */
+static int term_in(const Node *n, const char *s, size_t len) {
+    if (n->plain_ascii) {
+        size_t nl = strlen(n->text), i, k;
+        for (i = 0; i + nl <= len; i++) {
+            for (k = 0; k < nl; k++) {
+                unsigned char x = (unsigned char)s[i + k], y = (unsigned char)n->text[k];
+                if (!n->match_case) { if (x >= 'A' && x <= 'Z') x = (unsigned char)(x + 32); if (y >= 'A' && y <= 'Z') y = (unsigned char)(y + 32); }
+                if (x != y) break;
+            }
+            if (k == nl) return 1;
+        }
+        return 0;
+    }
+    return find_in(n->find, s, len);
+}
 
 static int prop_eval(Node *n, Ctx *c) {
     int ok = 0;
@@ -507,14 +545,18 @@ static int eval(Node *n, Ctx *c, size_t rs, size_t re, int whole, MSet *out) {
     case N_TERM: {
         int found = 0;
         leaf_matches(n, c);
-        for (i = 0; i < n->ncache; i++) {
-            if (n->cache[i].start >= rs && n->cache[i].end <= re) { found = 1; if (out) ms_add(out, n->cache[i].start, n->cache[i].end); }
+        {   /* the matches are in order of position: start at the first one that can be inside the region */
+            size_t lo = 0, hi = n->ncache;
+            while (lo < hi) { size_t mid = (lo + hi) / 2; if (n->cache[mid].start < rs) lo = mid + 1; else hi = mid; }
+            for (i = lo; i < n->ncache && n->cache[i].start < re; i++) {
+                if (n->cache[i].end <= re) { found = 1; if (out) ms_add(out, n->cache[i].start, n->cache[i].end); }
+            }
         }
-        if (n->any && whole && find_in(n->find, c->name, strlen(c->name))) { c->name_match = 1; found = 1; }
+        if (n->any && whole && term_in(n, c->name, strlen(c->name))) { c->name_match = 1; found = 1; }
         return found;
     }
-    case N_FILE: return find_in(n->find, c->name, strlen(c->name));
-    case N_PATH: return find_in(n->find, c->path, strlen(c->path));
+    case N_FILE: return term_in(n, c->name, strlen(c->name));
+    case N_PATH: return term_in(n, c->path, strlen(c->path));
     case N_TAG: return tag_eval(n, c);
     case N_PROP: return prop_eval(n, c);
     case N_NOT: return !eval(n->kids[0], c, rs, re, whole, NULL);
@@ -598,7 +640,7 @@ static Ids candidates(Node *n, ExIndex *r, const Notes *notes) {
                     for (i = 0; names.v && i < notes->n; i++) {
                         const char *b = strrchr(notes->path[i], '/');
                         b = b ? b + 1 : notes->path[i];
-                        if (find_in(n->find, b, strlen(b))) names.v[names.n++] = notes->id[i];
+                        if (term_in(n, b, strlen(b))) names.v[names.n++] = notes->id[i];
                     }
                     return ids_union(s, names);
                 }
@@ -631,7 +673,7 @@ static Ids candidates(Node *n, ExIndex *r, const Notes *notes) {
         names.v = malloc(notes->n * sizeof *names.v + 1);
         for (i = 0; names.v && i < notes->n; i++) {
             const char *b = strrchr(notes->path[i], '/'), *subject = n->kind == N_PATH ? notes->path[i] : (b ? b + 1 : notes->path[i]);
-            if (find_in(n->find, subject, strlen(subject))) names.v[names.n++] = notes->id[i];
+            if (term_in(n, subject, strlen(subject))) names.v[names.n++] = notes->id[i];
         }
         return names;
     }
@@ -660,6 +702,9 @@ static int prepare(Node *n, const ExSearchOptions *o, char *err) {
         fo.match_case = n->case_mode == 1 || (n->case_mode == 0 && o->match_case);
         ex_find_free(n->find);
         n->find = ex_find_compile(n->text, strlen(n->text), &fo, msg, sizeof msg);
+        n->match_case = fo.match_case;
+        n->plain_ascii = !n->regex && n->text[0] != 0;
+        { const char *q; for (q = n->text; *q; q++) if ((unsigned char)*q >= 0x80) n->plain_ascii = 0; }
         if (!n->find) { snprintf(err, 200, "%s", msg[0] ? msg : "the term is empty"); return -1; }
     } else if (n->kind == N_TAG) {
         free(n->pkey);
@@ -737,6 +782,72 @@ static int cmp_result(const void *a, const void *b) {
     return c ? c : strcmp(x->path, y->path);
 }
 
+/* Reading the notes is most of the time of a search, so a second thread reads the next notes while this one looks at the
+ * current one (at most PREFETCH ahead). The notes are handed over in the order they will be looked at. */
+#define PREFETCH 48
+typedef struct Prefetch {
+    const char *root;
+    char **paths; size_t n;
+    char **text; size_t *len;
+    SDL_Semaphore *items, *slots;
+    SDL_AtomicInt stop;
+    SDL_Thread *th;
+} Prefetch;
+
+static int prefetch_main(void *arg) {
+    Prefetch *p = arg;
+    size_t i;
+    for (i = 0; i < p->n; i++) {
+        SDL_WaitSemaphore(p->slots);
+        if (SDL_GetAtomicInt(&p->stop)) break;
+        p->text[i] = ex_index_read_note(p->root, p->paths[i], &p->len[i]);
+        SDL_SignalSemaphore(p->items);
+    }
+    return 0;
+}
+
+static Prefetch *prefetch_start(const char *root, char **paths, size_t n) {
+    Prefetch *p = calloc(1, sizeof *p);
+    size_t i;
+    if (!p) return NULL;
+    p->root = root; p->paths = paths; p->n = n;
+    p->text = calloc(n + 1, sizeof *p->text); p->len = calloc(n + 1, sizeof *p->len);
+    p->items = SDL_CreateSemaphore(0); p->slots = SDL_CreateSemaphore(PREFETCH);
+    if (!p->text || !p->len || !p->items || !p->slots) goto fail;
+    p->th = SDL_CreateThread(prefetch_main, "search-read", p);
+    if (!p->th) goto fail;
+    return p;
+fail:
+    for (i = 0; i < n; i++) free(p->text ? p->text[i] : NULL);
+    free(p->text); free(p->len);
+    if (p->items) SDL_DestroySemaphore(p->items);
+    if (p->slots) SDL_DestroySemaphore(p->slots);
+    free(p);
+    return NULL;
+}
+
+/* The text of the i-th note, in order; the caller frees it. */
+static char *prefetch_take(Prefetch *p, size_t i, size_t *len) {
+    char *t;
+    SDL_WaitSemaphore(p->items);
+    t = p->text[i]; p->text[i] = NULL;
+    *len = p->len[i];
+    SDL_SignalSemaphore(p->slots);
+    return t;
+}
+
+static void prefetch_stop(Prefetch *p, size_t taken) {
+    size_t i;
+    if (!p) return;
+    SDL_SetAtomicInt(&p->stop, 1);
+    SDL_SignalSemaphore(p->slots);
+    SDL_WaitThread(p->th, NULL);
+    for (i = taken; i < p->n; i++) free(p->text[i]);
+    free(p->text); free(p->len);
+    SDL_DestroySemaphore(p->items); SDL_DestroySemaphore(p->slots);
+    free(p);
+}
+
 int ex_search_run(ExIndex *r, const char *root, ExSearch *q, const ExSearchOptions *opt, ExSearchResult **out, size_t *nout, size_t *files_read) {
     ExSearchOptions o;
     Notes notes;
@@ -745,6 +856,7 @@ int ex_search_run(ExIndex *r, const char *root, ExSearch *q, const ExSearchOptio
     ExSearchResult *res = NULL;
     size_t i, nres = 0, cap = 0, k, max_results, max_matches, *order = NULL, oi, norder = 0;
     int by_matches, early;
+    Prefetch *pf = NULL;
     long reads0 = ex_index_note_reads();
     int text_needed, rc = 0;
     char err[220];
@@ -789,6 +901,10 @@ int ex_search_run(ExIndex *r, const char *root, ExSearch *q, const ExSearchOptio
             free(keys);
         }
     }
+    if (text_needed && norder > 2 * PREFETCH && rc == 0) {
+        char **pp = malloc(norder * sizeof *pp);
+        if (pp) { for (oi = 0; oi < norder; oi++) pp[oi] = notes.path[order[oi]]; pf = prefetch_start(root, pp, norder); if (!pf) free(pp); }
+    }
     for (oi = 0; rc == 0 && oi < norder; oi++) {
         MSet ms = {0};
         i = order[oi];
@@ -801,7 +917,7 @@ int ex_search_run(ExIndex *r, const char *root, ExSearch *q, const ExSearchOptio
         c.serial++;
         ctx_reset(&c);
         if (text_needed) {
-            text = ex_index_read_note(root, c.path, &len);
+            text = pf ? prefetch_take(pf, oi, &len) : ex_index_read_note(root, c.path, &len);
             if (!text) continue;
         }
         c.text = text ? text : ""; c.len = len;
@@ -828,6 +944,7 @@ int ex_search_run(ExIndex *r, const char *root, ExSearch *q, const ExSearchOptio
         free(ms.v);
         free(text);
     }
+    if (pf) { char **pp = pf->paths; prefetch_stop(pf, oi < norder ? oi : norder); free(pp); }
     ctx_reset(&c);
     sqlite3_finalize(c.tag_st); sqlite3_finalize(c.prop_st); sqlite3_finalize(c.sec_st); sqlite3_finalize(c.task_st);
     ids_free(&cand);
