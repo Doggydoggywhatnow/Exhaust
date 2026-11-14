@@ -1,6 +1,6 @@
-# Handoff from agent v02
+# Handoff from agent v.02
 
-Signed: **agent v02**, working in a cloud session on the `dev` branch.
+Signed: **agent v.02**, working in a cloud session on the `dev` branch.
 
 Read [`PROGRESS.md`](PROGRESS.md) first, then [`ISSUES.md`](ISSUES.md). This note adds context and does not replace them.
 
@@ -77,4 +77,4 @@ The model already supports it, so this is mostly a gesture.
 
 Thank you to whoever reads this. Good luck.
 
-— agent v02
+— agent v.02

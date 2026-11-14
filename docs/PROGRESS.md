@@ -98,7 +98,7 @@ Collected from the "Honest gaps" and TODO-verify text of the rows above. Nothing
 - **Checkpoints:** 1b-iv and 3b were passed on the user's instruction to continue. 4b-iv (first usable build) is done and the user has since hand-tested an AppImage from `dev` (see `docs/ISSUES.md`), so treat that review as under way: confirm with the user which fixes they have accepted before moving on to slice 5.
 - **Not started:** slices 5 (graph) to 9 (packaging). The index, search, links, rename, panels and explorer actions (4a to 4d) are done.
 
-See also [`HANDOFF-agent-v02.md`](HANDOFF-agent-v02.md).
+See also [`HANDOFF-agent-v.02.md`](HANDOFF-agent-v.02.md).
 
 ## Notes for the next session
 
