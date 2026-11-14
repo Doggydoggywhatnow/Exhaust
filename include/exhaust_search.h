@@ -30,7 +30,8 @@ ExSearch *ex_search_parse(const char *query, char *err, size_t errcap);
 void ex_search_free(ExSearch *q);
 
 typedef enum ExSearchSort {
-    EX_SEARCH_PATH_AZ, EX_SEARCH_PATH_ZA, EX_SEARCH_MODIFIED_NEW, EX_SEARCH_MODIFIED_OLD, EX_SEARCH_MATCHES_MOST, EX_SEARCH_MATCHES_LEAST
+    EX_SEARCH_PATH_AZ, EX_SEARCH_PATH_ZA, EX_SEARCH_MODIFIED_NEW, EX_SEARCH_MODIFIED_OLD, EX_SEARCH_MATCHES_MOST, EX_SEARCH_MATCHES_LEAST,
+    EX_SEARCH_CREATED_NEW, EX_SEARCH_CREATED_OLD
 } ExSearchSort;
 
 typedef struct ExSearchOptions {
@@ -43,7 +44,7 @@ typedef struct ExSearchOptions {
 typedef struct ExSearchMatch { size_t start, end; uint32_t line; } ExSearchMatch;   /* bytes of the note's text; 1-based line */
 typedef struct ExSearchResult {
     char *path;
-    int64_t mtime;
+    int64_t mtime, ctime;
     ExSearchMatch *matches; size_t nmatches;     /* sorted by position; empty if only the name or the properties matched */
     size_t total_matches;
     int name_match;                              /* a term matched the name of the note */

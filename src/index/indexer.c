@@ -121,7 +121,7 @@ int ex_store_clear(ExIndex *ix, int64_t id) {
 
 /* ---- files ---- */
 
-typedef struct Entry { char *rel; int64_t mtime, size; } Entry;
+typedef struct Entry { char *rel; int64_t mtime, ctime, size; } Entry;
 typedef struct Walk { const char *root; size_t rootlen; const char *const *excl; size_t nexcl; Entry *v; size_t n, cap; int fail; } Walk;
 
 static int hidden(const char *rel) {
@@ -152,6 +152,7 @@ static int walk_cb(const char *path, int is_dir, int64_t mtime, void *user) {
     }
     w->v[w->n].rel = ex_strdup(rel);
     w->v[w->n].mtime = pi.mtime;
+    w->v[w->n].ctime = pi.ctime;
     w->v[w->n].size = pi.size;
     if (!w->v[w->n].rel) { w->fail = 1; return 1; }
     w->n++;
@@ -163,7 +164,7 @@ static int cmp_entry(const void *a, const void *b) { return strcmp(((const Entry
 static int is_note_path(const char *rel) { return ex_file_kind(rel) == EX_KIND_MARKDOWN; }
 
 /* Inserts or updates the row of one file and, for a note, its contents. text may be NULL (read it from disk). */
-static int index_one(ExIndex *ix, const char *root, const char *rel, int64_t mtime, int64_t size, int64_t *existing_id, const char *given_text, size_t given_len) {
+static int index_one(ExIndex *ix, const char *root, const char *rel, int64_t mtime, int64_t ctime, int64_t size, int64_t *existing_id, const char *given_text, size_t given_len) {
     int kind = (int)ex_file_kind(rel);
     sqlite3_stmt *st;
     int64_t id = existing_id ? *existing_id : 0;
@@ -177,18 +178,20 @@ static int index_one(ExIndex *ix, const char *root, const char *rel, int64_t mti
     }
     if (have_text) ex_sha256(text, len, digest);
     if (!id) {
-        st = ex_db_prepare(ix, "INSERT INTO files(path, kind, size, mtime, hash, indexed) VALUES(?1,?2,?3,?4,?5,1)");
+        st = ex_db_prepare(ix, "INSERT INTO files(path, kind, size, mtime, hash, indexed, ctime) VALUES(?1,?2,?3,?4,?5,1,?6)");
         if (!st) { if (have_text && !given_text) free(text); return -1; }
         sqlite3_bind_text(st, 1, rel, -1, SQLITE_STATIC); sqlite3_bind_int(st, 2, kind); sqlite3_bind_int64(st, 3, size); sqlite3_bind_int64(st, 4, mtime);
+        sqlite3_bind_int64(st, 6, ctime);
         if (have_text) sqlite3_bind_blob(st, 5, digest, 16, SQLITE_STATIC); else sqlite3_bind_null(st, 5);
         rc = sqlite3_step(st) == SQLITE_DONE ? 0 : -1;
         sqlite3_finalize(st);
         id = sqlite3_last_insert_rowid(ix->db);
         if (existing_id) *existing_id = id;
     } else {
-        st = ex_db_prepare(ix, "UPDATE files SET kind=?2, size=?3, mtime=?4, hash=?5, indexed=1 WHERE id=?1");
+        st = ex_db_prepare(ix, "UPDATE files SET kind=?2, size=?3, mtime=?4, hash=?5, indexed=1, ctime=CASE WHEN ?6 > 0 THEN ?6 ELSE ctime END WHERE id=?1");
         if (!st) { if (have_text && !given_text) free(text); return -1; }
         sqlite3_bind_int64(st, 1, id); sqlite3_bind_int(st, 2, kind); sqlite3_bind_int64(st, 3, size); sqlite3_bind_int64(st, 4, mtime);
+        sqlite3_bind_int64(st, 6, ctime);
         if (have_text) sqlite3_bind_blob(st, 5, digest, 16, SQLITE_STATIC); else sqlite3_bind_null(st, 5);
         rc = sqlite3_step(st) == SQLITE_DONE ? 0 : -1;
         sqlite3_finalize(st);
@@ -257,14 +260,14 @@ int ex_index_sync(ExIndex *w, const char *root, const char *const *excl, size_t 
     while (i < wk.n || j < nold) {
         int c = j >= nold ? -1 : i >= wk.n ? 1 : strcmp(wk.v[i].rel, old[j].path);
         if (c < 0) {                                                    /* new */
-            if (index_one(w, root, wk.v[i].rel, wk.v[i].mtime, wk.v[i].size, NULL, NULL, 0) != 0) rc = -1; else s.added++;
+            if (index_one(w, root, wk.v[i].rel, wk.v[i].mtime, wk.v[i].ctime, wk.v[i].size, NULL, NULL, 0) != 0) rc = -1; else s.added++;
             i++;
         } else if (c > 0) {                                             /* gone */
             if (drop_id(w, old[j].id) != 0) rc = -1; else s.removed++;
             j++;
         } else {
             if (old[j].size != wk.v[i].size || old[j].mtime != wk.v[i].mtime || old[j].indexed == 0) {
-                if (index_one(w, root, wk.v[i].rel, wk.v[i].mtime, wk.v[i].size, &old[j].id, NULL, 0) != 0) rc = -1; else s.updated++;
+                if (index_one(w, root, wk.v[i].rel, wk.v[i].mtime, wk.v[i].ctime, wk.v[i].size, &old[j].id, NULL, 0) != 0) rc = -1; else s.updated++;
             } else s.unchanged++;
             i++; j++;
         }
@@ -301,7 +304,7 @@ int ex_index_update_file(ExIndex *w, const char *root, const char *rel) {
     if (ex_platform_path_info(abs, &pi) != 0 || !pi.is_file) { free(abs); return ex_index_remove_file(w, rel); }
     free(abs);
     if (ex_db_begin(w) != 0) return -1;
-    rc = index_one(w, root, rel, pi.mtime, pi.size, id ? &id : NULL, NULL, 0);
+    rc = index_one(w, root, rel, pi.mtime, pi.ctime, pi.size, id ? &id : NULL, NULL, 0);
     if (rc == 0) ex_db_commit(w); else ex_db_rollback(w);
     return rc;
 }
@@ -311,7 +314,7 @@ int ex_index_update_text(ExIndex *w, const char *rel, const char *text, size_t l
     int rc;
     if (!is_note_path(rel) || hidden(rel)) return 0;
     if (ex_db_begin(w) != 0) return -1;
-    rc = index_one(w, "", rel, 0, (int64_t)len, id ? &id : NULL, text, len);
+    rc = index_one(w, "", rel, 0, 0, (int64_t)len, id ? &id : NULL, text, len);
     if (rc == 0) {
         /* the stored modification time stays 0 so the next sync reads the file once it is saved */
         ex_db_commit(w);

@@ -204,7 +204,7 @@ static char *dec(const char *s) {
     return out;
 }
 
-static const char *const SORTS[] = {"path_az", "path_za", "modified_new", "modified_old", "matches_most", "matches_least"};
+static const char *const SORTS[] = {"path_az", "path_za", "modified_new", "modified_old", "matches_most", "matches_least", "created_new", "created_old"};
 
 static void query_free(ExSavedQuery *q) { free(q->name); free(q->text); }
 
@@ -307,7 +307,7 @@ int ex_saved_queries_save(const ExSavedQueries *q) {
         const ExSavedQuery *e = &q->v[i];
         snprintf(sec, sizeof sec, "query.%zu", i + 1);
         { char *en = enc(e->name), *et = enc(e->text); if (en) ex_ini_set(out, sec, "name", en); if (et) ex_ini_set(out, sec, "text", et); free(en); free(et); }
-        ex_ini_set(out, sec, "sort", SORTS[e->sort >= 0 && e->sort < 6 ? e->sort : 0]);
+        ex_ini_set(out, sec, "sort", SORTS[e->sort >= 0 && e->sort < (int)(sizeof SORTS / sizeof SORTS[0]) ? e->sort : 0]);
         if (e->collapse) ex_ini_set(out, sec, "collapse", "true");
         if (e->more_context) ex_ini_set(out, sec, "more_context", "true");
         if (e->match_case) ex_ini_set(out, sec, "match_case", "true");

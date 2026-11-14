@@ -576,7 +576,7 @@ static int eval(Node *n, Ctx *c, size_t rs, size_t re, int whole, MSet *out) {
 
 typedef struct Ids { int64_t *v; size_t n; int all; } Ids;
 
-typedef struct Notes { int64_t *id; char **path; int64_t *mtime; size_t n; } Notes;
+typedef struct Notes { int64_t *id; char **path; int64_t *mtime, *ctime; size_t n; } Notes;
 
 static void ids_free(Ids *s) { free(s->v); s->v = NULL; s->n = 0; }
 
@@ -715,7 +715,7 @@ static int prepare(Node *n, const ExSearchOptions *o, char *err) {
 }
 
 static int load_notes(ExIndex *r, Notes *notes) {
-    sqlite3_stmt *st = ex_db_prepare(r, "SELECT id, path, mtime FROM files WHERE kind = 1 AND hash IS NOT NULL ORDER BY id");
+    sqlite3_stmt *st = ex_db_prepare(r, "SELECT id, path, mtime, ctime FROM files WHERE kind = 1 AND hash IS NOT NULL ORDER BY id");
     size_t cap = 0;
     memset(notes, 0, sizeof *notes);
     if (!st) return -1;
@@ -728,18 +728,20 @@ static int load_notes(ExIndex *r, Notes *notes) {
             notes->id = a;
             p = realloc(notes->path, nc * sizeof *p); if (!p) break; notes->path = p;
             b = realloc(notes->mtime, nc * sizeof *b); if (!b) break; notes->mtime = b;
+            b = realloc(notes->ctime, nc * sizeof *b); if (!b) break; notes->ctime = b;
             cap = nc;
         }
         notes->id[notes->n] = sqlite3_column_int64(st, 0);
         notes->path[notes->n] = ex_strdup((const char *)sqlite3_column_text(st, 1));
         notes->mtime[notes->n] = sqlite3_column_int64(st, 2);
+        notes->ctime[notes->n] = sqlite3_column_int64(st, 3);
         notes->n++;
     }
     sqlite3_finalize(st);
     return 0;
 }
 
-static void notes_free(Notes *n) { size_t i; for (i = 0; i < n->n; i++) free(n->path[i]); free(n->id); free(n->path); free(n->mtime); }
+static void notes_free(Notes *n) { size_t i; for (i = 0; i < n->n; i++) free(n->path[i]); free(n->id); free(n->path); free(n->mtime); free(n->ctime); }
 
 void ex_search_results_free(ExSearchResult *r, size_t n) { size_t i; for (i = 0; i < n; i++) { free(r[i].path); free(r[i].matches); } free(r); }
 
@@ -757,6 +759,8 @@ static int cmp_order(const void *a, const void *b) {
     switch (g_sort) {
     case EX_SEARCH_MODIFIED_NEW: c = g_notes->mtime[x] < g_notes->mtime[y] ? 1 : g_notes->mtime[x] > g_notes->mtime[y] ? -1 : 0; break;
     case EX_SEARCH_MODIFIED_OLD: c = g_notes->mtime[x] < g_notes->mtime[y] ? -1 : g_notes->mtime[x] > g_notes->mtime[y]; break;
+    case EX_SEARCH_CREATED_NEW: c = g_notes->ctime[x] < g_notes->ctime[y] ? 1 : g_notes->ctime[x] > g_notes->ctime[y] ? -1 : 0; break;
+    case EX_SEARCH_CREATED_OLD: c = g_notes->ctime[x] < g_notes->ctime[y] ? -1 : g_notes->ctime[x] > g_notes->ctime[y]; break;
     case EX_SEARCH_PATH_ZA: c = strcmp(g_keys[y], g_keys[x]); break;
     default: c = strcmp(g_keys[x], g_keys[y]); break;
     }
@@ -771,6 +775,8 @@ static int cmp_result(const void *a, const void *b) {
     case EX_SEARCH_PATH_ZA: c = strcmp(y->path, x->path); break;
     case EX_SEARCH_MODIFIED_NEW: c = x->mtime < y->mtime ? 1 : x->mtime > y->mtime ? -1 : 0; break;
     case EX_SEARCH_MODIFIED_OLD: c = x->mtime < y->mtime ? -1 : x->mtime > y->mtime; break;
+    case EX_SEARCH_CREATED_NEW: c = x->ctime < y->ctime ? 1 : x->ctime > y->ctime ? -1 : 0; break;
+    case EX_SEARCH_CREATED_OLD: c = x->ctime < y->ctime ? -1 : x->ctime > y->ctime; break;
     case EX_SEARCH_MATCHES_MOST: c = x->total_matches < y->total_matches ? 1 : x->total_matches > y->total_matches ? -1 : 0; break;
     case EX_SEARCH_MATCHES_LEAST: c = x->total_matches < y->total_matches ? -1 : x->total_matches > y->total_matches; break;
     default: {
@@ -930,6 +936,7 @@ int ex_search_run(ExIndex *r, const char *root, ExSearch *q, const ExSearchOptio
             memset(rr, 0, sizeof *rr);
             rr->path = ex_strdup(c.path);
             rr->mtime = notes.mtime[i];
+            rr->ctime = notes.ctime[i];
             rr->name_match = c.name_match;
             if (ms.n > 1) qsort(ms.v, ms.n, sizeof *ms.v, cmp_match);
             /* drop duplicates (two terms found the same place) */

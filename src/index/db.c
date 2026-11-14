@@ -46,6 +46,11 @@ static const Migration MIGRATIONS[] = {
         "CREATE INDEX props_by_name ON props(name_key);",
         1
     },
+    /* 4 (sub-slice 4d): the creation time of a file, for sorting by created */
+    {
+        "ALTER TABLE files ADD COLUMN ctime INTEGER NOT NULL DEFAULT 0;",
+        1
+    },
 };
 #define N_MIGRATIONS ((int)(sizeof MIGRATIONS / sizeof MIGRATIONS[0]))
 

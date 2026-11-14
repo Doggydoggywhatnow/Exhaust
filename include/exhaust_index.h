@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-#define EX_INDEX_SCHEMA_VERSION 3
+#define EX_INDEX_SCHEMA_VERSION 4
 
 typedef struct ExIndex ExIndex;
 

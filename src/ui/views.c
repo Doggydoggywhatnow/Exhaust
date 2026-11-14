@@ -167,7 +167,7 @@ static void run_search_now(ExPanels *p) {
 }
 
 static void sync_search_buttons(ExPanels *p) {
-    static const char *const SORTS[] = {"A to Z", "Z to A", "Newest", "Oldest", "Most", "Fewest"};
+    static const char *const SORTS[] = {"A to Z", "Z to A", "Newest", "Oldest", "Most", "Fewest", "Created new", "Created old"};
     char label[48];
     p->b_case->selected = p->match_case;
     p->b_collapse->selected = p->views[V_SEARCH].collapse_all;
@@ -178,7 +178,7 @@ static void sync_search_buttons(ExPanels *p) {
 
 static void on_b_case(ExWidget *w, void *u) { ExPanels *p = u; (void)w; p->match_case = !p->match_case; sync_search_buttons(p); run_search_now(p); }
 static void on_b_context(ExWidget *w, void *u) { ExPanels *p = u; (void)w; p->more_context = !p->more_context; sync_search_buttons(p); run_search_now(p); }
-static void on_b_sort(ExWidget *w, void *u) { ExPanels *p = u; (void)w; p->sort = (p->sort + 1) % 6; sync_search_buttons(p); run_search_now(p); }
+static void on_b_sort(ExWidget *w, void *u) { ExPanels *p = u; (void)w; p->sort = (p->sort + 1) % 8; sync_search_buttons(p); run_search_now(p); }
 static void on_b_collapse(ExWidget *w, void *u) {
     ExPanels *p = u;
     View *v = &p->views[V_SEARCH];
