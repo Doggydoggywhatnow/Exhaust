@@ -290,12 +290,32 @@ static void test_size(const char *tool) {
     free(root);
 }
 
-typedef struct Ui { ExQueue *q; } Ui;
+/* What a search does in the app: it runs on a worker thread with a reader of its own, not on the UI thread (tools/check_ui_blocking.sh
+ * forbids ex_index_candidates there). It runs here, in a loop, so the UI thread's reads are measured while another reader and the indexer are busy. */
+typedef struct SearchLoad { char path[256]; SDL_AtomicInt stop; SDL_AtomicInt runs; } SearchLoad;
+
+static int search_load_main(void *arg) {
+    SearchLoad *s = arg;
+    char err[200];
+    ExIndex *r = ex_index_open(s->path, 0, err, sizeof err);
+    if (!r) return 1;
+    while (!SDL_GetAtomicInt(&s->stop)) {
+        int64_t *ids = NULL;
+        size_t n = 0;
+        if (ex_index_candidates(r, "Copper anchor", 13, &ids, &n, NULL) == 0) free(ids);
+        SDL_AddAtomicInt(&s->runs, 1);
+        SDL_Delay(1);
+    }
+    ex_index_close(r);
+    return 0;
+}
 
 static void test_ui(const char *tool) {
     ExIndex *w, *r;
     ExIndexer *ixr;
     ExQueue *q;
+    SearchLoad load;
+    SDL_Thread *searcher;
     char *root, err[200];
     double worst = 0, t;
     int done = 0;
@@ -312,22 +332,28 @@ static void test_ui(const char *tool) {
     r = ex_index_open(dbpath("ui"), 0, err, sizeof err);
     CHECK(r != NULL);
     if (!ixr || !r) { free(root); return; }
+    SDL_SetAtomicInt(&load.stop, 0);
+    SDL_SetAtomicInt(&load.runs, 0);
+    snprintf(load.path, sizeof load.path, "%s", dbpath("ui"));
+    searcher = SDL_CreateThread(search_load_main, "search-load", &load);
+    CHECK(searcher != NULL);
     ex_indexer_sync(ixr);
     while (!done) {
         ExMessage m;
-        int64_t *ids = NULL;
-        size_t n = 0;
         t = seconds();
         while (ex_queue_pop(q, &m)) { if (m.type == EX_MSG_INDEX_DONE) { done = 1; CHECK(((ExIndexDoneMsg *)m.payload)->ok); } if (m.free_payload) m.free_payload(m.payload); }
-        (void)ex_index_file_count(r, -1);                               /* what a frame reads from the index */
-        if (ex_index_candidates(r, "Copper anchor", 13, &ids, &n, NULL) == 0) free(ids);      /* a lookup that gives a screenful, as the UI asks for */
+        (void)ex_index_file_count(r, -1);                               /* what a frame reads from the index: counts and single-row lookups */
+        { char *path = ex_index_file_path(r, 1 + frames % 50); int64_t id = path ? ex_index_file_id(r, path) : 0; (void)id; free(path); }
         t = seconds() - t;
         if (t > worst) worst = t;
         frames++;
         SDL_Delay(2);                                                   /* the rest of the frame */
     }
-    printf("while indexing: %ld frames, longest blocked time %.2f ms\n", frames, worst * 1000.0);
+    SDL_SetAtomicInt(&load.stop, 1);
+    if (searcher) SDL_WaitThread(searcher, NULL);
+    printf("while indexing: %ld frames, %d searches on another thread, longest blocked time %.2f ms\n", frames, SDL_GetAtomicInt(&load.runs), worst * 1000.0);
     CHECK(frames > 10);
+    CHECK(SDL_GetAtomicInt(&load.runs) > 0);
     CHECK(worst < 0.016 * TIME_SCALE);
     ex_indexer_stop(ixr);
     ex_queue_destroy(q);
