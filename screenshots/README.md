@@ -62,3 +62,9 @@ The same note compared with the unresolved link above: here the link is to an ex
 
 What a new note looks like in Obsidian when only the header has been written to. The title at the top is the note's name, shown larger than the text and also in the tab bar; typing it names the file (here "This is a New Note in Obsidian."), and the text area underneath is empty. Exhaust does the same: the inline title is the file name, and changing it renames the note and updates the links to it.
 
+
+## Right-clicking a note
+
+![The menu of a note](note-context-menu.png)
+
+The drop-down Obsidian shows when a note in the file list is right-clicked. It opens next to the note, not in the middle of the window, in groups: Open in new tab, Open to the right, Open in new window; Make a copy, Move file to, Bookmark, Merge entire file with; Copy path (with a submenu); Open version history; Open in default app, Show in system explorer; Rename, and Delete in red. Each entry has an icon. Exhaust's menu follows this layout, with its own icons and wording.
