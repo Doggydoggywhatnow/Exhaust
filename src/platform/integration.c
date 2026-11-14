@@ -1,3 +1,6 @@
+#if defined(__linux__)
+#define _POSIX_C_SOURCE 200809L   /* popen and setenv, for ex_platform_match_cursor_size */
+#endif
 /* File type and URI scheme registration for the current user. Nothing here runs unless the user
  * asks for it in Settings, and nothing here touches a note. */
 #include <stdio.h>
@@ -137,3 +140,23 @@ int ex_platform_integration_registered(ExIntegration what) {
 }
 
 #endif
+
+/* ---- the pointer's size (Linux) ---- */
+
+void ex_platform_match_cursor_size(void) {
+#if defined(__linux__)
+    FILE *p;
+    char line[64];
+    long n = 0;
+    if (getenv("XCURSOR_SIZE") && *getenv("XCURSOR_SIZE")) return;          /* the user's own choice wins */
+    p = popen("gsettings get org.gnome.desktop.interface cursor-size 2>/dev/null", "r");
+    if (!p) return;
+    if (fgets(line, sizeof line, p)) n = strtol(line, NULL, 10);
+    pclose(p);
+    if (n >= 8 && n <= 256) {
+        char v[16];
+        snprintf(v, sizeof v, "%ld", n);
+        setenv("XCURSOR_SIZE", v, 0);
+    }
+#endif
+}

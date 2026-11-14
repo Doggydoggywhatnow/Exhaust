@@ -121,6 +121,11 @@ char *ex_clipboard_get_text(void);
 int ex_clipboard_set_text(const char *utf8);
 int ex_clipboard_has_text(void);
 
+/* Linux only (a no-op elsewhere): when XCURSOR_SIZE is not set, sets it to the desktop's cursor size (the GNOME-family setting
+ * org.gnome.desktop.interface cursor-size, read once with gsettings), so the pointer SDL loads is as large as the one other programs
+ * get. Without it, X11 and Wayland fall back to a size worked out from the screen, which can be larger. Call before SDL starts. */
+void ex_platform_match_cursor_size(void);
+
 #ifdef __cplusplus
 }
 #endif

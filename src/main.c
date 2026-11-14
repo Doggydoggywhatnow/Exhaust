@@ -1516,6 +1516,7 @@ static void on_vault_button(ExWidget *w, void *user) { (void)w; (void)user; spaw
 
 int main(int argc, char **argv) {
     App app;
+    ex_platform_match_cursor_size();               /* before SDL starts: the pointer is as large as the desktop's (ISSUES 21) */
     SDL_Event e;
     ExQueue *results;
     ExWorker *worker;
