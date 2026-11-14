@@ -75,6 +75,28 @@ Read this first when resuming. It tracks the sub-slices of [`0.1.0.md`](0.1.0.md
 | 9c | macOS dmg | not started | | |
 | 9d | Add-on package and final checks | not started | | |
 
+## Backlog and ideas
+
+Ideas that are not yet part of a sub-slice. Each links to its issue; decide the release before building.
+
+- **Vertical stacking of views** ([#1](https://github.com/Doggydoggywhatnow/Exhaust/issues/1)): drag the top or bottom edge of a note view to shorten it (aligned to the opposite edge); a new view opens in the freed space, optionally showing another note. The 2c workspace model already has `EX_SPLIT_VERTICAL` and `ex_ws_split`, so this is mostly a gesture in `src/ui/panes.c`. Needs the session format in `docs/formats.md` first, commands, a feature switch and a keyboard route. Not started; release not decided.
+
+## Open items carried forward
+
+Collected from the "Honest gaps" and TODO-verify text of the rows above. Nothing here is new; it is a checklist so a fresh session need not reread every row.
+
+- **Accessibility:** the AccessKit tree is not attached to the real OS adapters (AT-SPI, UI Automation, NSAccessibility); needs native window handles and a screen reader (before 7f and 9d).
+- **Pop-out windows** are not operating-system windows yet (2c); stacked tabs are stored but drawn as normal tabs; no tab context menu or tab-switching shortcut; a restored split ratio on a small window can overflow its pane.
+- **Watching:** Windows and macOS use the polling fallback; ReadDirectoryChangesW and FSEvents backends are not written (2b).
+- **UI gaps:** no popup menu, modal dialogs or right-click menu yet (2a, 2e); icons are text; the explorer's Sort button does not write its settings (2d); the right sidebar is a placeholder.
+- **Editor:** no soft wrap; reading view has no find, no saved scroll, and shows images, embeds and math as placeholders; folds are not saved in the session; 30 of the 73 editor commands are still unbound stubs; COLR v1 emoji are not rendered (1a-ii).
+- **Spell check:** one language, no context menu, edit-distance-1 suggestions only (3e).
+- **Tests to add:** a regular-expression fuzz target (3d); `libFuzzer` targets for frontmatter, canvas JSON, base expressions and importers when each module is written.
+- **TODO-verify in CI or by hand:** SDL drop events and the folder dialog on Wayland, Windows and macOS; `SDL_GetSystemTheme`; Windows registry code (compiles only); the Ctrl+Tab versus Escape route out of the editor on macOS; Windows and macOS system font folders.
+- **Checkpoint:** stop and report after 4b-iv (first usable build). The 1b-iv and 3b checkpoints were passed on the user's instruction to continue.
+
+See also [`HANDOFF-agent-v02.md`](HANDOFF-agent-v02.md).
+
 ## Notes for the next session
 
 - Environment used so far (cloud container): Linux x86-64, gcc 13, clang 18 without the sanitizer runtime (the local sanitizer run used gcc; CI uses clang), cmake 3.28, nasm, cargo. Windows and macOS can only be verified by CI.
