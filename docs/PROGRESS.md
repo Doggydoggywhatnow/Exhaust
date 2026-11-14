@@ -6,6 +6,13 @@ Read this first when resuming. It tracks the sub-slices of [`0.1.0.md`](0.1.0.md
 
 **Rules:** one sub-slice at a time; commit and push to `dev` after each; CI green on all three OSes before the next; never push to `main`; never skip, loosen or delete a test. **Checkpoints, stop and report for review:** after 1b-iv (first typing build), after 3b (first live-preview build), after 4b-iv (first usable build).
 
+## Where things stand (2026-11-14, agent v.02)
+
+- **28 of 61 rows are done** (the plan had 59 sub-slices; 4c and 4d were added). Everything through 4d is built. Slices 5 to 9 are not started. About 32,000 lines of C in `src/`; **94 ctest tests**.
+- **CI is red.** `ui_not_blocked` fails on the Windows and macOS runners on every push I read since `855d89d` (`ISSUES.md` 18). Last green runs: 43534314351 (4a to 4c) and 43538167668 (4d). Per the rules, nothing new should be built until this is fixed.
+- The user hand-tested an AppImage and many fixes followed (the section "After 4d" below). The items marked "fixed, to be confirmed by hand" in `ISSUES.md` have not been confirmed by the user.
+- Read [`HANDOFF-agent-v.02.md`](HANDOFF-agent-v.02.md) for how the code fits together, the tools, and what I got wrong.
+
 ## Sub-slices
 
 | Id | Title | Status | Commit | Assumptions and TODO-verify |
@@ -75,11 +82,29 @@ Read this first when resuming. It tracks the sub-slices of [`0.1.0.md`](0.1.0.md
 | 9c | macOS dmg | not started | | |
 | 9d | Add-on package and final checks | not started | | |
 
+## After 4d: hand-test fixes (not numbered sub-slices)
+
+Built from the user's hand-testing of AppImages from `dev`. Each is in `ISSUES.md` with its cause and its test. CI column: see `ISSUES.md` 18 for the red runs.
+
+| Commit | What |
+| --- | --- |
+| `a859a4a` | Event loop fix (handle every waiting event, then draw once), a new note written at its first edit, the `[[` list stays open, Obsidian's heading sizes (issues 1, 2, 3, 5). |
+| `855d89d` | `frame_budget` and `ui_no_blocking_calls` tests, idle frames skipped, `EXHAUST_FRAME_LOG`; inline title that renames the file; Ctrl/Cmd+click creates a missing linked note; ribbon icons and states (issues 4, 6, 7, 8). |
+| `1914321` | Popup menu at the pointer for files and folders (icons, groups, submenu, red Delete), drag ghost, title renames when it loses focus, the vault manager and the vault window share the colour setting, `EXHAUST_SCRIPT` and the `app_scripts` test. |
+| `cca56b0` | **Soft word wrap** in the note editors and the title (the editor works by rows now); the title refuses characters a file name cannot have, with a bubble (issues 12, 13); `wrap` test. |
+| `6129849` | File explorer: top-level folders and notes (a click on the empty space selects nothing), chevrons, no `.md`; double click on a folder's name renames it in place (`[files] rename_folder_on_double_click`, settings page in 7a); a separator after the ribbon (issues 14, 15). |
+| `b90676a` | Resize the file explorer and the right sidebar by dragging a divider strip, limited by the window (issue 17). |
+
+Screenshots added to `screenshots/` from the user: a new note (`new-note.png`), the right-click menu (`note-context-menu.png`), the file list with several top-level folders (`file-tree-top-level.png`), each with a description in `screenshots/README.md`.
+
 ## Backlog and ideas
 
 Ideas that are not yet part of a sub-slice. Each links to its issue; decide the release before building.
 
 - **Vertical stacking of views** ([#1](https://github.com/Doggydoggywhatnow/Exhaust/issues/1)): drag the top or bottom edge of a note view to shorten it (aligned to the opposite edge); a new view opens in the freed space, optionally showing another note. The 2c workspace model already has `EX_SPLIT_VERTICAL` and `ex_ws_split`, so this is mostly a gesture in `src/ui/panes.c`. Needs the session format in `docs/formats.md` first, commands, a feature switch and a keyboard route. Not started; release not decided. Recent related work: sidebar and explorer resizing by a divider strip (`b90676a`, `docs/ISSUES.md` 17) and soft wrap (`cca56b0`) both touch pane geometry, so read them first. Note that GitHub issue numbers (#1) and the numbers in `docs/ISSUES.md` are two separate lists.
+- **A note open in the right sidebar**, expandable to nearly the whole page (the user's reference screenshot): not built. The right sidebar now resizes up to what the window leaves; showing a note view in it is a workspace and panes change (`EX_SIDE_RIGHT` holds panel ids today, not tabs).
+- **Menu entries not built yet:** "Open to the right", "Open in new window", "Merge entire file with", "Open version history" (the user's reference menu has them; they belong to later slices).
+- **Soft wrap refinements:** a hanging indent for wrapped list items, a readable line length setting, wrap of tables and code blocks (not wrapped as special cases).
 
 ## Open items carried forward
 
@@ -90,13 +115,13 @@ Collected from the "Honest gaps" and TODO-verify text of the rows above. Nothing
 - **Watching:** Windows and macOS use the polling fallback; ReadDirectoryChangesW and FSEvents backends are not written (2b).
 - **UI gaps (rows 2a to 2e, partly closed since by 4c, 4d and the hand-test fixes; check `docs/ISSUES.md`):** the explorer's Sort button may still not write its settings (2d); the vault manager's menu was inline (2e) and Remove has no confirmation.
 - **Editor:** reading view has no find, no saved scroll, and shows images, embeds and math as placeholders; folds are not saved in the session; about 30 of the 73 editor commands were still unbound stubs at 3d (tables, templates, composer, bases); COLR v1 emoji are not rendered (1a-ii); `query` results are not drawn inside live preview or source mode (fixed row height, see 4d); a graph bookmark cannot be opened until slice 5.
-- **Open hand-test issues** (`docs/ISSUES.md`): 9 (first edit in a 6000-line note freezes the window about 270 ms), 10 (the *Unlinked* button is cut off in the right sidebar), 11 (the inline title does not scroll with the text and there is one per window, not per pane), 16 (moving a folder out of a folder by dragging did not work for the user; not reproducible in scripted tests, needs the exact drag). The ones marked "fixed, to be confirmed by hand" still need a human to confirm.
-- **Timing tests are the flaky ones:** `ui_not_blocked`, `frame_budget` and `search_perf` have failed on slow runners (one macOS runner took 95 s for a 15 s test). Re-run once to tell load from a regression, and never raise a limit to make one pass.
+- **Open hand-test issues** (`docs/ISSUES.md`): 9 (first edit in a 6000-line note freezes the window about 270 ms), 10 (the *Unlinked* button is cut off in the right sidebar), 11 (the inline title does not scroll with the text and is one per window, not per pane), 16 (moving a folder out of a folder by dragging did not work for the user; not reproducible in scripted tests, needs the exact drag), **18 (CI red)**. The ones marked "fixed, to be confirmed by hand" still need the user.
+- **Timing tests:** `ui_not_blocked` now fails on Windows and macOS (`ISSUES.md` 18, the first thing to fix); `frame_budget` and `search_perf` have failed on slow runners before. Re-run once to tell load from a regression, find the slow code, and never raise a limit.
 - **Spell check:** one language, no context menu, edit-distance-1 suggestions only (3e).
 - **Tests to add:** a regular-expression fuzz target (3d); `libFuzzer` targets for frontmatter, canvas JSON, base expressions and importers when each module is written.
 - **TODO-verify in CI or by hand:** SDL drop events and the folder dialog on Wayland, Windows and macOS; `SDL_GetSystemTheme`; Windows registry code (compiles only); the Ctrl+Tab versus Escape route out of the editor on macOS; Windows and macOS system font folders.
 - **Checkpoints:** 1b-iv and 3b were passed on the user's instruction to continue. 4b-iv (first usable build) is done and the user has since hand-tested an AppImage from `dev` (see `docs/ISSUES.md`), so treat that review as under way: confirm with the user which fixes they have accepted before moving on to slice 5.
-- **Not started:** slices 5 (graph) to 9 (packaging). The index, search, links, rename, panels and explorer actions (4a to 4d) are done.
+- **Not started:** slices 5 (graph) to 9 (packaging). The index, search, links, rename, panels, explorer actions and the hand-test fixes (4a to 4d and after) are built.
 
 See also [`HANDOFF-agent-v.02.md`](HANDOFF-agent-v.02.md).
 
@@ -113,4 +138,4 @@ Added after hand-testing, so that every later feature stays inside the 16 ms rul
 
 ## Issues found by hand-testing
 
-The list is [`ISSUES.md`](ISSUES.md) (issues 1 to 8 after sub-slice 4d, all fixed in code; 9 to 11 open: lag when resizing and on input, a new file slow to show in the explorer, a slow Enter, no `[[` popup, no way to create a missing linked note, the ribbon). Causes are known for 1, 2, 3 and 5. Fix them with the next sub-slice, or earlier if the user asks, and move each to **Fixed** in `ISSUES.md` with its commit.
+The list is [`ISSUES.md`](ISSUES.md): 1 to 8 and 12 to 15 and 17 are fixed in code (to be confirmed by hand); open: 9, 10, 11, 16, and 18 (CI red). Causes are written there. Fix an issue with the next sub-slice or earlier if the user asks, and move it to **Fixed** with the commit.
