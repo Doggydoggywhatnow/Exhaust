@@ -81,6 +81,9 @@ void ex_panels_register(ExPanels *p);
 void ex_panels_show(ExPanels *p, const char *panel);                /* "files", "search", "bookmarks", "backlinks", ... */
 void ex_panels_search_for(ExPanels *p, const char *query);          /* opens Search with this text and runs it */
 void ex_panels_rename_file(ExPanels *p, const char *path);
+/* Renames a note to new_name (no folder, no extension) in its own folder, through the link-safe flow; the link question is asked as
+ * for any rename. Returns 0 if it was started, -1 (with a message in the status line) if the name is not valid or is taken. */
+int ex_panels_rename_to(ExPanels *p, const char *path, const char *new_name);
 void ex_panels_move_file_prompt(ExPanels *p, const char *path);    /* asks for the folder, then for the links */
 void ex_panels_file_menu(ExPanels *p, const char *path);           /* the menu of a file or folder ("" the vault), as a dialog */
 int ex_panels_context_menu(ExPanels *p, ExWidget *root, float x, float y);   /* right click on a row of the file explorer */          /* asks for the new name, then for the links */

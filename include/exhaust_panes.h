@@ -46,6 +46,8 @@ void ex_panes_update(ExPanes *p);
 void ex_panes_replace_content(ExPanes *p, ExId tab, ExWidget *content);
 /* The content widget of a tab if it has been created. */
 ExWidget *ex_panes_content(ExPanes *p, ExId tab);
+/* A widget shown between the tab strip and the content of the active group (the inline title). The panes do not own it. */
+void ex_panes_set_header(ExPanes *p, ExWidget *header);
 /* The pane (group) that is under a window position (after the last layout), or 0. */
 ExId ex_panes_group_at(ExPanes *p, float x, float y);
 /* The text a tab shows in its tab strip. */

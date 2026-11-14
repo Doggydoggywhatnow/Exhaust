@@ -115,6 +115,10 @@ void ex_editor_set_link_suggest(ExEditor *e, ExLinkSuggestFn fn, void *user);
 int ex_editor_link_suggest_open(const ExEditor *e);
 /* The target of the wikilink or Markdown link at a window position, for the page preview: path part, heading and block (each may
  * be empty). Returns 1 if there is a link there. */
+/* Ctrl (Command on a Mac) and click on a link in the text: the application follows it, or creates the note it names. A plain
+ * click only places the caret. target, heading and block are as in ex_editor_link_at. */
+typedef void (*ExEditorLinkClickFn)(void *user, const char *target, const char *heading, const char *block);
+void ex_editor_set_link_click(ExEditor *e, ExEditorLinkClickFn fn, void *user);
 int ex_editor_link_at(ExEditor *e, ExRenderer *r, float x, float y, char *target, size_t tcap, char *heading, size_t hcap, char *block, size_t bcap);
 
 /* Spell check: words the checker does not know get a wavy line under them in source mode and live preview (not in code,

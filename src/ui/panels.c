@@ -335,6 +335,30 @@ void ex_panels_rename_file(ExPanels *p, const char *path) {
     dialog_prompt(p, "Rename or move", "New name or path from the vault", initial, rename_prompt_done, p->dialog_arg_text);
 }
 
+int ex_panels_rename_to(ExPanels *p, const char *path, const char *new_name) {
+    char to[700], abs[1400], name[300];
+    const char *slash = strrchr(path, '/'), *base = slash ? slash + 1 : path, *dot = strrchr(base, '.');
+    ExPathInfo info;
+    size_t n;
+    snprintf(name, sizeof name, "%s", new_name);
+    for (n = strlen(name); n > 0 && (name[n - 1] == ' ' || name[n - 1] == '\t'); n--) name[n - 1] = 0;
+    for (n = 0; name[n] == ' ' || name[n] == '\t'; n++) {}
+    memmove(name, name + n, strlen(name + n) + 1);
+    if (!name[0] || !ex_name_valid(name)) {
+        if (p->in.host.message) p->in.host.message(p->in.host.user, "That is not a valid note name (no  # ^ [ ] | : and not empty).");
+        return -1;
+    }
+    snprintf(to, sizeof to, "%.*s%s%s%s", slash ? (int)(slash - path) : 0, path, slash ? "/" : "", name, dot ? dot : ".md");
+    if (!strcmp(to, path)) return 0;
+    snprintf(abs, sizeof abs, "%s/%s", p->root, to);
+    if (ex_platform_path_info(abs, &info) == 0) {
+        if (p->in.host.message) p->in.host.message(p->in.host.user, "A note with that name already exists.");
+        return -1;
+    }
+    do_rename_flow(p, path, to);
+    return 0;
+}
+
 static void handle_plan(ExPanels *p, QRes *r) {
     char msg[400], from[300];
     if (r->req != p->req_plan) return;

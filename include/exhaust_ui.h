@@ -54,6 +54,8 @@ struct ExWidget {
     int font_token;               /* ExFontToken */
     float text_scale;             /* times the base text size (1.0) */
     int bold;
+    int disabled;                 /* a button that does nothing yet: drawn faint, no focus, no click (its name says so)
+ */
     int icon;                     /* ExIcon: a button drawn as a picture (its name stays the accessible name) */
 
     /* behaviour */
@@ -115,7 +117,8 @@ ExWidget *ex_widget_button(ExUi *ui, const char *text, ExClickFn fn, void *user)
 /* Icons for buttons (sub-slice 4d): drawn in the button's text color; the button keeps its accessible name. */
 typedef enum ExIcon {
     EX_ICON_NONE, EX_ICON_FILES, EX_ICON_SEARCH, EX_ICON_BOOKMARK, EX_ICON_BACKLINKS, EX_ICON_LINKS, EX_ICON_TAGS, EX_ICON_PROPERTIES,
-    EX_ICON_FILE_PROPERTIES, EX_ICON_OUTLINE, EX_ICON_FOOTNOTES, EX_ICON_NEW_NOTE, EX_ICON_NEW_FOLDER, EX_ICON_SORT, EX_ICON_EXPAND, EX_ICON_MORE
+    EX_ICON_FILE_PROPERTIES, EX_ICON_OUTLINE, EX_ICON_FOOTNOTES, EX_ICON_NEW_NOTE, EX_ICON_NEW_FOLDER, EX_ICON_SORT, EX_ICON_EXPAND, EX_ICON_MORE,
+    EX_ICON_PALETTE, EX_ICON_GRAPH, EX_ICON_CANVAS, EX_ICON_THEME, EX_ICON_SIDEBAR_LEFT, EX_ICON_SIDEBAR_RIGHT, EX_ICON_MODE
 } ExIcon;
 void ex_widget_set_icon(ExWidget *button, int icon);                 /* a square button of the theme's spacing: 3 units */
 void ex_icon_draw(ExRenderer *r, int icon, float x, float y, float w, float h, ExColor c);

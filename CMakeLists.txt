@@ -617,6 +617,12 @@ add_test(NAME vault_tree COMMAND test_vault_tree)
 add_executable(test_panels tests/test_panels.c)
 target_link_libraries(test_panels PRIVATE exhaust_ui)
 add_test(NAME panels COMMAND test_panels)
+add_executable(test_frame_budget tests/test_frame_budget.c)
+target_link_libraries(test_frame_budget PRIVATE exhaust_ui)
+add_test(NAME frame_budget COMMAND test_frame_budget)
+if(NOT WIN32)
+  add_test(NAME ui_no_blocking_calls COMMAND ${CMAKE_SOURCE_DIR}/tools/check_ui_blocking.sh)
+endif()
 add_executable(test_explorer tests/test_explorer.c)
 target_link_libraries(test_explorer PRIVATE exhaust_ui)
 add_test(NAME explorer COMMAND test_explorer)
@@ -651,4 +657,4 @@ set_tests_properties(renderer_smoke PROPERTIES
   ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
 
 # Timing tests must not compete with other tests for the processor.
-set_tests_properties(search_perf ui_not_blocked index_cold PROPERTIES RUN_SERIAL TRUE)
+set_tests_properties(search_perf ui_not_blocked index_cold frame_budget PROPERTIES RUN_SERIAL TRUE)

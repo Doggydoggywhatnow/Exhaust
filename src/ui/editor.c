@@ -65,6 +65,7 @@ struct ExEditor {
     int slash_open;
     size_t slash_start;           /* offset of the "/" that opened the menu */
     ExLinkSuggestFn link_fn; void *link_user;
+    ExEditorLinkClickFn link_click; void *link_click_user;
     int link_open, link_md; size_t link_start;       /* the offset after the "[[" that opened the list */
     ExLinkSuggestion link_items[8]; size_t link_n, link_sel;
     float sp_x, sp_y, sp_w, sp_rowh;   /* the popup as last drawn, for clicks */
@@ -803,6 +804,8 @@ static void backspace_or_delete(ExEditor *e, ExRenderer *r, int forward, int wor
 
 /* ---- link suggestions ---- */
 
+void ex_editor_set_link_click(ExEditor *e, ExEditorLinkClickFn fn, void *user) { e->link_click = fn; e->link_click_user = user; }
+
 void ex_editor_set_link_suggest(ExEditor *e, ExLinkSuggestFn fn, void *user) {
     if (e->link_fn == fn && e->link_user == user) return;       /* called every frame: it must not close an open list */
     e->link_fn = fn; e->link_user = user; e->link_open = 0;
@@ -1211,6 +1214,10 @@ void ex_editor_mouse(ExEditor *e, ExRenderer *r, ExMouse kind, float x, float y,
             return;
         }
         if (kind == EX_MOUSE_DOWN) e->slash_open = 0;                       /* a click elsewhere closes it and is then an ordinary click */
+    }
+    if (kind == EX_MOUSE_DOWN && (mods & EX_MOD_PRIMARY) && e->link_click) {              /* Ctrl or Command and click on a link */
+        char target[300], heading[200], block[100];
+        if (ex_editor_link_at(e, r, x, y, target, sizeof target, heading, sizeof heading, block, sizeof block)) { e->link_click(e->link_click_user, target, heading, block); return; }
     }
     if (kind == EX_MOUSE_DOWN && x >= e->vx && x < e->vx + (float)gutter_px(r) && e->mode != EX_EDITOR_PLAIN) {   /* the gutter: fold or open */
         size_t row = (size_t)floorf((y - e->vy + e->scroll_y) / (float)line_height_px(e, r)), line;

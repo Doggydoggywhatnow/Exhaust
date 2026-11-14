@@ -98,6 +98,43 @@ void ex_icon_draw(ExRenderer *r, int icon, float x, float y, float w, float h, E
         line(r, x + s * 0.25f, y + s * 0.6f, x + s * 0.5f, y + s * 0.85f, th, c); line(r, x + s * 0.5f, y + s * 0.85f, x + s * 0.75f, y + s * 0.6f, th, c);
         break;
     case EX_ICON_MORE: dot(r, x + s * 0.2f, y + s * 0.5f, th * 1.2f, c); dot(r, x + s * 0.5f, y + s * 0.5f, th * 1.2f, c); dot(r, x + s * 0.8f, y + s * 0.5f, th * 1.2f, c); break;
+    case EX_ICON_PALETTE:                                                       /* a prompt: ">_" */
+        line(r, x + s * 0.2f, y + s * 0.3f, x + s * 0.42f, y + s * 0.5f, th, c);
+        line(r, x + s * 0.2f, y + s * 0.7f, x + s * 0.42f, y + s * 0.5f, th, c);
+        line(r, x + s * 0.55f, y + s * 0.72f, x + s * 0.82f, y + s * 0.72f, th, c);
+        break;
+    case EX_ICON_GRAPH:                                                         /* three notes joined by links */
+        line(r, x + s * 0.25f, y + s * 0.3f, x + s * 0.72f, y + s * 0.38f, th, c);
+        line(r, x + s * 0.25f, y + s * 0.3f, x + s * 0.4f, y + s * 0.78f, th, c);
+        line(r, x + s * 0.72f, y + s * 0.38f, x + s * 0.4f, y + s * 0.78f, th, c);
+        dot(r, x + s * 0.25f, y + s * 0.3f, th * 1.8f, c); dot(r, x + s * 0.72f, y + s * 0.38f, th * 2.2f, c); dot(r, x + s * 0.4f, y + s * 0.78f, th * 1.6f, c);
+        break;
+    case EX_ICON_CANVAS:                                                        /* two cards and a connector */
+        ex_stroke_round_rect(r, x + s * 0.1f, y + s * 0.15f, s * 0.38f, s * 0.3f, th, th, c);
+        ex_stroke_round_rect(r, x + s * 0.52f, y + s * 0.55f, s * 0.38f, s * 0.3f, th, th, c);
+        line(r, x + s * 0.3f, y + s * 0.45f, x + s * 0.3f, y + s * 0.7f, th, c);
+        line(r, x + s * 0.3f, y + s * 0.7f, x + s * 0.52f, y + s * 0.7f, th, c);
+        break;
+    case EX_ICON_THEME: {                                                       /* a sun: light and dark */
+        int k;
+        dot(r, x + s * 0.5f, y + s * 0.5f, s * 0.2f, c);
+        for (k = 0; k < 8; k++) {
+            float a = (float)k * 0.785398f, ca = cosf(a), sa = sinf(a);
+            line(r, x + s * (0.5f + 0.3f * ca), y + s * (0.5f + 0.3f * sa), x + s * (0.5f + 0.42f * ca), y + s * (0.5f + 0.42f * sa), th, c);
+        }
+        break;
+    }
+    case EX_ICON_SIDEBAR_LEFT: case EX_ICON_SIDEBAR_RIGHT: {                    /* a window with its side panel marked */
+        int left = icon == EX_ICON_SIDEBAR_LEFT;
+        ex_stroke_round_rect(r, x + s * 0.1f, y + s * 0.18f, s * 0.8f, s * 0.64f, th * 1.5f, th, c);
+        ex_fill_rect(r, left ? x + s * 0.1f : x + s * 0.62f, y + s * 0.18f + th, s * 0.28f, s * 0.64f - 2 * th, c);
+        break;
+    }
+    case EX_ICON_MODE:                                                          /* a pencil */
+        line(r, x + s * 0.22f, y + s * 0.78f, x + s * 0.7f, y + s * 0.3f, th * 2.0f, c);
+        ex_fill_triangle(r, x + s * 0.14f, y + s * 0.86f, x + s * 0.22f, y + s * 0.66f, x + s * 0.34f, y + s * 0.78f, c);
+        line(r, x + s * 0.74f, y + s * 0.26f, x + s * 0.82f, y + s * 0.18f, th * 2.0f, c);
+        break;
     default: break;
     }
 }

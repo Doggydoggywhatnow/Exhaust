@@ -67,6 +67,8 @@ static float row_y(ExWidget *tree, const char *rel) {
     for (y = tree->y + 1; y < tree->y + tree->h; y += 3) { const ExNode *n = ex_tree_node_at(g_ui, tree, y, 0); if (n && !strcmp(n->rel, rel)) return y; }
     return -1;
 }
+static char g_clicked[200]; static int g_nclicks;
+static void on_link_click(void *u, const char *t, const char *h, const char *b) { (void)u; (void)h; (void)b; snprintf(g_clicked, sizeof g_clicked, "%s", t); g_nclicks++; }
 static int dummy_mouse(ExWidget *w, ExMouse k, float x, float y, ExWidget *u, void *user) { (void)w; (void)k; (void)x; (void)y; (void)u; (void)user; return 0; }
 static char g_expanded[4000];
 static void h_query(void *u, const char *path, const char *text) { (void)u; (void)path; snprintf(g_expanded, sizeof g_expanded, "%s", text); }
@@ -644,6 +646,35 @@ int main(void) {
         ex_widget_free(ed);
         ex_doc_free(d);
     }
+    {   /* Ctrl and click on a link reaches the application; a plain click only places the caret */
+        const char *src = "see [[Nowhere]] here";
+        ExDoc *d = ex_doc_create(src, strlen(src));
+        ExWidget *ed = ex_widget_editor(g_ui, d, "Link editor");
+        if (ed && ed->editor) {
+            float x, y = 0, fx = -1;
+            ed->width = ex_size_px(g_ui, 400); ed->height = ex_size_px(g_ui, 100);
+            ex_widget_add(root, ed);
+            ex_ui_layout(g_ui, root, 1000, 700);
+            ex_ui_draw(g_ui, root, 1);
+            ex_editor_set_mode(ed->editor, EX_EDITOR_SOURCE);
+            ex_ui_layout(g_ui, root, 1000, 700);
+            ex_ui_draw(g_ui, root, 1);
+            ex_editor_set_link_click(ed->editor, on_link_click, NULL);
+            y = ed->y + 14;
+            for (x = ed->x; x < ed->x + 300; x += 2) { char t[100], h[50], b[50]; if (ex_editor_link_at(ed->editor, ex_ui_renderer(g_ui), x, y, t, sizeof t, h, sizeof h, b, sizeof b)) { fx = x; break; } }
+            CHECK(fx > 0);
+            if (fx > 0) {
+                g_nclicks = 0;
+                ex_editor_mouse(ed->editor, ex_ui_renderer(g_ui), EX_MOUSE_DOWN, fx, y, 0, 1);
+                ex_editor_mouse(ed->editor, ex_ui_renderer(g_ui), EX_MOUSE_UP, fx, y, 0, 1);
+                CHECK(g_nclicks == 0);
+                ex_editor_mouse(ed->editor, ex_ui_renderer(g_ui), EX_MOUSE_DOWN, fx, y, EX_MOD_PRIMARY, 1);
+                CHECK(g_nclicks == 1 && !strcmp(g_clicked, "Nowhere"));
+            }
+        }
+        if (ed) { ex_ui_release(g_ui, ed); ex_widget_remove(root, ed); ex_widget_free(ed); }
+        ex_doc_free(d);
+    }
     /* the properties of the open note: add, edit, change the type of and remove one, as text edits of the front matter */
     snprintf(F.active, sizeof F.active, "Gamma.md");
     ex_panels_show(F.p, "fileprops");
@@ -686,6 +717,17 @@ int main(void) {
         }
     }
     ex_panels_show(F.p, "files");
+    /* the inline title renames the note: an invalid or taken name is refused with a message, a free one starts the rename */
+    CHECK(ex_panels_rename_to(F.p, "Daily notes.md", "bad#name") == -1 && strstr(F.msg, "not a valid"));
+    CHECK(ex_panels_rename_to(F.p, "Daily notes.md", "Alpha") == -1 && strstr(F.msg, "already exists"));
+    CHECK(ex_panels_rename_to(F.p, "Daily notes.md", "") == -1);
+    {
+        int before = F.moved;
+        CHECK(ex_panels_rename_to(F.p, "Daily notes.md", "  Daily renamed  ") == 0);
+        pump(800);
+        if (ex_panels_modal(F.p)) { ExWidget *no = find(ex_panels_overlay(F.p), EX_WIDGET_BUTTON, "Don't update"); if (no) no->on_click(no, no->on_click_user); pump(400); }
+        CHECK(F.moved == before + 1 && !strcmp(F.moved_to, "Daily renamed.md"));
+    }
 
     if (getenv("PANELS_SHOT")) {
         char path[600];

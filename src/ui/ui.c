@@ -145,8 +145,8 @@ ExWidget *ex_widget_button(ExUi *ui, const char *text, ExClickFn fn, void *user)
 void ex_widget_set_icon(ExWidget *b, int icon) {
     if (!b) return;
     b->icon = icon;
-    b->width = ex_size_token(EX_SIZE_SPACING, 3.0f);
-    b->height = ex_size_token(EX_SIZE_SPACING, 3.0f);
+    b->width = ex_size_token(EX_SIZE_SPACING, 3.5f);
+    b->height = ex_size_token(EX_SIZE_SPACING, 3.5f);
     b->pad_x = b->pad_y = 0;
     if (icon) { char *e = dup_str(""); if (e) { free(b->text); b->text = e; } }
 }
@@ -578,8 +578,8 @@ void ex_ui_layout(ExUi *ui, ExWidget *root, float width, float height) {
             for (; e; e = e->next) {
                 if (e->type == EX_WIDGET_READING && e->reading) ex_readingview_set_viewport(e->reading, e->x, e->y, e->w, e->h);
                 if (e->type == EX_WIDGET_EDITOR && e->editor) {
-                    ExFont *f = ex_ui_font(ui, e->font_token, 0);
-                    ex_editor_set_font(e->editor, f, ui->base_size, ex_theme_size(ui->theme, EX_SIZE_LINE_HEIGHT));
+                    ExFont *f = ex_ui_font(ui, e->font_token, e->bold);
+                    ex_editor_set_font(e->editor, f, ui->base_size * (e->text_scale > 0 ? e->text_scale : 1.0f), ex_theme_size(ui->theme, EX_SIZE_LINE_HEIGHT));
                     ex_editor_set_viewport(e->editor, e->x, e->y, e->w, e->h);
                 }
                 if (e->first_child && sp < 63) stack[sp++] = e->first_child;
@@ -620,8 +620,8 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
         }
     }
     if (w->type == EX_WIDGET_BUTTON && w->icon) {
-        float pad = w->w * 0.2f;
-        ex_icon_draw(r, w->icon, w->x + pad, w->y + pad, w->w - 2 * pad, w->h - 2 * pad, ex_theme_color(t, (ExColorToken)(w->pressed ? EX_COLOR_BACKGROUND : w->text_token >= 0 ? w->text_token : EX_COLOR_TEXT)));
+        float pad = w->w * 0.14f;
+        ex_icon_draw(r, w->icon, w->x + pad, w->y + pad, w->w - 2 * pad, w->h - 2 * pad, ex_theme_color(t, (ExColorToken)(w->disabled ? EX_COLOR_TEXT_FAINT : w->pressed ? EX_COLOR_BACKGROUND : w->selected ? EX_COLOR_ACCENT : w->text_token >= 0 ? w->text_token : EX_COLOR_TEXT)));
     }
     if (w->type == EX_WIDGET_EDITOR && w->editor) {
         ex_editor_draw(w->editor, r, t, ui->focus == w, blink_on);
@@ -697,6 +697,7 @@ void ex_ui_mouse(ExUi *ui, ExWidget *root, ExMouse kind, float x, float y, int m
     while (target && !target->focusable && target->type != EX_WIDGET_BUTTON) target = target->parent;
     clear_hover(root);
     if (target && target->type == EX_WIDGET_BUTTON) target->hover = 1;
+    if (target && target->disabled) target = NULL;                       /* a button that does nothing yet ignores the pointer */
     if (kind == EX_MOUSE_DOWN) {
         ui->focus = target && target->focusable ? target : NULL;
         if (target && target->type == EX_WIDGET_BUTTON) { target->pressed = 1; ui->pressed = target; }

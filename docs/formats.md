@@ -67,7 +67,7 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 | `default_view` | enum(editing\|reading) | `editing` | 0.1.0 |
 | `default_mode` | enum(live_preview\|source) | `live_preview` | 0.1.0 |
 | `show_mode_in_status_bar` | bool | `true` | 0.1.0 |
-| `inline_title` | bool | `true` | 0.1.0 |
+| `inline_title` | bool | `true` | 0.1.0 (works since 4d: the note's name as a title between the tab strip and the text; Enter renames the file) |
 | `readable_line_length` | bool | `true` | 0.1.0 |
 | `strict_line_breaks` | bool | `false` | 0.1.0 |
 | `properties_in_document` | enum(visible\|hidden\|source) | `visible` | 0.1.0 |

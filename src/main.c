@@ -62,6 +62,10 @@ typedef struct App {
     ExTheme theme;
     ExWidget *root, *editor, *tree, *status;     /* editor: the editor of the active tab, or NULL */
     ExFindBar *findbar;
+    ExDoc *title_doc;              /* the inline title: the name of the note, above its text */
+    ExWidget *title;
+    ExWidget *rb_switcher, *rb_graph, *rb_canvas, *rb_palette, *rb_mode, *rb_left, *rb_right, *rb_theme;   /* the ribbon */
+    char title_for[512];           /* the path the title shows */
     ExSlashMenu *slash;
     ExSpell *spell;
     ExWidget *wordcount;          /* the word count at the right of the status line */
@@ -101,6 +105,9 @@ typedef struct App {
 static char *dup_text(const char *s) { size_t n = strlen(s); char *p = malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
 static void sync_ui(App *a);
 
+static unsigned long g_drawn_revision;
+static void host_open_note(void *u, const char *path, size_t offset, int new_tab);
+
 static void relayout_and_draw(App *a) {
     int w, h;
     static int log_frames = -1;
@@ -119,9 +126,24 @@ static void relayout_and_draw(App *a) {
         ex_ui_layout(a->ui, ov, (float)w, (float)h);
         ex_ui_draw(a->ui, ov, a->blink_on);
     }
+    {   /* a developer's aid: EXHAUST_SHOT=file.ppm writes the sixth frame to the file and ends the program */
+        static int frames_drawn;
+        const char *shot = getenv("EXHAUST_SHOT");
+        if (shot && ++frames_drawn == 6) {
+            int sw, sh;
+            uint8_t *px = ex_renderer_read_rgb(a->r, &sw, &sh);
+            FILE *f = px ? fopen(shot, "wb") : NULL;
+            if (f) { fprintf(f, "P6\n%d %d\n255\n", sw, sh); fwrite(px, 1, (size_t)sw * (size_t)sh * 3, f); fclose(f); }
+            free(px);
+            exit(0);
+        }
+    }
     ex_renderer_present(a->r);
     if (log_frames) {
         double f = 1000.0 / (double)SDL_GetPerformanceFrequency();
+        static int slow_only = -1;
+        if (slow_only < 0) { const char *v = getenv("EXHAUST_FRAME_LOG"); slow_only = v && !strcmp(v, "slow"); }      /* EXHAUST_FRAME_LOG=slow: only the frames over the 16 ms budget (without the wait for the screen) */
+        if (slow_only && (double)(t3 - t0) * f < 16.0) return;
         fprintf(stderr, "frame: sync %.1f ms, layout %.1f ms, draw %.1f ms, present %.1f ms\n", (double)(t1 - t0) * f, (double)(t2 - t1) * f, (double)(t3 - t2) * f, (double)(SDL_GetPerformanceCounter() - t3) * f);
     }
 }
@@ -260,18 +282,52 @@ static const ExNode *find_note_node(const ExNode *n, const char *name, size_t le
     return NULL;
 }
 
+/* Follows a link to a note. A note that does not exist is made only when the user asked for it with Ctrl (Command on a Mac) and a
+ * click: nothing creates a note by itself. */
+static void follow_note_link(App *a, const char *target, int create) {
+    char msg[500], name[300], path[700];
+    size_t len = strcspn(target, "#");
+    const ExNode *n;
+    size_t i, o = 0;
+    if (!a->vault || !len) return;
+    n = find_note_node(ex_vault_root(a->vault), target, len);
+    if (n) { host_open_note(a, n->rel, (size_t)-1, 0); return; }
+    for (i = 0; i < len && o + 1 < sizeof name; i++) {                       /* a Markdown link's address: %20 and the extension */
+        if (target[i] == '%' && i + 2 < len + 0 && isxdigit((unsigned char)target[i + 1]) && isxdigit((unsigned char)target[i + 2])) { char h[3] = {target[i + 1], target[i + 2], 0}; name[o++] = (char)strtol(h, NULL, 16); i += 2; }
+        else name[o++] = target[i];
+    }
+    name[o] = 0;
+    if (o > 3 && !strcmp(name + o - 3, ".md")) name[o -= 3] = 0;
+    {
+        const char *slash = strrchr(name, '/');
+        if (!(slash ? slash[1] : name[0]) || !ex_name_valid(slash ? slash + 1 : name)) { snprintf(msg, sizeof msg, "\"%s\" is not a name a note can have.", name); set_status(a, msg); return; }
+    }
+    if (!create) {
+        snprintf(msg, sizeof msg, "The note \"%s\" does not exist yet. Ctrl+click the link (Command on a Mac) to create it.", name);
+        set_status(a, msg);
+        return;
+    }
+    snprintf(path, sizeof path, "%s.md", name);
+    host_open_note(a, path, (size_t)-1, 0);                                  /* made now, written when something is typed */
+    snprintf(msg, sizeof msg, "New note \"%s\". It is written when you type something.", name);
+    set_status(a, msg);
+}
+
+static void on_editor_link_click(void *user, const char *target, const char *heading, const char *block) {
+    (void)heading; (void)block;
+    if (target && target[0]) follow_note_link(user, target, 1);
+}
+
 static void on_reading_link(ExRSpanKind kind, const char *target, void *user) {
     App *a = user;
     char msg[400];
     if (kind == EX_RSK_LINK_EXTERNAL && target && (strncmp(target, "http://", 7) == 0 || strncmp(target, "https://", 8) == 0 || strncmp(target, "mailto:", 7) == 0)) {
         if (!SDL_OpenURL(target)) { snprintf(msg, sizeof msg, "Could not open %s", target); set_status(a, msg); }
     } else if (kind == EX_RSK_LINK_INTERNAL && target && a->vault) {
-        size_t len = strcspn(target, "#");
-        const ExNode *n = find_note_node(ex_vault_root(a->vault), target, len);
-        if (n) open_path(a, 0, n->rel);
-        else { snprintf(msg, sizeof msg, "No note named %.*s: link following arrives with the link index (sub-slice 4a).", (int)len, target); set_status(a, msg); }
-    } else if (kind == EX_RSK_TAG) set_status(a, "Searching by tag arrives with search (sub-slice 4b).");
-    else if (kind == EX_RSK_LINK_EXTERNAL) set_status(a, "Only web and e-mail links are opened.");
+        follow_note_link(a, target, (ex_mods_from_sdl() & EX_MOD_PRIMARY) != 0);
+    } else if (kind == EX_RSK_TAG && target) {
+        if (a->panels) { char q[300]; snprintf(q, sizeof q, "tag:#%s", target[0] == '#' ? target + 1 : target); ex_panels_search_for(a->panels, q); }
+    } else if (kind == EX_RSK_LINK_EXTERNAL) set_status(a, "Only web and e-mail links are opened.");
 }
 
 static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
@@ -776,6 +832,85 @@ static int run_shortcut(App *a, const SDL_KeyboardEvent *k) {
     return 0;
 }
 
+/* ---- the inline title (issue 8): the note's name above its text; changing it renames the file ---- */
+
+static void note_name_of(const char *path, char *out, size_t cap) {
+    const char *b = strrchr(path, '/');
+    size_t n;
+    b = b ? b + 1 : path;
+    n = strlen(b);
+    if (n > 3 && !strcmp(b + n - 3, ".md")) n -= 3;
+    if (n >= cap) n = cap - 1;
+    memcpy(out, b, n); out[n] = 0;
+}
+
+static void set_title_text(App *a, const char *text) {
+    size_t n = strlen(text), have = ex_buffer_size(ex_doc_buffer(a->title_doc));
+    ExChange c;
+    c.offset = 0; c.remove_len = have; c.text = text; c.text_len = n;
+    ex_doc_apply(a->title_doc, &c, 1, 0, NULL, 0);
+    ex_doc_set_caret(a->title_doc, n);
+}
+
+static void title_revert(App *a) {
+    char name[300];
+    if (!a->title_for[0]) return;
+    note_name_of(a->title_for, name, sizeof name);
+    set_title_text(a, name);
+}
+
+/* Enter in the title: the note is renamed (a note that is not on disk yet is started again under the new name). */
+static void title_commit(App *a) {
+    size_t len = 0;
+    char *typed = ex_buffer_text(ex_doc_buffer(a->title_doc), &len), path[512];
+    ExId tab = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+    if (!typed || !a->title_for[0] || !a->panels) { free(typed); return; }
+    snprintf(path, sizeof path, "%s", a->title_for);
+    if (a->note && !ex_note_exists_on_disk(a->note) && ex_buffer_size(ex_doc_buffer(ex_note_doc(a->note))) == 0) {
+        char to[700], name[300];
+        const char *slash = strrchr(path, '/');
+        size_t n = strlen(typed);
+        while (n > 0 && typed[n - 1] == ' ') typed[--n] = 0;
+        snprintf(name, sizeof name, "%s", typed);
+        if (!name[0] || !ex_name_valid(name)) { set_status(a, "That is not a valid note name (no  # ^ [ ] | : and not empty)."); title_revert(a); free(typed); return; }
+        snprintf(to, sizeof to, "%.*s%s%s.md", slash ? (int)(slash - path) : 0, path, slash ? "/" : "", name);
+        if (strcmp(to, path)) {
+            ExPathInfo info;
+            char abs[1400];
+            snprintf(abs, sizeof abs, "%s/%s", ex_vault_path(a->vault), to);
+            if (ex_platform_path_info(abs, &info) == 0) { set_status(a, "A note with that name already exists."); title_revert(a); free(typed); return; }
+            if (tab) ex_ws_close_tab(a->ws, tab);
+            host_open_note(a, to, (size_t)-1, 0);
+        }
+    } else if (ex_panels_rename_to(a->panels, path, typed) != 0) title_revert(a);
+    free(typed);
+    if (a->editor) ex_ui_set_focus(a->ui, a->editor);
+}
+
+static int title_key(ExWidget *w, ExKey key, int mods, void *user) {
+    App *a = user;
+    (void)w; (void)mods;
+    if (key == EX_KEY_ENTER) { title_commit(a); return 1; }
+    if (key == EX_KEY_ESCAPE) { title_revert(a); if (a->editor) ex_ui_set_focus(a->ui, a->editor); return 1; }
+    if (key == EX_KEY_DOWN) { if (a->editor) ex_ui_set_focus(a->ui, a->editor); return 1; }
+    return 0;
+}
+
+/* Shows the title of the active note (not while it is being typed in). */
+static void sync_title(App *a) {
+    ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+    const ExTab *tab = t ? ex_ws_tab(a->ws, t) : NULL;
+    int show = a->title && tab && a->note && tab->path[0] && ex_file_kind(tab->path) == EX_KIND_MARKDOWN && ex_settings_get_bool(a->settings, "editor", "inline_title");
+    if (!a->title) return;
+    a->title->hidden = !show;
+    if (!show) { a->title_for[0] = 0; return; }
+    if (strcmp(a->title_for, tab->path) || a->title_for[0] == 0) {
+        snprintf(a->title_for, sizeof a->title_for, "%s", tab->path);
+        title_revert(a);
+        if (!ex_note_exists_on_disk(a->note)) ex_ui_set_focus(a->ui, a->title);   /* a new note: the first thing typed is its name */
+    }
+}
+
 /* Which tab, note and editor are active; called before every layout. */
 static void sync_ui(App *a) {
     ExId g, t;
@@ -794,10 +929,14 @@ static void sync_ui(App *a) {
         size_t i;
         for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
             ExWidget *w = ex_panes_content(a->panes, ex_ws_tab_at(a->ws, i));
-            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); ex_editor_set_spell(w->editor, spell_on ? a->spell : NULL); if (a->panels) ex_editor_set_link_suggest(w->editor, ex_panels_suggest_links, a->panels); }
+            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); ex_editor_set_spell(w->editor, spell_on ? a->spell : NULL); if (a->panels) ex_editor_set_link_suggest(w->editor, ex_panels_suggest_links, a->panels); ex_editor_set_link_click(w->editor, on_editor_link_click, a); }
         }
     }
     a->note = t ? note_for_tab(a, t) : NULL;
+    sync_title(a);
+    if (a->rb_left) a->rb_left->selected = ex_ws_sidebar_visible(a->ws, EX_SIDE_LEFT);          /* pressed while the sidebar shows */
+    if (a->rb_right) a->rb_right->selected = ex_ws_sidebar_visible(a->ws, EX_SIDE_RIGHT);
+    if (a->rb_mode) { const ExTab *rt = t ? ex_ws_tab(a->ws, t) : NULL; a->rb_mode->selected = rt && rt->mode && !strcmp(rt->mode, "source"); }
     if (a->sel_path && a->note && a->editor && !strcmp(ex_note_path(a->note), a->sel_path)) {      /* a link or a search result opened this note at a place */
         ex_editor_select(a->editor->editor, a->r, a->sel_offset, a->sel_offset);
         ex_ui_set_focus(a->ui, a->editor);
@@ -806,7 +945,7 @@ static void sync_ui(App *a) {
     update_wordcount(a);
     if (a->findbar && ex_findbar_is_open(a->findbar)) { if (a->editor) ex_findbar_set_target(a->findbar, a->editor); ex_findbar_update(a->findbar); }
     if (a->note != a->banner_note && !a->diff_doc) banner_for_note(a, a->note);
-    if (a->focus_tab && a->focus_tab == t && a->editor) { ex_ui_set_focus(a->ui, a->editor); a->focus_tab = 0; }
+    if (a->focus_tab && a->focus_tab == t && a->editor) { if (!(a->title && !a->title->hidden && a->note && !ex_note_exists_on_disk(a->note))) ex_ui_set_focus(a->ui, a->editor); a->focus_tab = 0; }   /* a new note keeps the focus on its title */
     else if (a->focus_tab && !ex_ws_tab(a->ws, a->focus_tab)) a->focus_tab = 0;
 }
 
@@ -1060,14 +1199,18 @@ static int host_file_op(void *u, int what, const char *path, const char *arg) {
     return rc;
 }
 
-static ExWidget *ribbon_button(App *a, const char *text, const char *name, ExClickFn fn) {
-    ExWidget *b = ex_widget_button(a->ui, text, fn, a);
+static ExWidget *ribbon_icon(App *a, int icon, const char *name, ExClickFn fn, int disabled) {
+    ExWidget *b = ex_widget_button(a->ui, name, fn, a);
     if (!b) return NULL;
-    free(b->name);
-    b->name = malloc(strlen(name) + 1);
-    if (b->name) strcpy(b->name, name);
+    ex_widget_set_icon(b, icon);
+    b->bg_token = -1; b->border_token = -1;
+    if (disabled) { b->disabled = 1; b->focusable = 0; }
     return b;
 }
+
+static void on_ribbon_switcher(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "quick-switcher.open-quick-switcher"); }
+static void on_ribbon_palette(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "command-palette.open-command-palette"); }
+
 
 /* ---- the vault manager window and opening vaults ---- */
 
@@ -1344,11 +1487,29 @@ int main(int argc, char **argv) {
     ribbon->width = ex_size_token(EX_SIZE_RIBBON_WIDTH, 1.0f);
     ribbon->height = ex_size_grow();
     ribbon->bg_token = EX_COLOR_BACKGROUND_ALT;
-    ribbon->pad_x = 0.5f; ribbon->pad_y = 1.0f; ribbon->gap = 0.5f;
-    ex_widget_add(ribbon, ribbon_button(&app, "Aa", "Switch light and dark theme", on_toggle_theme));
-    ex_widget_add(ribbon, ribbon_button(&app, "\xC2\xAB", "Show or hide the left sidebar", on_toggle_left));
-    ex_widget_add(ribbon, ribbon_button(&app, "\xC2\xBB", "Show or hide the right sidebar", on_toggle_right));
-    ex_widget_add(ribbon, ribbon_button(&app, "Md", "Switch between live preview and source mode", on_toggle_mode_button));
+    ribbon->pad_x = 0.5f; ribbon->pad_y = 1.0f; ribbon->gap = 0.5f; ribbon->align_x = 1;     /* the icons sit in the middle of the bar */
+    /* the ribbon: the actions at the top, the view switches at the bottom; drawn icons, each with its name for screen readers. The
+     * graph and canvas stay disabled until those views exist; the settings button comes with the settings screens (sub-slice 7a). */
+    app.rb_switcher = ribbon_icon(&app, EX_ICON_SEARCH, "Quick switcher", on_ribbon_switcher, 0);
+    app.rb_graph = ribbon_icon(&app, EX_ICON_GRAPH, "Graph view (not available yet)", NULL, 1);
+    app.rb_canvas = ribbon_icon(&app, EX_ICON_CANVAS, "Canvas (not available yet)", NULL, 1);
+    app.rb_palette = ribbon_icon(&app, EX_ICON_PALETTE, "Command palette", on_ribbon_palette, 0);
+    ex_widget_add(ribbon, app.rb_switcher);
+    ex_widget_add(ribbon, app.rb_graph);
+    ex_widget_add(ribbon, app.rb_canvas);
+    ex_widget_add(ribbon, app.rb_palette);
+    {   ExWidget *gap = ex_widget_box(app.ui, 1, "ribbon space");
+        gap->width = ex_size_grow(); gap->height = ex_size_grow();
+        ex_widget_add(ribbon, gap);
+    }
+    app.rb_mode = ribbon_icon(&app, EX_ICON_MODE, "Live preview or source mode of this note", on_toggle_mode_button, 0);
+    app.rb_left = ribbon_icon(&app, EX_ICON_SIDEBAR_LEFT, "Show or hide the left sidebar", on_toggle_left, 0);
+    app.rb_right = ribbon_icon(&app, EX_ICON_SIDEBAR_RIGHT, "Show or hide the right sidebar", on_toggle_right, 0);
+    app.rb_theme = ribbon_icon(&app, EX_ICON_THEME, "Switch between light and dark", on_toggle_theme, 0);
+    ex_widget_add(ribbon, app.rb_mode);
+    ex_widget_add(ribbon, app.rb_left);
+    ex_widget_add(ribbon, app.rb_right);
+    ex_widget_add(ribbon, app.rb_theme);
     ex_widget_add(row, ribbon);
 
     left_content = app.vault ? ex_explorer_sidebar(app.ui, app.vault, on_open_file, &app, &app.tree) : info_label(&app, "No vault is open.");
@@ -1401,6 +1562,16 @@ int main(int argc, char **argv) {
     ex_widget_add(col, app.banner);
     app.findbar = ex_findbar_create(app.ui);
     if (app.findbar) ex_widget_add(col, ex_findbar_widget(app.findbar));
+    app.title_doc = ex_doc_create("", 0);
+    app.title = app.title_doc ? ex_widget_editor(app.ui, app.title_doc, "Note title") : NULL;
+    if (app.title) {                                                           /* the inline title: large and bold, one line, no frame */
+        ex_editor_set_mode(app.title->editor, EX_EDITOR_PLAIN);
+        app.title->text_scale = 2.0f; app.title->bold = 1;
+        app.title->width = ex_size_grow(); app.title->height = ex_size_token(EX_SIZE_SPACING, 7.0f);
+        app.title->on_key = title_key; app.title->on_key_user = &app;
+        app.title->hidden = 1;
+        ex_panes_set_header(app.panes, app.title);                              /* between the tab strip and the text, as in Obsidian */
+    }
     ex_widget_add(col, ex_panes_root(app.panes));
     if (app.panels) ex_widget_add(col, ex_panels_bottom(app.panels));
     ex_widget_add(row, col);
@@ -1455,6 +1626,7 @@ int main(int argc, char **argv) {
     if (worker) ex_worker_post(worker, &job);
 
     ex_text_input_start(ex_renderer_window(app.r));
+    if (getenv("EXHAUST_OPEN") && app.vault) open_path(&app, 0, getenv("EXHAUST_OPEN"));       /* a developer's aid: open this note at start */
     relayout_and_draw(&app);
     while (running) {
         ExTextEvent te;
@@ -1463,13 +1635,13 @@ int main(int argc, char **argv) {
         int timed_out = !SDL_WaitEventTimeout(&e, 100); /* wakes ten times a second for autosave and the watcher */
         static int idle_ticks;
         if (g_signal) running = 0;
-        int woke = timed_out;
+        int woke = timed_out, redraw = !timed_out;     /* an idle wake-up draws only when the caret blinks: nothing else changed */
         /* Every event that is waiting is handled before the next frame: a frame waits for the screen (vsync), so one frame
          * for each of the hundreds of mouse-motion and resize events a second made the interface fall seconds behind. */
         for (;;) {
         if (e.type == g_wake_event && !timed_out) woke = 1;
         if (timed_out) {
-            if (++idle_ticks % 5 == 0) app.blink_on = !app.blink_on;   /* the caret blinks about every half second */
+            if (++idle_ticks % 5 == 0) { app.blink_on = !app.blink_on; redraw = 1; }   /* the caret blinks about every half second */
         } else if (e.type == g_wake_event) {
             ExMessage m;
             while (ex_queue_pop(results, &m))
@@ -1561,7 +1733,10 @@ int main(int argc, char **argv) {
             if (app.session) ex_session_tick(app.session, app.ws, (int64_t)SDL_GetTicks());
         }
         if (app.panels) ex_panels_update(app.panels);
-        relayout_and_draw(&app);
+        if (redraw || (app.panels && ex_panels_overlay(app.panels)) || ex_ws_revision(app.ws) != g_drawn_revision) {
+            g_drawn_revision = ex_ws_revision(app.ws);
+            relayout_and_draw(&app);
+        }
         if (app.editor && app.editor->editor) {
             float cx, cy, cw, ch;
             ex_editor_caret_rect(app.editor->editor, app.r, &cx, &cy, &cw, &ch);
@@ -1588,6 +1763,7 @@ int main(int argc, char **argv) {
     ex_slash_free(app.slash);
     ex_spell_free(app.spell);
     ex_panes_free(app.panes);                                          /* contents are detached and closed; their notes are closed too */
+    if (app.title) { ex_ui_release(app.ui, app.title); ex_widget_free(app.title); app.title = NULL; }
     if (app.panels) {
         ex_panels_free(app.panels);
         ex_widget_free(app.left_content);                              /* the explorer: the panels only held it */
@@ -1598,6 +1774,7 @@ int main(int argc, char **argv) {
     ex_widget_free(app.root);
     free(app.tabnotes);
     ex_doc_free(app.demo_doc);
+    ex_doc_free(app.title_doc);
     ex_ws_free(app.ws);
     ex_commands_free(app.commands);
     ex_features_free(app.features);
