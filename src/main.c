@@ -67,6 +67,7 @@ typedef struct App {
     ExWidget *rb_switcher, *rb_graph, *rb_canvas, *rb_palette, *rb_mode, *rb_left, *rb_right, *rb_theme;   /* the ribbon */
     char title_for[512];           /* the path the title shows */
     int title_was_focused;
+    int main_collapsed, main_prev_width; ExSide main_collapsed_side;   /* app.toggle-main-view: the note view is a handle, and what to give back */
     Uint64 title_warn_until;       /* the bubble under the title that names the characters a file name cannot have */
     ExSlashMenu *slash;
     ExSpell *spell;
@@ -561,6 +562,19 @@ static void on_toggle_right(ExWidget *w, void *user) { (void)w; ex_commands_run(
 
 static void cmd_toggle_left(void *u) { toggle_side(u, EX_SIDE_LEFT); }
 static void cmd_toggle_right(void *u) { toggle_side(u, EX_SIDE_RIGHT); }
+/* Collapse the note view to its handle by widening a sidebar over it (the right one when it is shown, else the left), and give the width back. */
+static void cmd_toggle_main_view(void *u) {
+    App *a = u;
+    if (a->main_collapsed) {
+        ex_ws_set_sidebar(a->ws, a->main_collapsed_side, 1, a->main_prev_width);
+        a->main_collapsed = 0;
+    } else {
+        ExSide side = ex_ws_sidebar_visible(a->ws, EX_SIDE_RIGHT) ? EX_SIDE_RIGHT : EX_SIDE_LEFT;
+        a->main_collapsed_side = side;
+        a->main_prev_width = ex_sidebar_fill(side == EX_SIDE_RIGHT ? a->right_sb : a->left_sb);
+        a->main_collapsed = 1;
+    }
+}
 static void cmd_change_theme(void *u) { on_toggle_theme(NULL, u); }   /* until the picker exists: switches light and dark */
 static void spawn_self(const char *arg);
 static void cmd_change_vault(void *u) { (void)u; spawn_self("--vaults"); }
@@ -814,6 +828,7 @@ static void register_features_and_commands(App *a) {
     a->commands = ex_commands_create(a->features);
     ex_commands_bind(a->commands, "app.toggle-left-sidebar", cmd_toggle_left, NULL, a);
     ex_commands_bind(a->commands, "app.toggle-right-sidebar", cmd_toggle_right, NULL, a);
+    ex_commands_bind(a->commands, "app.toggle-main-view", cmd_toggle_main_view, NULL, a);
     ex_commands_bind(a->commands, "app.change-theme", cmd_change_theme, NULL, a);
     ex_commands_bind(a->commands, "app.change-vault", cmd_change_vault, NULL, a);
     ex_commands_bind(a->commands, "app.toggle-live-preview-source-mode", cmd_toggle_mode, has_editor, a);
@@ -1038,6 +1053,17 @@ static void sync_ui(App *a) {
     ExWidget *c;
     ex_sidebar_sync(a->left_sb);
     ex_sidebar_sync(a->right_sb);
+    {   /* the note view squeezed to less than a character's width is hidden; the two divider strips next to it are its handle (GitHub issue 2) */
+        ExWidget *note = ex_panes_root(a->panes) ? ex_panes_root(a->panes)->parent : NULL;
+        if (note) {
+            int ww, wh;
+            float scale = ex_renderer_scale(a->r), room;
+            ex_renderer_size(a->r, &ww, &wh);
+            room = (float)ww - (float)ex_theme_size(&a->theme, EX_SIZE_RIBBON_WIDTH) * scale - (a->left_sb->hidden ? 0.0f : a->left_sb->w) - (a->right_sb->hidden ? 0.0f : a->right_sb->w)
+                   - 12.0f * scale;
+            note->hidden = room < 20.0f * scale && !a->left_sb->hidden && !a->right_sb->hidden ? 1 : 0;
+        }
+    }
     ex_panes_update(a->panes);
     g = ex_ws_active_group(a->ws);
     t = ex_ws_group_active(a->ws, g);
@@ -1698,6 +1724,7 @@ int main(int argc, char **argv) {
 
     col = ex_widget_box(app.ui, 1, "Note");
     col->width = ex_size_grow(); col->height = ex_size_grow();
+    col->clip = 1;                                                   /* a note view squeezed to a handle shows nothing outside it */
     app.banner = ex_widget_box(app.ui, 0, "Notice");
     app.banner->width = ex_size_grow();
     app.banner->bg_token = EX_COLOR_SURFACE;

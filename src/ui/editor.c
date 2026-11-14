@@ -661,7 +661,7 @@ typedef struct WrapLine { size_t *start; float *x; size_t n, cap; } WrapLine;   
 static int wrap_active(const ExEditor *e) { return e->wrap && e->vw > 0.0f && e->font != NULL; }
 
 static float wrap_avail(const ExEditor *e, ExRenderer *r) {
-    float a = e->vw - (float)pad_px(r) - (float)ex_px(r, 8), lo = (float)ex_px(r, 60);
+    float a = e->vw - (float)pad_px(r) - (float)ex_px(r, 8), lo = 1.0f;       /* down to one character a row: a segment always takes at least one cluster (wrap_line) */
     return a < lo ? lo : a;
 }
 

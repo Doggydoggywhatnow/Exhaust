@@ -62,6 +62,9 @@ ExWidget *ex_sidebar_create(ExUi *ui, ExWorkspace *ws, ExSide side, ExWidget *co
  * sidebar, as wide as the window allows (the text keeps 240 px; the other sidebar and the ribbon keep theirs). */
 ExWidget *ex_sidebar_divider_create(ExWidget *sidebar);
 void ex_sidebar_sync(ExWidget *sidebar);
+/* Widens the sidebar as far as the window allows, so the note view between the sidebars is reduced to its handle. Returns the width
+ * it had (pixels at 100%), to give back with ex_ws_set_sidebar. */
+int ex_sidebar_fill(ExWidget *sidebar);
 
 #ifdef __cplusplus
 }

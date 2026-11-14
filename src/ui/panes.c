@@ -480,17 +480,30 @@ void ex_panes_free(ExPanes *p) {
 
 typedef struct SidebarState { ExUi *ui; ExWorkspace *ws; ExSide side; int dragging; ExWidget *sidebar, *divider, *line; } SidebarState;
 
-/* The widest the sidebar can be, in pixels at 100%: the window minus the ribbon, the other sidebar and a strip of text. */
+/* The widest the sidebar can be, in pixels at 100%: the window minus the ribbon and the other sidebar. When the other sidebar is
+ * shown, the note view between them may shrink all the way to its two divider strips (its text wraps down to one character a
+ * row, then only the handle is left; GitHub issue 2). When the other sidebar is hidden, the note view keeps 240 px. */
 static float sidebar_limit(const SidebarState *st) {
     ExRenderer *r = ex_ui_renderer(st->ui);
     int ww, wh;
-    float scale = ex_renderer_scale(r), other = 0.0f, ribbon, room;
+    float scale = ex_renderer_scale(r), other = 0.0f, ribbon, room, keep;
     ExSide o = st->side == EX_SIDE_LEFT ? EX_SIDE_RIGHT : EX_SIDE_LEFT;
     ex_renderer_size(r, &ww, &wh);
     ribbon = (float)ex_theme_size(ex_ui_theme(st->ui), EX_SIZE_RIBBON_WIDTH);
-    if (ex_ws_sidebar_visible(st->ws, o)) other = (float)ex_ws_sidebar_width(st->ws, o);
-    room = (float)ww / (scale > 0 ? scale : 1.0f) - ribbon - other - 240.0f;        /* at least 240 px stay for the text */
+    if (ex_ws_sidebar_visible(st->ws, o)) { other = (float)ex_ws_sidebar_width(st->ws, o); keep = 12.0f; }
+    else keep = 240.0f;
+    room = (float)ww / (scale > 0 ? scale : 1.0f) - ribbon - other - keep;
     return room < 120.0f ? 120.0f : room;
+}
+
+int ex_sidebar_fill(ExWidget *sb) {
+    SidebarState *st = sb ? sb->owned : NULL;
+    int old;
+    if (!st) return 0;
+    old = ex_ws_sidebar_width(st->ws, st->side);
+    ex_ws_set_sidebar(st->ws, st->side, 1, (int)sidebar_limit(st));
+    ex_sidebar_sync(sb);
+    return old;
 }
 
 void ex_sidebar_sync(ExWidget *sb) {

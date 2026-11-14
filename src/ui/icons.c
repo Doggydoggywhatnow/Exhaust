@@ -16,6 +16,22 @@ static void line(ExRenderer *r, float x1, float y1, float x2, float y2, float th
 
 static void dot(ExRenderer *r, float cx, float cy, float rad, ExColor c) { ex_fill_round_rect(r, cx - rad, cy - rad, 2 * rad, 2 * rad, rad, c); }
 
+/* A ring: a strip of triangles between two circles, with enough steps that it looks round at every size. */
+static void ring(ExRenderer *r, float cx, float cy, float rad, float th, ExColor c) {
+    int n = (int)ceilf(rad * 2.5f), i;
+    float ro = rad + th / 2.0f, ri = rad - th / 2.0f, a0 = 0.0f;
+    if (n < 24) n = 24;
+    if (n > 96) n = 96;
+    if (ri < 0.0f) ri = 0.0f;
+    for (i = 1; i <= n; i++) {
+        float a1 = (float)i * 6.28318530718f / (float)n;
+        float c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
+        ex_fill_triangle(r, cx + c0 * ro, cy + s0 * ro, cx + c1 * ro, cy + s1 * ro, cx + c0 * ri, cy + s0 * ri, c);
+        ex_fill_triangle(r, cx + c1 * ro, cy + s1 * ro, cx + c1 * ri, cy + s1 * ri, cx + c0 * ri, cy + s0 * ri, c);
+        a0 = a1;
+    }
+}
+
 static void folder(ExRenderer *r, float x, float y, float s, float th, ExColor c) {
     ex_fill_round_rect(r, x + s * 0.12f, y + s * 0.22f, s * 0.36f, s * 0.2f, th, c);                 /* the tab */
     ex_stroke_round_rect(r, x + s * 0.12f, y + s * 0.32f, s * 0.76f, s * 0.5f, th, th, c);          /* the body */
@@ -36,8 +52,8 @@ void ex_icon_draw(ExRenderer *r, int icon, float x, float y, float w, float h, E
     switch (icon) {
     case EX_ICON_FILES: folder(r, x, y, s, th, c); break;
     case EX_ICON_SEARCH:
-        ex_stroke_round_rect(r, x + s * 0.14f, y + s * 0.14f, s * 0.5f, s * 0.5f, s * 0.25f, th, c);
-        line(r, x + s * 0.56f, y + s * 0.56f, x + s * 0.86f, y + s * 0.86f, th * 1.3f, c);
+        ring(r, x + s * 0.4f, y + s * 0.4f, s * 0.26f, th * 1.1f, c);                  /* the lens: a true circle */
+        line(r, x + s * (0.4f + 0.26f * 0.7071f), y + s * (0.4f + 0.26f * 0.7071f), x + s * 0.86f, y + s * 0.86f, th * 1.3f, c);    /* the handle starts on its edge */
         break;
     case EX_ICON_BOOKMARK:
         ex_fill_triangle(r, x + s * 0.25f, y + s * 0.12f, x + s * 0.75f, y + s * 0.12f, x + s * 0.5f, y + s * 0.62f, c);
