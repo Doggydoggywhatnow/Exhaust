@@ -61,6 +61,10 @@ ExWidget *ex_sidebar_create(ExUi *ui, ExWorkspace *ws, ExSide side, ExWidget *co
 /* The strip to put between the sidebar and the text (right of the left sidebar, left of the right one): dragging it resizes the
  * sidebar, as wide as the window allows (the text keeps 240 px; the other sidebar and the ribbon keep theirs). */
 ExWidget *ex_sidebar_divider_create(ExWidget *sidebar);
+/* The thin handle shown at the window's edge while the sidebar is hidden (right sidebar: add it as the last child of the row; left
+ * sidebar: before the sidebar). Dragging a sidebar's divider in until it is under 60 px hides it, keeping its width; dragging this
+ * handle out shows it again. */
+ExWidget *ex_sidebar_edge_create(ExWidget *sidebar);
 void ex_sidebar_sync(ExWidget *sidebar);
 /* Widens the sidebar as far as the window allows, so the note view between the sidebars is reduced to its handle. Returns the width
  * it had (pixels at 100%), to give back with ex_ws_set_sidebar. */

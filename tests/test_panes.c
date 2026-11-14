@@ -63,7 +63,7 @@ static int count_named(const ExWidget *w, const char *name) {
     return n;
 }
 
-static ExWidget *g_left, *g_right;
+static ExWidget *g_left, *g_right, *g_redge, *g_ledge;
 static void frame(ExUi *ui, ExPanes *p, ExWidget *root) {
     ex_sidebar_sync(g_left);
     ex_sidebar_sync(g_right);
@@ -116,9 +116,13 @@ int main(void) {
     root = ex_panes_root(panes);
     g_left = ex_sidebar_create(ui, ws, EX_SIDE_LEFT, ex_widget_label(ui, "files"), "Left sidebar");
     g_right = ex_sidebar_create(ui, ws, EX_SIDE_RIGHT, ex_widget_label(ui, "panels"), "Right sidebar");
+    g_ledge = ex_sidebar_edge_create(g_left);
+    g_redge = ex_sidebar_edge_create(g_right);
+    ex_widget_add(win, g_ledge);
     ex_widget_add(win, g_left);
     ex_widget_add(win, root);
     ex_widget_add(win, g_right);
+    ex_widget_add(win, g_redge);
 
     g0 = ex_ws_active_group(ws);
     a = ex_ws_new_tab(ws, 0, "a.md", "note");
@@ -231,12 +235,27 @@ int main(void) {
     drag(ui, win, g_left->x + g_left->w - 1, 300, 350, 300);
     frame(ui, panes, win);
     CHECK(ex_ws_sidebar_width(ws, EX_SIDE_LEFT) >= 348 && ex_ws_sidebar_width(ws, EX_SIDE_LEFT) <= 352 && fabsf(g_left->w - (float)ex_ws_sidebar_width(ws, EX_SIDE_LEFT)) < 2);
-    drag(ui, win, g_right->x + 1, 300, g_right->x + 600, 300);          /* wider on the right means narrower: dragging right shrinks it */
+    drag(ui, win, g_right->x + 1, 300, g_right->x + 200, 300);         /* wider on the right means narrower: dragging right shrinks it */
     frame(ui, panes, win);
-    CHECK(ex_ws_sidebar_width(ws, EX_SIDE_RIGHT) == 120);
+    CHECK(ex_ws_sidebar_visible(ws, EX_SIDE_RIGHT) && ex_ws_sidebar_width(ws, EX_SIDE_RIGHT) == 120);    /* never narrower than 120 while it is shown */
+    drag(ui, win, g_right->x + 1, 300, g_right->x + 600, 300);          /* dragged right out of the window: the sidebar hides and keeps its width */
+    frame(ui, panes, win);
+    CHECK(!ex_ws_sidebar_visible(ws, EX_SIDE_RIGHT) && g_right->hidden && !g_redge->hidden && ex_ws_sidebar_width(ws, EX_SIDE_RIGHT) == 120);   /* its width is kept */
+    CHECK(fabsf(root->w - (1000 - 350 - g_redge->w)) < 3);               /* the note view takes the space, minus the handle at the edge */
+    drag(ui, win, g_redge->x + 2, 300, 700, 300);                         /* the handle pulled left to x = 700 of 1000: the sidebar is back, 300 px wide */
+    frame(ui, panes, win);
+    CHECK(ex_ws_sidebar_visible(ws, EX_SIDE_RIGHT) && !g_right->hidden && g_redge->hidden && ex_ws_sidebar_width(ws, EX_SIDE_RIGHT) >= 296 && ex_ws_sidebar_width(ws, EX_SIDE_RIGHT) <= 304);
+    {   /* the note view shrinks with the window and the sidebars, down to nothing; its content follows it (it used to stop at its tab strip's width) */
+        ExWidget *content;
+        ex_ws_set_sidebar(ws, EX_SIDE_LEFT, 1, 470);
+        ex_ws_set_sidebar(ws, EX_SIDE_RIGHT, 1, 470);
+        frame(ui, panes, win);
+        content = ex_panes_content(panes, ex_ws_group_active(ws, g0));
+        CHECK(root->w < 70 && content && fabsf(content->w - root->w) < 2);
+    }
     ex_ws_set_sidebar(ws, EX_SIDE_LEFT, 0, ex_ws_sidebar_width(ws, EX_SIDE_LEFT));
     frame(ui, panes, win);
-    CHECK(g_left->hidden && root->x < 2);
+    CHECK(g_left->hidden && !g_ledge->hidden && fabsf(root->x - g_ledge->w) < 2);   /* a hidden sidebar leaves its handle at the edge */
 
     ex_panes_free(panes);
     ex_widget_free(win);

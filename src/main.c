@@ -1720,12 +1720,12 @@ int main(int argc, char **argv) {
         }
     }
     app.left_sb = ex_sidebar_create(app.ui, app.ws, EX_SIDE_LEFT, left_content, "Left sidebar");
+    ex_widget_add(row, ex_sidebar_edge_create(app.left_sb));       /* the handle of a hidden left sidebar */
     ex_widget_add(row, app.left_sb);
     ex_widget_add(row, ex_sidebar_divider_create(app.left_sb));
 
     col = ex_widget_box(app.ui, 1, "Note");
     col->width = ex_size_grow(); col->height = ex_size_grow();
-    col->clip = 1;                                                   /* a note view squeezed to a handle shows nothing outside it */
     app.banner = ex_widget_box(app.ui, 0, "Notice");
     app.banner->width = ex_size_grow();
     app.banner->bg_token = EX_COLOR_SURFACE;
@@ -1766,6 +1766,7 @@ int main(int argc, char **argv) {
         app.right_sb = ex_sidebar_create(app.ui, app.ws, EX_SIDE_RIGHT, right_content, "Right sidebar");
         ex_widget_add(row, ex_sidebar_divider_create(app.right_sb));
         ex_widget_add(row, app.right_sb);
+        ex_widget_add(row, ex_sidebar_edge_create(app.right_sb));  /* the handle of a hidden right sidebar, at the window's edge */
     }
     status = ex_widget_label(app.ui, app.vault ? "Typing, selecting, several cursors (Ctrl+Alt+Up or Down, Alt+click), undo and redo work. Ctrl+Plus and Ctrl+Minus zoom."
                                                 : "No vault is open. Start with:  exhaust FOLDER");

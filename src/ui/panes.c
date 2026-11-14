@@ -296,11 +296,11 @@ static ExWidget *build_group(ExPanes *p, ExId g) {
     ExId active = ex_ws_group_active(p->ws, g);
     if (!box || !strip || !content) return box;
     box->tag = g; box->width = ex_size_grow(); box->height = ex_size_grow();
-    box->bg_token = EX_COLOR_BACKGROUND; box->border_token = EX_COLOR_BORDER; box->clip = 1;
+    box->bg_token = EX_COLOR_BACKGROUND; box->border_token = EX_COLOR_BORDER;   /* not clipped itself: Clay lets the children of a clipped box grow to the size of their contents, so the pane could not shrink (GitHub issue 2); the tab strip and the content are clipped instead */
     box->on_mouse = group_mouse; box->on_mouse_user = p;
     box->on_drop = group_drop; box->on_drop_user = p;
     strip->tag = g; strip->width = ex_size_grow(); strip->height = ex_size_token(EX_SIZE_TAB_HEIGHT, 1.0f);
-    strip->bg_token = EX_COLOR_BACKGROUND_ALT; strip->pad_x = 0.5f; strip->gap = 0.25f;
+    strip->bg_token = EX_COLOR_BACKGROUND_ALT; strip->pad_x = 0.5f; strip->gap = 0.25f; strip->clip = 1;
     content->tag = g; content->width = ex_size_grow(); content->height = ex_size_grow(); content->clip = 1;
     for (i = 0; i < n; i++) {
         const ExTab *t = ex_ws_tab(p->ws, ex_ws_group_tab(p->ws, g, i));
@@ -478,7 +478,7 @@ void ex_panes_free(ExPanes *p) {
 
 /* ---- sidebars ---- */
 
-typedef struct SidebarState { ExUi *ui; ExWorkspace *ws; ExSide side; int dragging; ExWidget *sidebar, *divider, *line; } SidebarState;
+typedef struct SidebarState { ExUi *ui; ExWorkspace *ws; ExSide side; int dragging, keep_width; float origin; ExWidget *sidebar, *divider, *line, *edge; } SidebarState;
 
 /* The widest the sidebar can be, in pixels at 100%: the window minus the ribbon and the other sidebar. When the other sidebar is
  * shown, the note view between them may shrink all the way to its two divider strips (its text wraps down to one character a
@@ -513,23 +513,53 @@ void ex_sidebar_sync(ExWidget *sb) {
     sb->hidden = !visible;
     sb->width = ex_size_px(st->ui, w > lim ? lim : w);                 /* a window that shrinks does not push the text out; the width comes back when it grows */
     if (st->divider) st->divider->hidden = !visible;
+    if (st->edge) st->edge->hidden = visible;                       /* a hidden sidebar leaves a handle at the window's edge to pull it back */
     if (st->line) st->line->bg_token = st->dragging ? EX_COLOR_ACCENT : EX_COLOR_BORDER;
 }
 
-/* The strip between a sidebar and the text: press and drag to resize the sidebar. */
+/* Where a drag has reached, as the sidebar's width in pixels at 100%. It is measured from the sidebar's outer edge (the window's edge
+ * on the right, the left end of the sidebar on the left), which is noted when the press happens: the layout is up to date then, but
+ * several drag events can arrive before the next frame, when the sidebar's own position is not. */
+static float drag_width(const SidebarState *st, float x) {
+    float scale = ex_renderer_scale(ex_ui_renderer(st->ui));
+    if (scale <= 0) scale = 1.0f;
+    return (st->side == EX_SIDE_RIGHT ? st->origin - x : x - st->origin) / scale;
+}
+
+/* The outer edge of the sidebar, or of its handle when it is hidden. */
+static void note_origin(SidebarState *st) {
+    int visible = ex_ws_sidebar_visible(st->ws, st->side);
+    ExWidget *w = visible ? st->sidebar : st->edge;
+    st->keep_width = ex_ws_sidebar_width(st->ws, st->side);
+    if (!w) { st->origin = 0; return; }
+    st->origin = st->side == EX_SIDE_RIGHT ? w->x + w->w : w->x;
+}
+
+/* A drag of a sidebar's edge: wider or narrower as far as the window allows; pulled in nearly all the way it hides (its width is
+ * kept for when it comes back), and pulled out again from the window's edge it shows. */
+static void drag_to(SidebarState *st, float px) {
+    float lim = sidebar_limit(st);
+    if (px < 60.0f) {
+        if (ex_ws_sidebar_visible(st->ws, st->side)) ex_ws_set_sidebar(st->ws, st->side, 0, st->keep_width);
+        return;
+    }
+    if (px > lim) px = lim;
+    ex_ws_set_sidebar(st->ws, st->side, 1, (int)px);
+    st->sidebar->width = ex_size_px(st->ui, (float)ex_ws_sidebar_width(st->ws, st->side));
+}
+
+/* The strip between a sidebar and the text, and the handle at the window's edge of a hidden sidebar: press and drag. */
 static int divider_mouse(ExWidget *w, ExMouse kind, float x, float y, ExWidget *under, void *user) {
     SidebarState *st = user;
-    float scale = ex_renderer_scale(ex_ui_renderer(st->ui));
     (void)y; (void)under; (void)w;
-    if (kind == EX_MOUSE_DOWN) { st->dragging = 1; return 1; }
+    if (kind == EX_MOUSE_DOWN) {
+        st->dragging = 1;
+        note_origin(st);
+        return 1;
+    }
     if (!st->dragging) return 1;
-    if (kind == EX_MOUSE_DRAG) {
-        float edge = st->side == EX_SIDE_LEFT ? x - st->sidebar->x : st->sidebar->x + st->sidebar->w - x, lim = sidebar_limit(st);
-        int px = (int)(edge / (scale > 0 ? scale : 1.0f));
-        if ((float)px > lim) px = (int)lim;
-        ex_ws_set_sidebar(st->ws, st->side, 1, px);
-        st->sidebar->width = ex_size_px(st->ui, (float)ex_ws_sidebar_width(st->ws, st->side));
-    } else st->dragging = 0;
+    if (kind == EX_MOUSE_DRAG) drag_to(st, drag_width(st, x));
+    else st->dragging = 0;
     return 1;
 }
 
@@ -537,20 +567,16 @@ static int divider_mouse(ExWidget *w, ExMouse kind, float x, float y, ExWidget *
 static int sidebar_mouse(ExWidget *w, ExMouse kind, float x, float y, ExWidget *under, void *user) {
     SidebarState *st = user;
     ExRenderer *r = ex_ui_renderer(st->ui);
-    float reach = (float)ex_px(r, 4), scale = ex_renderer_scale(r);
+    float reach = (float)ex_px(r, 4);
     (void)y; (void)under;
     if (kind == EX_MOUSE_DOWN) {
         float edge = st->side == EX_SIDE_LEFT ? w->x + w->w : w->x;
-        if (fabsf(x - edge) <= reach) { st->dragging = 1; return 1; }
+        if (fabsf(x - edge) <= reach) { st->dragging = 1; note_origin(st); return 1; }
         return 0;
     }
     if (!st->dragging) return 1;
-    if (kind == EX_MOUSE_DRAG) {
-        float px = (st->side == EX_SIDE_LEFT ? x - w->x : w->x + w->w - x) / (scale > 0 ? scale : 1.0f), lim = sidebar_limit(st);
-        if (px > lim) px = lim;
-        ex_ws_set_sidebar(st->ws, st->side, 1, (int)px);
-        w->width = ex_size_px(st->ui, (float)ex_ws_sidebar_width(st->ws, st->side));
-    } else st->dragging = 0;
+    if (kind == EX_MOUSE_DRAG) drag_to(st, drag_width(st, x));
+    else st->dragging = 0;
     return 1;
 }
 
@@ -568,6 +594,22 @@ ExWidget *ex_sidebar_divider_create(ExWidget *sidebar) {
     ex_widget_add(d, line);
     st->divider = d; st->line = line;
     return d;
+}
+
+/* The handle of a hidden sidebar, at the window's edge (put it last in the row for the right sidebar, before the left sidebar for the left one). */
+ExWidget *ex_sidebar_edge_create(ExWidget *sidebar) {
+    SidebarState *st = sidebar ? sidebar->owned : NULL;
+    ExWidget *e;
+    if (!st) return NULL;
+    e = ex_widget_box(st->ui, 1, st->side == EX_SIDE_RIGHT ? "Show right sidebar" : "Show left sidebar");
+    if (!e) return NULL;
+    e->width = ex_size_px(st->ui, 8); e->height = ex_size_grow();
+    e->bg_token = EX_COLOR_BORDER;
+    e->cursor = 1;
+    e->on_mouse = divider_mouse; e->on_mouse_user = st;
+    e->hidden = ex_ws_sidebar_visible(st->ws, st->side);
+    st->edge = e;
+    return e;
 }
 
 static void free_sidebar_state(void *p) { free(p); }
