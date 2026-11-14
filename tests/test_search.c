@@ -13,6 +13,18 @@
 static int failures;
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "%s:%d: check failed: %s\n", __FILE__, __LINE__, #c); failures++; } } while (0)
 
+/* Under the sanitizers everything runs several times slower, so the time limit is only meaningful in the normal builds. */
+#if defined(__SANITIZE_ADDRESS__)
+#define SANITIZED 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define SANITIZED 1
+#endif
+#endif
+#ifndef SANITIZED
+#define SANITIZED 0
+#endif
+
 static char g_vault[96], g_db[96], g_index[128];
 static ExIndex *g_ix;
 static char *g_root;
@@ -207,7 +219,7 @@ static void perf(const char *tool) {
                 if (t1 - t0 < best) best = t1 - t0;
             }
             printf("[%s]: %zu results, %zu files read, %.1f ms (best of 3)\n", queries[i], n, reads, best * 1000.0);
-#if defined(__SANITIZE_ADDRESS__)
+#if SANITIZED
             CHECK(best < 3.0);                                       /* the sanitizers run several times slower */
 #else
             CHECK(best * 1000.0 < 100.0);

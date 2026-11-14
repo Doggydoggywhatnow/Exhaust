@@ -23,16 +23,32 @@
 #include <unistd.h>
 #endif
 
+#ifdef _WIN32
+static wchar_t *to_wide(const char *utf8);
+#endif
+
 /* Reads a whole file: one allocation, and on POSIX systems just open, fstat, read and close (searching reads thousands of notes). */
 char *ex_platform_read_file(const char *path, size_t *len) {
 #ifdef _WIN32
-    size_t n = 0;
-    void *data = SDL_LoadFile(path, &n);
-    char *out;
-    if (!data) return NULL;
-    out = malloc(n + 1);
-    if (out) { memcpy(out, data, n); out[n] = 0; if (len) *len = n; }
-    SDL_free(data);
+    wchar_t *wp = to_wide(path);
+    HANDLE h;
+    LARGE_INTEGER size;
+    char *out = NULL;
+    size_t got = 0;
+    if (!wp) return NULL;
+    h = CreateFileW(wp, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+    free(wp);
+    if (h == INVALID_HANDLE_VALUE) return NULL;
+    if (GetFileSizeEx(h, &size) && size.QuadPart >= 0 && size.QuadPart < 0x7FFFFFFF) {
+        out = malloc((size_t)size.QuadPart + 1);
+        while (out && got < (size_t)size.QuadPart) {
+            DWORD r = 0;
+            if (!ReadFile(h, out + got, (DWORD)((size_t)size.QuadPart - got), &r, NULL) || r == 0) break;
+            got += r;
+        }
+        if (out) { out[got] = 0; if (len) *len = got; }
+    }
+    CloseHandle(h);
     return out;
 #else
     struct stat st;
