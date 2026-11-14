@@ -54,6 +54,7 @@ struct ExWidget {
     int font_token;               /* ExFontToken */
     float text_scale;             /* times the base text size (1.0) */
     int bold;
+    int cursor;                   /* the pointer shape over this widget: 0 arrow, 1 resize left and right */
     int disabled;                 /* a button that does nothing yet: drawn faint, no focus, no click (its name says so)
  */
     int menu_item;                /* a button of a popup menu: icon and text at the left, a chevron at the right when submenu is set */
@@ -231,6 +232,8 @@ void ex_ui_draw(ExUi *ui, ExWidget *root, int blink_on);
 
 /* Input, in window pixel coordinates. */
 ExWidget *ex_ui_widget_at(ExWidget *root, float x, float y); /* the deepest widget under the point */
+/* The cursor shape (0 arrow, 1 resize sideways) for the pointer at a position: the widget being dragged decides while a press is held. */
+int ex_ui_cursor_at(ExUi *ui, ExWidget *root, float x, float y);
 void ex_ui_mouse(ExUi *ui, ExWidget *root, ExMouse kind, float x, float y, int mods, int clicks);
 /* Keyboard. Tab and Shift+Tab move the focus through every focusable widget in
  * tree order (the order of the accessibility tree), wrapping around; Enter and

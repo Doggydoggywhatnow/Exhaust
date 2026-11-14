@@ -664,7 +664,7 @@ int ex_ws_sidebar_visible(const ExWorkspace *ws, ExSide s) { return ws->side[s].
 int ex_ws_sidebar_width(const ExWorkspace *ws, ExSide s) { return ws->side[s].width; }
 void ex_ws_set_sidebar(ExWorkspace *ws, ExSide s, int visible, int width) {
     if (width < 120) width = 120;
-    if (width > 1200) width = 1200;
+    if (width > 4000) width = 4000;       /* the window decides how wide it can really be (ex_sidebar_divider_create) */
     ws->side[s].visible = visible != 0;
     ws->side[s].width = width;
     touch(ws);

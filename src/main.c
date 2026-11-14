@@ -107,6 +107,16 @@ typedef struct App {
 static char *dup_text(const char *s) { size_t n = strlen(s); char *p = malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
 static void sync_ui(App *a);
 
+static void set_cursor_shape(int shape) {
+    static SDL_Cursor *arrow, *resize;
+    static int current = -1;
+    if (shape == current) return;
+    if (!arrow) arrow = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT);
+    if (!resize) resize = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_EW_RESIZE);
+    if (shape == 1 && resize) SDL_SetCursor(resize); else if (arrow) SDL_SetCursor(arrow);
+    current = shape;
+}
+
 static unsigned long g_drawn_revision;
 static void host_open_note(void *u, const char *path, size_t offset, int new_tab);
 
@@ -1684,6 +1694,7 @@ int main(int argc, char **argv) {
     }
     app.left_sb = ex_sidebar_create(app.ui, app.ws, EX_SIDE_LEFT, left_content, "Left sidebar");
     ex_widget_add(row, app.left_sb);
+    ex_widget_add(row, ex_sidebar_divider_create(app.left_sb));
 
     col = ex_widget_box(app.ui, 1, "Note");
     col->width = ex_size_grow(); col->height = ex_size_grow();
@@ -1725,6 +1736,7 @@ int main(int argc, char **argv) {
         ExWidget *right_content = app.panels ? ex_panels_right(app.panels) : info_label(&app, "Open a vault to see backlinks, the outline and tags.");
         if (right_content) { right_content->bg_token = EX_COLOR_BACKGROUND_ALT; right_content->width = ex_size_grow(); right_content->height = ex_size_grow(); }
         app.right_sb = ex_sidebar_create(app.ui, app.ws, EX_SIDE_RIGHT, right_content, "Right sidebar");
+        ex_widget_add(row, ex_sidebar_divider_create(app.right_sb));
         ex_widget_add(row, app.right_sb);
     }
     status = ex_widget_label(app.ui, app.vault ? "Typing, selecting, several cursors (Ctrl+Alt+Up or Down, Alt+click), undo and redo work. Ctrl+Plus and Ctrl+Minus zoom."
@@ -1842,6 +1854,7 @@ int main(int argc, char **argv) {
                 } else if (app.panels) {
                     ex_panels_pointer(app.panels, app.root, x, y, (ex_mods_from_sdl() & EX_MOD_PRIMARY) != 0);
                 }
+                set_cursor_shape(ex_ui_cursor_at(app.ui, app.root, x, y));       /* the resize pointer over a sidebar's edge */
                 break;
             }
             case SDL_EVENT_MOUSE_WHEEL: {

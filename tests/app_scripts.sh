@@ -142,4 +142,45 @@ wait 1000
 quit' ""
 check "New folder with nothing selected makes a top-level folder" "$work/top_level/Untitled folder" "$work/top_level/Box/Untitled folder"
 
+# the sidebars are resized by dragging the strip at their edge, as far as the window allows
+run sidebars 'wait 800
+move 307 300
+down 307 300
+move 400 300
+move 500 300
+up 500 300
+wait 300
+shot SHOT1
+move 797 300
+down 797 300
+move 600 300
+move 20 300
+up 20 300
+wait 400
+shot SHOT2
+quit' ""
+sed -i "s|SHOT1|$work/sb1.ppm|; s|SHOT2|$work/sb2.ppm|" "$work/sidebars.script"
+run sidebars "$(cat "$work/sidebars.script")" ""
+widths=$(python3 - "$work/sb1.ppm" "$work/sb2.ppm" <<'PY'
+import sys
+def edge_x(path, y=300):
+    d=open(path,'rb').read(); parts=d.split(b'\n',3); w,h=map(int,parts[1].split()); px=parts[3]
+    row=px[y*w*3:(y+1)*w*3]
+    return w,row
+w,row=edge_x(sys.argv[1])
+# the first frame: the dark sidebar background to the right of the ribbon line ends where the note column starts; count columns equal to the sidebar color
+side=row[(100)*3:(100)*3+3]
+n=100
+while n<w and row[n*3:n*3+3]==side: n+=1
+w2,row2=edge_x(sys.argv[2])
+col=row2[(w2-100)*3:(w2-100)*3+3]
+m=w2-100
+while m>0 and row2[(m-1)*3:(m-1)*3+3]==col: m-=1
+print(n, w2-m)
+PY
+)
+set -- $widths
+if [ -n "$1" ] && [ "$1" -gt 400 ] 2>/dev/null; then echo "ok: the left sidebar was dragged wider ($1 px)"; else echo "FAILED: the left sidebar was not resized ($widths)"; fail=1; fi
+if [ -n "$2" ] && [ "$2" -gt 300 ] 2>/dev/null; then echo "ok: the right sidebar was dragged wider ($2 px)"; else echo "FAILED: the right sidebar was not resized ($widths)"; fail=1; fi
+
 exit $fail

@@ -732,6 +732,12 @@ int ex_ui_drop(ExUi *ui, ExWidget *root, int is_file, const char *data, float x,
     return 0;
 }
 
+int ex_ui_cursor_at(ExUi *ui, ExWidget *root, float x, float y) {
+    ExWidget *w = ui->captured ? ui->captured : ex_ui_widget_at(root, x, y);
+    for (; w; w = w->parent) if (w->cursor) return w->cursor;
+    return 0;
+}
+
 void ex_ui_mouse(ExUi *ui, ExWidget *root, ExMouse kind, float x, float y, int mods, int clicks) {
     ExWidget *hit, *target, *hook;
     if (ui->tree_drag && kind != EX_MOUSE_DOWN) { tree_drag_event(ui, ui->tree_drag, kind, x, y); return; }
