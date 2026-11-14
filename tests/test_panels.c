@@ -629,6 +629,8 @@ int main(void) {
             ex_doc_set_caret(d, 10);
             ex_editor_text_input(ed->editor, "(", 1);
             CHECK(ex_editor_link_suggest_open(ed->editor));
+            ex_editor_set_link_suggest(ed->editor, ex_panels_suggest_links, F.p);   /* the application sets it again every frame: the list must stay open */
+            CHECK(ex_editor_link_suggest_open(ed->editor));
             ex_editor_text_input(ed->editor, "alph", 4);
             CHECK(ex_editor_link_suggest_open(ed->editor));
             ex_editor_key(ed->editor, ex_ui_renderer(g_ui), EX_KEY_ENTER, 0);

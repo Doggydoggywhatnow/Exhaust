@@ -103,17 +103,27 @@ static void sync_ui(App *a);
 
 static void relayout_and_draw(App *a) {
     int w, h;
+    static int log_frames = -1;
+    Uint64 t0 = SDL_GetPerformanceCounter(), t1, t2, t3;
+    if (log_frames < 0) log_frames = getenv("EXHAUST_FRAME_LOG") != NULL;   /* a developer's aid: the time of each frame, on stderr */
     sync_ui(a);
     ex_renderer_size(a->r, &w, &h);
+    t1 = SDL_GetPerformanceCounter();
     ex_ui_layout(a->ui, a->root, (float)w, (float)h);
+    t2 = SDL_GetPerformanceCounter();
     ex_renderer_clear(a->r, ex_theme_color(&a->theme, EX_COLOR_BACKGROUND));
     ex_ui_draw(a->ui, a->root, a->blink_on);
+    t3 = SDL_GetPerformanceCounter();
     if (a->panels && ex_panels_overlay(a->panels)) {                  /* a dialog or the page preview, over the window */
         ExWidget *ov = ex_panels_overlay(a->panels);
         ex_ui_layout(a->ui, ov, (float)w, (float)h);
         ex_ui_draw(a->ui, ov, a->blink_on);
     }
     ex_renderer_present(a->r);
+    if (log_frames) {
+        double f = 1000.0 / (double)SDL_GetPerformanceFrequency();
+        fprintf(stderr, "frame: sync %.1f ms, layout %.1f ms, draw %.1f ms, present %.1f ms\n", (double)(t1 - t0) * f, (double)(t2 - t1) * f, (double)(t3 - t2) * f, (double)(SDL_GetPerformanceCounter() - t3) * f);
+    }
 }
 
 static void set_label(ExWidget *w, const char *text) {
@@ -821,6 +831,10 @@ static void handle_note_events(App *a) {
     while (ex_notes_poll_event(a->notes, &ev)) {
         switch (ev.kind) {
         case EX_NOTE_EVENT_SAVED:
+            if (a->vault && !ex_vault_find(a->vault, ev.rel)) {                      /* the first write of a new note: the explorer shows it now */
+                ex_vault_rescan(a->vault);
+                if (a->tree) ex_tree_select_path(a->tree, ev.rel);
+            }
             if (a->panels) ex_panels_file_changed(a->panels, ev.rel);
             if (ev.note == a->note && a->banner_kind == BANNER_ERROR) show_banner(a, BANNER_NONE, "", NULL, NULL, NULL);
             break;
@@ -1449,6 +1463,11 @@ int main(int argc, char **argv) {
         int timed_out = !SDL_WaitEventTimeout(&e, 100); /* wakes ten times a second for autosave and the watcher */
         static int idle_ticks;
         if (g_signal) running = 0;
+        int woke = timed_out;
+        /* Every event that is waiting is handled before the next frame: a frame waits for the screen (vsync), so one frame
+         * for each of the hundreds of mouse-motion and resize events a second made the interface fall seconds behind. */
+        for (;;) {
+        if (e.type == g_wake_event && !timed_out) woke = 1;
         if (timed_out) {
             if (++idle_ticks % 5 == 0) app.blink_on = !app.blink_on;   /* the caret blinks about every half second */
         } else if (e.type == g_wake_event) {
@@ -1534,8 +1553,10 @@ int main(int argc, char **argv) {
             default: break;
             }
         }
+        if (timed_out || !running || !SDL_PollEvent(&e)) break;
+        }
         if (app.notes) { ex_notes_tick(app.notes); handle_note_events(&app); }
-        if (timed_out || e.type == g_wake_event) {
+        if (woke) {
             capture_tab_state(&app);
             if (app.session) ex_session_tick(app.session, app.ws, (int64_t)SDL_GetTicks());
         }

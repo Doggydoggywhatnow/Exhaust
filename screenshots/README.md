@@ -55,3 +55,10 @@ An example of a simple link on the graph view and the text view, without the lin
 ![Resolved link](resolved-link.png)
 
 The same note compared with the unresolved link above: here the link is to an existing file. The note "create a link" now exists and appears in the file tree beside "Welcome". In the text, the link shows as underlined, brightly colored link text without visible brackets, instead of the dimmed `[[create a link]]`. In the graph, its node is brighter than the faint unresolved node, still joined to "Welcome". Compare this with the unresolved link to see how Exhaust should tell the two apart.
+
+## A new note
+
+![A new note](new-note.png)
+
+What a new note looks like in Obsidian when only the header has been written to. The title at the top is the note's name, shown larger than the text and also in the tab bar; typing it names the file (here "This is a New Note in Obsidian."), and the text area underneath is empty. Exhaust does the same: the inline title is the file name, and changing it renames the note and updates the links to it.
+

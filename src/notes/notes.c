@@ -605,7 +605,7 @@ void ex_notes_tick(ExNotes *m) {
     for (n = m->notes; n; n = n->next) {
         if (n->check_disk && !n->saving) check_external(n);
         if (n->dirty && !n->conflict && !n->saving && t >= n->next_retry_ms &&
-            (t - n->last_edit_ms >= (uint64_t)m->cfg.autosave_idle_ms || t - n->first_unsaved_ms >= (uint64_t)m->cfg.autosave_max_ms))
+            (n->pending_new || t - n->last_edit_ms >= (uint64_t)m->cfg.autosave_idle_ms || t - n->first_unsaved_ms >= (uint64_t)m->cfg.autosave_max_ms))   /* a new note is written at the first edit, so it shows in the explorer at once */
             start_save(n);
     }
     ex_jw_tick(m->jw, t);

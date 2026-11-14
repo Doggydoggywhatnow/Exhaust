@@ -803,7 +803,10 @@ static void backspace_or_delete(ExEditor *e, ExRenderer *r, int forward, int wor
 
 /* ---- link suggestions ---- */
 
-void ex_editor_set_link_suggest(ExEditor *e, ExLinkSuggestFn fn, void *user) { e->link_fn = fn; e->link_user = user; e->link_open = 0; }
+void ex_editor_set_link_suggest(ExEditor *e, ExLinkSuggestFn fn, void *user) {
+    if (e->link_fn == fn && e->link_user == user) return;       /* called every frame: it must not close an open list */
+    e->link_fn = fn; e->link_user = user; e->link_open = 0;
+}
 int ex_editor_link_suggest_open(const ExEditor *e) { return e->link_fn && e->link_open; }
 
 static void link_refresh(ExEditor *e) {

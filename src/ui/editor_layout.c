@@ -14,7 +14,7 @@ typedef struct B {
     int8_t bar;                  /* the color token of a bar */
 } B;
 
-static const float k_scale[] = {1.0f, 1.3f, 1.25f, 1.2f, 1.1f, 1.05f, 1.0f, 0.75f};   /* 0 normal, 1..6 headings, 7 small */
+static const float k_scale[] = {1.0f, 2.0f, 1.6f, 1.37f, 1.25f, 1.12f, 1.0f, 0.75f};   /* 0 normal, 1..6 headings (the sizes of Obsidian: 2, 1.6, 1.37, 1.25, 1.12, 1), 7 small */
 #define SCALE_SMALL 7
 
 typedef struct Ctx {
