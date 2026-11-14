@@ -83,6 +83,50 @@ void dialog_prompt(ExPanels *p, const char *title, const char *label, const char
     ex_ui_set_focus(p->ui, p->dialog_field);
 }
 
+/* ---- an inline field over a row ---- */
+
+static int inline_text(ExWidget *w, const char *utf8, size_t len, void *u) {      /* the characters a name cannot have are not typed */
+    ExPanels *p = u;
+    char clean[512];
+    size_t i, o = 0;
+    int dropped = 0;
+    (void)p;
+    for (i = 0; i < len && o + 1 < sizeof clean; i++) {
+        unsigned char c = (unsigned char)utf8[i];
+        if (c < 0x20 || c == 0x7f || (c < 0x80 && strchr("\\/:#^[]|", c))) { dropped = 1; continue; }
+        clean[o++] = (char)c;
+    }
+    if (!dropped) return 0;
+    if (o) ex_editor_text_input(w->editor, clean, o);
+    return 1;
+}
+
+void dialog_inline(ExPanels *p, float x, float y, float w, float h, const char *initial, void (*cb)(ExPanels *, const char *, void *), void *arg) {
+    ExWidget *root;
+    ExRenderer *r = ex_ui_renderer(p->ui);
+    float unit = (float)ex_theme_size(ex_ui_theme(p->ui), EX_SIZE_SPACING) * ex_renderer_scale(r);
+    dialog_close(p);
+    preview_hide(p);
+    root = ex_widget_box(p->ui, 1, "Rename");
+    root->width = ex_size_grow(); root->height = ex_size_grow();
+    root->pad_x = x / unit; root->pad_y = y / unit;
+    p->dialog_doc = ex_doc_create("", 0);
+    set_doc_text(p->dialog_doc, initial);
+    p->dialog_field = make_field(p, p->dialog_doc, "New name", prompt_key, p);
+    p->dialog_field->width = ex_size_px(p->ui, w / ex_renderer_scale(r));
+    p->dialog_field->height = ex_size_px(p->ui, h / ex_renderer_scale(r));
+    p->dialog_field->border_token = EX_COLOR_ACCENT;
+    p->dialog_field->bg_token = EX_COLOR_SURFACE;
+    p->dialog_field->on_text = inline_text; p->dialog_field->on_text_user = p;
+    ex_widget_add(root, p->dialog_field);
+    p->overlay = root;
+    snprintf(p->dialog_title, sizeof p->dialog_title, "Rename");
+    p->dkind = D_INLINE; p->on_prompt = cb; p->dialog_arg = arg;
+    ex_ui_set_focus(p->ui, p->dialog_field);
+}
+
+void dialog_commit(ExPanels *p) { if (p->dkind == D_INLINE) prompt_key(NULL, EX_KEY_ENTER, 0, p); }
+
 /* ---- choice ---- */
 
 static void choice_activate(ExWidget *w, size_t row, void *u) {

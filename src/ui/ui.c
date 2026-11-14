@@ -263,7 +263,7 @@ void ex_widget_insert_before(ExWidget *parent, ExWidget *child, ExWidget *before
 }
 
 const ExNode *ex_tree_selected(ExWidget *w) {
-    if (!w->vault) return NULL;
+    if (!w->vault || w->tree_unselected) return NULL;
     return ex_vault_row(w->vault, w->tree_selected, NULL);
 }
 
@@ -271,14 +271,26 @@ void ex_tree_select_path(ExWidget *w, const char *rel) {
     long row;
     if (!w->vault) return;
     row = ex_vault_reveal(w->vault, rel);
-    if (row >= 0) w->tree_selected = (size_t)row;
+    if (row >= 0) { w->tree_selected = (size_t)row; w->tree_unselected = 0; }
+}
+
+/* What a row shows: notes without ".md", as in the screenshots. */
+static void tree_label(const ExNode *n, char *out, size_t cap) {
+    size_t len = strlen(n->name);
+    if (n->kind == EX_KIND_MARKDOWN && len > 3 && !strcmp(n->name + len - 3, ".md")) len -= 3;
+    snprintf(out, cap, "%.*s%s", (int)len, n->name, n->link_loop ? "  (loop)" : "");
+}
+
+void ex_tree_set_rename_handler(ExWidget *w, int (*fn)(ExWidget *, const char *, float, float, float, float, void *), void *user) {
+    w->on_tree_rename = fn;
+    w->on_tree_rename_user = user;
 }
 
 static float tree_row_h(ExUi *ui, const ExWidget *w) {
     ExFontMetrics m;
     ExFont *f = ex_ui_font(ui, w->font_token, 0);
     if (ex_text_metrics(ui->r, f, ui->base_size, &m)) return 24.0f;
-    return (float)m.line_height * 1.3f;
+    return (float)m.line_height * 1.45f;
 }
 
 static void tree_ensure_visible(ExUi *ui, ExWidget *w) {
@@ -310,6 +322,7 @@ static void tree_key(ExUi *ui, ExWidget *w, ExKey key) {
     size_t rows;
     const ExNode *n;
     if (!w->vault) return;
+    if (w->tree_unselected && (key == EX_KEY_UP || key == EX_KEY_DOWN || key == EX_KEY_HOME || key == EX_KEY_END)) w->tree_unselected = 0;
     rows = ex_vault_row_count(w->vault);
     tree_clamp(w);
     n = ex_tree_selected(w);
@@ -412,12 +425,25 @@ static void tree_mouse(ExUi *ui, ExWidget *w, ExMouse kind, float x, float y, in
     const ExNode *n;
     if (kind != EX_MOUSE_DOWN || !w->vault) return;
     row = (long)((y - w->y + w->tree_scroll) / rh);
-    if (row < 0 || (size_t)row >= ex_vault_row_count(w->vault)) return;
+    if (row < 0 || (size_t)row >= ex_vault_row_count(w->vault)) { w->tree_unselected = 1; return; }   /* the empty space: nothing is selected, so new items go to the top level */
     w->tree_selected = (size_t)row;
+    w->tree_unselected = 0;
     n = ex_vault_row(w->vault, (size_t)row, &depth);
     if (n && n->is_dir) {
         float indent = (float)ex_px(ui->r, 16);
         float chevron_end = w->x + (float)ex_px(ui->r, 8) + (float)depth * indent + indent;
+        if (clicks >= 2 && w->on_tree_rename && x >= chevron_end) {                 /* a double click on the name of a folder edits it in place */
+            char label[320];
+            ExFont *f = ex_ui_font(ui, w->font_token, 0);
+            float tw;
+            tree_label(n, label, sizeof label);
+            tw = ex_text_measure(ui->r, f, ui->base_size, label, strlen(label));
+            if (x <= chevron_end + tw + (float)ex_px(ui->r, 6) &&
+                w->on_tree_rename(w, n->rel, chevron_end - (float)ex_px(ui->r, 4), w->y + (float)row * rh - w->tree_scroll, w->x + w->w - chevron_end + (float)ex_px(ui->r, 4) - (float)ex_px(ui->r, 6), rh, w->on_tree_rename_user)) {
+                tree_clamp(w);
+                return;
+            }
+        }
         if (x < chevron_end || clicks >= 2) ex_vault_toggle(w->vault, n->rel);     /* the chevron, or a double click */
     } else if (n && clicks >= 2) {
         tree_activate(w);
@@ -450,19 +476,18 @@ static void tree_draw(ExUi *ui, ExWidget *w) {
         if (!n) break;
         if (w->tree_dragging && (long)i == w->tree_drop_row)
             ex_stroke_round_rect(r, w->x + (float)ex_px(r, 2), y, w->w - (float)ex_px(r, 4), rh, (float)ex_px(r, ex_theme_size(t, EX_SIZE_RADIUS)), (float)ex_px(r, 1) + 1.0f, ex_theme_color(t, EX_COLOR_ACCENT));
-        if (i == w->tree_selected) {
+        if (i == w->tree_selected && !w->tree_unselected) {
             ExColor sel = ex_theme_color(t, ui->focus == w ? EX_COLOR_SELECTION : EX_COLOR_SURFACE_HOVER);
             ex_fill_round_rect(r, w->x + (float)ex_px(r, 2), y, w->w - (float)ex_px(r, 4), rh, (float)ex_px(r, ex_theme_size(t, EX_SIZE_RADIUS)), sel);
         }
-        if (n->is_dir) { /* a chevron: pointing right when closed, down when open */
-            ExColor c = muted;
-            float cx = x + indent / 2.0f;
-            if (n->expanded) ex_fill_triangle(r, cx - s, cy - s / 2, cx + s, cy - s / 2, cx, cy + s, c);
-            else ex_fill_triangle(r, cx - s / 2, cy - s, cx - s / 2, cy + s, cx + s, cy, c);
+        (void)s;
+        if (n->is_dir) {                                  /* a chevron: pointing right when closed, down when open */
+            float side = indent * 0.9f;
+            ex_icon_draw(r, n->expanded ? EX_ICON_CHEVRON_DOWN : EX_ICON_CHEVRON_RIGHT, x + indent / 2.0f - side / 2.0f, cy - side / 2.0f, side, side, ex_theme_color(t, EX_COLOR_TEXT_MUTED));
         }
         {
             char label[320];
-            snprintf(label, sizeof label, "%s%s", n->name, n->link_loop ? "  (loop)" : "");
+            tree_label(n, label, sizeof label);
             ex_text_draw(r, f, ui->base_size, x + indent, y + (rh - (float)m.line_height) / 2.0f, label, strlen(label),
                          n->excluded || n->link_loop ? muted : text);
         }
@@ -472,9 +497,12 @@ static void tree_draw(ExUi *ui, ExWidget *w) {
         if (w->tree_drop_row == -3)
             ex_stroke_round_rect(r, w->x + (float)ex_px(r, 1), w->y + (float)ex_px(r, 1), w->w - (float)ex_px(r, 2), w->h - (float)ex_px(r, 2), (float)ex_px(r, ex_theme_size(t, EX_SIZE_RADIUS)), (float)ex_px(r, 1) + 1.0f, ex_theme_color(t, EX_COLOR_ACCENT));
         if (dn) {
-            float tw = ex_text_measure(r, f, ui->base_size, dn->name, strlen(dn->name)), gx = w->tree_cur_x + (float)ex_px(r, 12), gy = w->tree_cur_y + (float)ex_px(r, 8), pd = (float)ex_px(r, 6);
+            char dl[320];
+            float tw, gx = w->tree_cur_x + (float)ex_px(r, 12), gy = w->tree_cur_y + (float)ex_px(r, 8), pd = (float)ex_px(r, 6);
+            tree_label(dn, dl, sizeof dl);
+            tw = ex_text_measure(r, f, ui->base_size, dl, strlen(dl));
             ex_fill_round_rect(r, gx, gy, tw + 2 * pd, (float)m.line_height + pd, (float)ex_px(r, ex_theme_size(t, EX_SIZE_RADIUS)), ex_theme_color(t, EX_COLOR_SURFACE_HOVER));
-            ex_text_draw(r, f, ui->base_size, gx + pd, gy + pd / 2, dn->name, strlen(dn->name), text);
+            ex_text_draw(r, f, ui->base_size, gx + pd, gy + pd / 2, dl, strlen(dl), text);
         }
     }
 }

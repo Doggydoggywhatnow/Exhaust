@@ -97,4 +97,49 @@ wait 1500
 quit' ""
 check "a note dragged out of a folder onto the empty space goes to the vault folder" "$work/drag_out/Inner.md" "$work/drag_out/Box/Inner.md"
 
+# double click on the name of a folder renames it in place; on the name of a note it does not
+run folder_rename 'wait 800
+move 90 87
+down 90 87
+up 90 87
+wait 100
+down 90 87
+up 90 87
+wait 300
+text Crate
+key enter
+wait 1500
+quit' ""
+check "double clicking a folder's name renames the folder" "$work/folder_rename/Crate/Inner.md" "$work/folder_rename/Box"
+run note_no_rename 'wait 800
+move 90 117
+down 90 117
+up 90 117
+wait 100
+down 90 117
+up 90 117
+wait 300
+text Zed
+key enter
+wait 1000
+quit' ""
+check "double clicking a note's name does not rename it" "$work/note_no_rename/Alpha.md" "$work/note_no_rename/Zed.md"
+
+# a click on the empty space below the rows selects nothing, so New folder makes a top-level folder
+run top_level 'wait 800
+move 90 87
+down 90 87
+up 90 87
+wait 200
+move 100 500
+down 100 500
+up 100 500
+wait 200
+move 93 53
+down 93 53
+up 93 53
+wait 1000
+quit' ""
+check "New folder with nothing selected makes a top-level folder" "$work/top_level/Untitled folder" "$work/top_level/Box/Untitled folder"
+
 exit $fail

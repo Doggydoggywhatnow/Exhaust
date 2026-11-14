@@ -166,10 +166,28 @@ static void on_drop(ExWidget *tree, const char *from, const char *to_folder, voi
     panels_move_done(p, to_folder, (void *)from);
 }
 
+/* Double click on a folder's name: its name is edited where it is; Enter makes the rename (the links are updated as for any rename). */
+static void folder_renamed(ExPanels *p, const char *text, void *arg) {
+    const char *path = arg, *slash = strrchr(path, '/'), *base = slash ? slash + 1 : path;
+    if (!strcmp(text, base)) return;
+    ex_panels_rename_to(p, path, text);
+}
+
+static int on_tree_rename(ExWidget *tree, const char *rel, float x, float y, float width, float height, void *user) {
+    ExPanels *p = user;
+    const char *slash = strrchr(rel, '/'), *base = slash ? slash + 1 : rel;
+    (void)tree;
+    if (!ex_settings_get_bool(p->in.settings, "files", "rename_folder_on_double_click") || ex_panels_modal(p)) return 0;
+    free(p->dialog_arg_text);
+    p->dialog_arg_text = dup_s(rel);
+    dialog_inline(p, x, y, width, height, base, folder_renamed, p->dialog_arg_text);
+    return 1;
+}
+
 void fileactions_init(ExPanels *p) {
     ExWidget *c;
     if (!p->in.files) return;
     ex_explorer_set_menu_handler(p->in.files, on_more, p);
     for (c = p->in.files->first_child; c; c = c->next)
-        if (c->type == EX_WIDGET_TREE) ex_tree_set_drop_handler(c, on_drop, p);
+        if (c->type == EX_WIDGET_TREE) { ex_tree_set_drop_handler(c, on_drop, p); ex_tree_set_rename_handler(c, on_tree_rename, p); }
 }

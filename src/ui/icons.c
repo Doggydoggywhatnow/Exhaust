@@ -161,6 +161,14 @@ void ex_icon_draw(ExRenderer *r, int icon, float x, float y, float w, float h, E
         ex_stroke_round_rect(r, x + s * 0.24f, y + s * 0.2f, s * 0.52f, s * 0.68f, th * 1.5f, th, c);
         ex_fill_round_rect(r, x + s * 0.38f, y + s * 0.12f, s * 0.24f, s * 0.16f, th, c);
         break;
+    case EX_ICON_CHEVRON_RIGHT:
+        line(r, x + s * 0.34f, y + s * 0.2f, x + s * 0.68f, y + s * 0.5f, th * 1.4f, c);
+        line(r, x + s * 0.68f, y + s * 0.5f, x + s * 0.34f, y + s * 0.8f, th * 1.4f, c);
+        break;
+    case EX_ICON_CHEVRON_DOWN:
+        line(r, x + s * 0.2f, y + s * 0.34f, x + s * 0.5f, y + s * 0.68f, th * 1.4f, c);
+        line(r, x + s * 0.5f, y + s * 0.68f, x + s * 0.8f, y + s * 0.34f, th * 1.4f, c);
+        break;
     default: break;
     }
 }

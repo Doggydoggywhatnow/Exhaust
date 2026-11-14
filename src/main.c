@@ -1649,6 +1649,11 @@ int main(int argc, char **argv) {
     ex_widget_add(ribbon, app.rb_right);
     ex_widget_add(ribbon, app.rb_theme);
     ex_widget_add(row, ribbon);
+    {   /* a thin line between the ribbon and the file explorer */
+        ExWidget *line = ex_widget_box(app.ui, 1, "Ribbon separator");
+        line->width = ex_size_px(app.ui, 1); line->height = ex_size_grow(); line->bg_token = EX_COLOR_BORDER;
+        ex_widget_add(row, line);
+    }
 
     left_content = app.vault ? ex_explorer_sidebar(app.ui, app.vault, on_open_file, &app, &app.tree) : info_label(&app, "No vault is open.");
     if (left_content) {

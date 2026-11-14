@@ -68,3 +68,9 @@ What a new note looks like in Obsidian when only the header has been written to.
 ![The menu of a note](note-context-menu.png)
 
 The drop-down Obsidian shows when a note in the file list is right-clicked. It opens next to the note, not in the middle of the window, in groups: Open in new tab, Open to the right, Open in new window; Make a copy, Move file to, Bookmark, Merge entire file with; Copy path (with a submenu); Open version history; Open in default app, Show in system explorer; Rename, and Delete in red. Each entry has an icon. Exhaust's menu follows this layout, with its own icons and wording.
+
+## The file explorer with several top-level folders
+
+![Several top-level folders and one loose note](file-tree-top-level.png)
+
+A mock-up of how the file list should look. There is no single root folder: any number of folders sit at the top level, side by side (IRL, Projects, Questions, Spaghetti), and a note can sit at the top level too, outside every folder ("To Do"). A chevron marks a folder, pointing right when it is closed and down when it is open (Questions is open); a note has no chevron and no ".md". Folders can be made at the top level or inside another folder, and notes and folders can be dragged between folders and out to the top level.

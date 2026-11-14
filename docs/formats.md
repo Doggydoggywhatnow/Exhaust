@@ -105,6 +105,7 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 | `use_wikilinks` | bool | `true` | 0.1.0 |
 | `show_all_file_types` | bool | `false` | 0.1.0 |
 | `confirm_delete` | bool | `true` | 0.1.0 |
+| `rename_folder_on_double_click` | bool | `true` | 0.1.0 (4d): double-clicking the name of a folder in the file explorer edits it in place; never for notes. The switch is on the *Files and links* page of the settings screens (7a) |
 | `delete_attachments` | enum(ask\|always\|never) | `ask` | 0.1.0 |
 | `trash_mode` | enum(system\|vault_trash\|permanent) | `system` | 0.1.0 |
 | `excluded` | list | empty | 0.1.0 |

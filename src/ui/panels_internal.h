@@ -21,7 +21,7 @@ typedef struct View {
     char summary_text[240];
 } View;
 
-typedef enum { D_NONE, D_SWITCHER, D_PALETTE, D_PROMPT, D_CHOICE, D_CONFIRM, D_POPUP } DialogKind;
+typedef enum { D_NONE, D_SWITCHER, D_PALETTE, D_PROMPT, D_CHOICE, D_CONFIRM, D_POPUP, D_INLINE } DialogKind;
 
 struct ExPanels {
     ExPanelsInit in;
@@ -107,6 +107,9 @@ void dialog_confirm(ExPanels *p, const char *title, const char *message, const c
  * entry for something that deletes. Opens next to the pointer, kept inside the window; Escape or a click outside closes it. */
 typedef struct PopupItem { const char *label; int icon; int id; int danger, sep_before, submenu; } PopupItem;
 void dialog_popup(ExPanels *p, float x, float y, const PopupItem *items, size_t n, void (*cb)(ExPanels *, int, void *), void *arg);
+/* A text field in place over a row of a list (window pixels): Enter or a click elsewhere accepts, Escape cancels. */
+void dialog_inline(ExPanels *p, float x, float y, float w, float h, const char *initial, void (*cb)(ExPanels *, const char *, void *), void *arg);
+void dialog_commit(ExPanels *p);                       /* an inline field in the way: its text is accepted (a click outside, a new dialog) */
 void dialog_switcher(ExPanels *p);
 void dialog_palette(ExPanels *p);
 void dialog_refresh(ExPanels *p);

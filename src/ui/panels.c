@@ -171,7 +171,7 @@ void ex_panels_expand_queries(ExPanels *p, const char *path, const char *text, s
 
 void ex_panels_open_switcher(ExPanels *p) { if (ex_features_enabled(p->in.features, "quick_switcher")) dialog_switcher(p); }
 void ex_panels_open_palette(ExPanels *p) { if (ex_features_enabled(p->in.features, "command_palette")) dialog_palette(p); }
-void ex_panels_close_dialog(ExPanels *p) { dialog_close(p); }
+void ex_panels_close_dialog(ExPanels *p) { if (p->dkind == D_INLINE) { dialog_commit(p); return; } dialog_close(p); }
 
 /* ---- following the application ---- */
 
@@ -340,6 +340,9 @@ int ex_panels_rename_to(ExPanels *p, const char *path, const char *new_name) {
     const char *slash = strrchr(path, '/'), *base = slash ? slash + 1 : path, *dot = strrchr(base, '.');
     ExPathInfo info;
     size_t n;
+    snprintf(abs, sizeof abs, "%s/%s", p->root, path);
+    if (ex_platform_path_info(abs, &info) == 0 && info.is_dir) dot = NULL;           /* a folder has no extension to keep */
+    else if (!dot) dot = ".md";
     snprintf(name, sizeof name, "%s", new_name);
     for (n = strlen(name); n > 0 && (name[n - 1] == ' ' || name[n - 1] == '\t'); n--) name[n - 1] = 0;
     for (n = 0; name[n] == ' ' || name[n] == '\t'; n++) {}
@@ -348,7 +351,7 @@ int ex_panels_rename_to(ExPanels *p, const char *path, const char *new_name) {
         if (p->in.host.message) p->in.host.message(p->in.host.user, "That is not a valid note name (no  # ^ [ ] | : and not empty).");
         return -1;
     }
-    snprintf(to, sizeof to, "%.*s%s%s%s", slash ? (int)(slash - path) : 0, path, slash ? "/" : "", name, dot ? dot : ".md");
+    snprintf(to, sizeof to, "%.*s%s%s%s", slash ? (int)(slash - path) : 0, path, slash ? "/" : "", name, dot ? dot : "");
     if (!strcmp(to, path)) return 0;
     snprintf(abs, sizeof abs, "%s/%s", p->root, to);
     if (ex_platform_path_info(abs, &info) == 0) {

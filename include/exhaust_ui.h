@@ -76,6 +76,11 @@ struct ExWidget {
     /* Drag a row onto a folder row (or the empty area: the vault folder, to_folder ""): the application moves it. */
     void (*on_tree_drop)(ExWidget *w, const char *from_rel, const char *to_folder, void *user);
     void *on_tree_drop_user;
+    /* Double click on the name of a folder: the application edits the name in place (the box is where the name is, in window pixels).
+     * Returns 1 if it did; 0 lets the double click open or close the folder as before. */
+    int (*on_tree_rename)(ExWidget *w, const char *rel, float x, float y, float width, float height, void *user);
+    void *on_tree_rename_user;
+    int tree_unselected;                 /* a click on the empty space below the rows: nothing is selected (new items go to the top level) */
     long tree_drag_row, tree_drop_row;   /* the row being dragged (-1 none) and the folder row under it (-1 none) */
     int tree_dragging;
     float tree_drag_x, tree_drag_y, tree_cur_x, tree_cur_y;   /* where the press began, and where the pointer is now */
@@ -125,7 +130,7 @@ typedef enum ExIcon {
     EX_ICON_NONE, EX_ICON_FILES, EX_ICON_SEARCH, EX_ICON_BOOKMARK, EX_ICON_BACKLINKS, EX_ICON_LINKS, EX_ICON_TAGS, EX_ICON_PROPERTIES,
     EX_ICON_FILE_PROPERTIES, EX_ICON_OUTLINE, EX_ICON_FOOTNOTES, EX_ICON_NEW_NOTE, EX_ICON_NEW_FOLDER, EX_ICON_SORT, EX_ICON_EXPAND, EX_ICON_MORE,
     EX_ICON_PALETTE, EX_ICON_GRAPH, EX_ICON_CANVAS, EX_ICON_THEME, EX_ICON_SIDEBAR_LEFT, EX_ICON_SIDEBAR_RIGHT, EX_ICON_MODE,
-    EX_ICON_TRASH, EX_ICON_COPY, EX_ICON_EXTERNAL, EX_ICON_MOVE, EX_ICON_CLIPBOARD
+    EX_ICON_TRASH, EX_ICON_COPY, EX_ICON_EXTERNAL, EX_ICON_MOVE, EX_ICON_CLIPBOARD, EX_ICON_CHEVRON_RIGHT, EX_ICON_CHEVRON_DOWN
 } ExIcon;
 void ex_widget_set_icon(ExWidget *button, int icon);                 /* a square button of the theme's spacing: 3 units */
 void ex_icon_draw(ExRenderer *r, int icon, float x, float y, float w, float h, ExColor c);
@@ -148,6 +153,7 @@ void ex_tree_select_path(ExWidget *tree, const char *rel);          /* reveals a
 const ExNode *ex_tree_selected(ExWidget *tree);
 /* The row under a window position (and the node of it) or NULL; selects it when select is set. For the context menu. */
 const ExNode *ex_tree_node_at(ExUi *ui, ExWidget *tree, float y, int select);
+void ex_tree_set_rename_handler(ExWidget *tree, int (*fn)(ExWidget *w, const char *rel, float x, float y, float width, float height, void *user), void *user);
 void ex_tree_set_drop_handler(ExWidget *tree, void (*fn)(ExWidget *w, const char *from_rel, const char *to_folder, void *user), void *user);
 /* The explorer sidebar of the screenshots: a toolbar (new note, new folder, expand or
  * collapse all, sort), the tree, and the vault button at the bottom. */
