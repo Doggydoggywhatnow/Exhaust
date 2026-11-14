@@ -147,6 +147,9 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
 void ex_editor_caret_rect(ExEditor *e, ExRenderer *r, float *x, float *y, float *w, float *h);
 float ex_editor_scroll_y(const ExEditor *e);
 void ex_editor_set_mode(ExEditor *e, ExEditorMode mode);
+/* Soft wrap: a long line continues on the next row at the width of the viewport (default off; the note editors turn it on). */
+void ex_editor_set_wrap(ExEditor *e, int on);
+float ex_editor_content_height(ExEditor *e, ExRenderer *r);     /* pixels of all the rows; for fields that grow with their text */
 ExEditorMode ex_editor_mode(const ExEditor *e);
 /* Does an action as if its key had been pressed (the commands use it for adding cursors). */
 void ex_editor_perform(ExEditor *e, ExRenderer *r, ExEditAction act, int extend);

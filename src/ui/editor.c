@@ -79,7 +79,17 @@ struct ExEditor {
     float rect_x, rect_y;
     struct { size_t first, last; } *hid;
     size_t nhid;
+    /* soft wrap: a long line is shown on several rows, cut where the viewport is full */
+    int wrap;
+    uint32_t *nseg; size_t wn;   /* the rows each line takes; 0: not measured yet (an estimate stands in) */
+    size_t *vpre; int vpre_ok;   /* vpre[i]: the first row of line i (a hidden line takes none), vpre[wn]: all rows */
+    const ExDoc *wrap_doc; unsigned long wrap_ver; float wrap_w; int wrap_px; uint32_t wrap_font; ExEditorMode wrap_mode;
+    size_t wrap_caret;
+    float avgw;                  /* an average character width, for lines not measured yet */
+    size_t last_rows;            /* the rows at the last measure (for the owner that sizes the editor to its text) */
 };
+
+static void wrap_free_all(struct ExEditor *e);
 
 /* ---- clipboard default ---- */
 
@@ -113,6 +123,7 @@ void ex_editor_free(ExEditor *e) {
     ex_folds_free(&e->folds);
     free(e->folded);
     free(e->hid);
+    free(e->nseg); free(e->vpre);
     free(e->hl);
     free(e->goal);
     free(e);
@@ -128,6 +139,7 @@ void ex_editor_set_doc(ExEditor *e, ExDoc *doc) {
     e->nhid = 0;
     clear_cache(e);
     e->doc = doc;
+    wrap_free_all(e);
     e->scroll_y = 0;
     e->composition[0] = 0;
     e->last_vertical = 0;
@@ -304,6 +316,7 @@ static int cmp_hid(const void *x, const void *y) {
 /* The hidden line ranges (sorted, not overlapping) from the folded regions. */
 static void rebuild_hidden(ExEditor *e) {
     size_t i, n = 0;
+    e->vpre_ok = 0;
     size_t (*tmp)[2] = malloc((e->nfolded ? e->nfolded : 1) * sizeof *tmp);
     free(e->hid);
     e->hid = NULL;
@@ -636,6 +649,255 @@ static size_t word_move(ExEditor *e, size_t off, int dir) {
     }
 }
 
+/* ---- soft wrap ----
+ * A line is laid out once, as a single long row (live preview or plain). Wrapping cuts that row into segments at blanks (or at a
+ * cluster when there is no blank) so that each fits the viewport; a segment is drawn by sliding the row to its start and clipping,
+ * so carets, selections and clicks use the line's own x positions minus the x where the segment starts. Rows are numbered from the
+ * top: a line is first row vpre[line], and takes nseg[line] rows. Lines far from the screen are only estimated until they are
+ * measured (the view keeps its place when they are). */
+
+typedef struct WrapLine { size_t *start; float *x; size_t n, cap; } WrapLine;   /* segment starts (offsets) and their x in the row */
+
+static int wrap_active(const ExEditor *e) { return e->wrap && e->vw > 0.0f && e->font != NULL; }
+
+static float wrap_avail(const ExEditor *e, ExRenderer *r) {
+    float a = e->vw - (float)pad_px(r) - (float)ex_px(r, 8), lo = (float)ex_px(r, 60);
+    return a < lo ? lo : a;
+}
+
+typedef struct Geom { LLine *ll; const ExShaped *sh; char *t; size_t s, en, len; } Geom;
+
+static int geom_open(ExEditor *e, ExRenderer *r, size_t line, Geom *g) {
+    size_t nx;
+    memset(g, 0, sizeof *g);
+    line_range(e, line, &g->s, &g->en, &nx);
+    g->t = line_text(e, line, &g->len);
+    if (!g->t) return -1;
+    if (e->mode != EX_EDITOR_PLAIN) g->ll = layout_of(e, r, line, NULL, NULL);
+    else g->sh = shaped(e, r, g->t, g->len);
+    if (!g->ll && !g->sh) { free(g->t); g->t = NULL; return -1; }
+    return 0;
+}
+static void geom_close(Geom *g) { if (g->ll) ll_free(g->ll); free(g->t); }
+static float geom_x(const Geom *g, size_t off) {
+    if (off < g->s) off = g->s;
+    if (off > g->en) off = g->en;
+    return g->ll ? ll_x_of(g->ll, off) : ex_shaped_x_for_offset(g->sh, off - g->s, g->len);
+}
+static size_t geom_off(const Geom *g, float x) {
+    return g->ll ? ll_offset_at(g->ll, x, g->s, g->en) : g->s + ex_shaped_offset_for_x(g->sh, x, g->len);
+}
+
+static void wl_free(WrapLine *w) { free(w->start); free(w->x); memset(w, 0, sizeof *w); }
+static int wl_push(WrapLine *w, size_t s, float x) {
+    if (w->n == w->cap) {
+        size_t nc = w->cap ? w->cap * 2 : 4, *a = realloc(w->start, nc * sizeof *a);
+        float *b;
+        if (!a) return -1;
+        w->start = a;
+        b = realloc(w->x, nc * sizeof *b);
+        if (!b) return -1;
+        w->x = b; w->cap = nc;
+    }
+    w->start[w->n] = s; w->x[w->n] = x; w->n++;
+    return 0;
+}
+
+/* The segments of one line. Always at least one (the whole line when wrapping is off). */
+static void wrap_line(ExEditor *e, ExRenderer *r, size_t line, WrapLine *w) {
+    Geom g;
+    float avail, x0 = 0.0f;
+    size_t cur, guard;
+    memset(w, 0, sizeof *w);
+    if (!wrap_active(e) || geom_open(e, r, line, &g) != 0) { size_t st, en, nx; line_range(e, line, &st, &en, &nx); wl_push(w, st, 0.0f); return; }
+    avail = wrap_avail(e, r);
+    cur = g.s;
+    wl_push(w, cur, 0.0f);
+    for (guard = 0; guard < 200000; guard++) {
+        float limit = x0 + avail;
+        size_t o, b, k;
+        if (geom_x(&g, g.en) <= limit + 0.5f) break;
+        o = geom_off(&g, limit);
+        b = o > g.en ? g.en : o;
+        k = b;
+        while (k > cur && g.t[k - 1 - g.s] != ' ' && g.t[k - 1 - g.s] != '\t') k--;
+        if (k > cur) b = k;                                           /* after the last blank that fits */
+        else while (b > cur + 1 && geom_x(&g, b) - x0 > avail + 0.5f) b = g.s + ex_grapheme_prev(g.t, g.len, b - g.s);   /* no blank: the last cluster that fits */
+        if (b >= g.en) b = g.s + ex_grapheme_prev(g.t, g.len, g.en - g.s);
+        if (b <= cur) b = g.s + ex_grapheme_next(g.t, g.len, cur - g.s);
+        if (b >= g.en || b <= cur) break;
+        if (wl_push(w, b, geom_x(&g, b)) != 0) break;
+        cur = b;
+        x0 = geom_x(&g, b);
+    }
+    geom_close(&g);
+}
+
+static size_t est_rows(const ExEditor *e, size_t line) {
+    size_t s = ex_buffer_line_start(buf(e), line), n = ex_buffer_line_start(buf(e), line + 1), len = n > s ? n - s : 0, rows;
+    float w = (float)len * e->avgw * 1.04f;
+    rows = (size_t)ceilf(w / (e->wrap_w > 1.0f ? e->wrap_w : 1.0f));
+    return rows < 1 ? 1 : rows;
+}
+
+static void wrap_free_all(ExEditor *e) { free(e->nseg); free(e->vpre); e->nseg = NULL; e->vpre = NULL; e->wn = 0; e->vpre_ok = 0; }
+
+static void wrap_reset(ExEditor *e, size_t n) {
+    free(e->nseg); free(e->vpre);
+    e->nseg = calloc(n + 1, sizeof *e->nseg);
+    e->vpre = calloc(n + 2, sizeof *e->vpre);
+    e->wn = e->nseg && e->vpre ? n : 0;
+    e->vpre_ok = 0;
+}
+
+static void wrap_prefix(ExEditor *e) {
+    size_t i, j = 0, acc = 0;
+    for (i = 0; i < e->wn; i++) {
+        int hidden;
+        e->vpre[i] = acc;
+        while (j < e->nhid && e->hid[j].last < i) j++;
+        hidden = j < e->nhid && e->hid[j].first <= i;
+        if (!hidden) acc += e->nseg[i] ? e->nseg[i] : (uint32_t)est_rows(e, i);
+    }
+    e->vpre[e->wn] = acc;
+    e->vpre_ok = 1;
+}
+
+/* The lines changed by the edits since the last look: the rows of the lines after them stay as they were. */
+static void wrap_remap(ExEditor *e, size_t n, unsigned long ver) {
+    ExDocEdit edits[EX_DOC_EDIT_LOG];
+    int k = ex_doc_edits_since(e->doc, e->wrap_ver, edits, EX_DOC_EDIT_LOG);
+    size_t i, lo_off = 0, hi_old = 0, hi_new = 0, old_n = e->wn, size = ex_buffer_size(buf(e)), l0, l1_new, l1_old, tail;
+    uint32_t *fresh;
+    if (k == 0) return;
+    if (k < 0 || old_n == 0) { wrap_reset(e, n); return; }
+    for (i = 0; i < (size_t)k; i++) {
+        size_t o = edits[i].offset, rm = edits[i].removed, ins = edits[i].inserted;
+        if (i == 0) { lo_off = o; hi_old = o + rm; hi_new = o + ins; }
+        else {
+            size_t nlo = o < lo_off ? o : lo_off, cur_end = o + rm, nhi = cur_end > hi_new ? cur_end : hi_new;
+            hi_old += nhi - hi_new;
+            lo_off = nlo;
+            hi_new = nhi - rm + ins;
+        }
+    }
+    (void)hi_old;
+    l0 = ex_buffer_line_of_offset(buf(e), lo_off > size ? size : lo_off);
+    l1_new = ex_buffer_line_of_offset(buf(e), hi_new > size ? size : hi_new);
+    {   /* the same lines in the old numbering: the tail after them is unchanged */
+        long lo_old = (long)l1_new + (long)old_n - (long)n;
+        if (l1_new + 1 > n || lo_old < (long)l0 || lo_old >= (long)old_n) { wrap_reset(e, n); return; }
+        l1_old = (size_t)lo_old;
+    }
+    tail = n - (l1_new + 1);
+    if (tail != old_n - (l1_old + 1)) { wrap_reset(e, n); return; }
+    fresh = calloc(n + 1, sizeof *fresh);
+    if (!fresh) { wrap_reset(e, n); return; }
+    memcpy(fresh, e->nseg, l0 * sizeof *fresh);                                  /* before: as they were; l0..l1_new: measured again */
+    memcpy(fresh + l1_new + 1, e->nseg + l1_old + 1, tail * sizeof *fresh);
+    free(e->nseg);
+    e->nseg = fresh;
+    free(e->vpre);
+    e->vpre = calloc(n + 2, sizeof *e->vpre);
+    e->wn = e->vpre ? n : 0;
+    e->vpre_ok = 0;
+    (void)ver;
+}
+
+static size_t vrow_total(ExEditor *e) { return wrap_active(e) && e->vpre ? e->vpre[e->wn] : row_count(e); }
+static size_t vrow_of_line(ExEditor *e, size_t line) { return wrap_active(e) && e->vpre && line <= e->wn ? e->vpre[line] : row_of_line(e, line); }
+
+/* The line that has the row, and which of its rows it is. */
+static size_t line_of_vrow(ExEditor *e, size_t vrow, size_t *seg) {
+    size_t lo, hi, total;
+    if (!wrap_active(e) || !e->vpre || e->wn == 0) { if (seg) *seg = 0; return line_of_row(e, vrow); }
+    total = e->vpre[e->wn];
+    if (total == 0) { if (seg) *seg = 0; return 0; }
+    if (vrow >= total) vrow = total - 1;
+    lo = 0; hi = e->wn;                                  /* the first line whose rows end after vrow */
+    while (lo + 1 < hi) { size_t mid = (lo + hi) / 2; if (e->vpre[mid] <= vrow) lo = mid; else hi = mid; }
+    while (lo + 1 < e->wn && e->vpre[lo + 1] <= vrow) lo++;       /* skip the hidden lines that share the number */
+    if (seg) *seg = vrow - e->vpre[lo];
+    return lo;
+}
+
+/* Measures what the screen needs, and keeps the place the view is at when the measures change the rows above it. */
+static void wrap_sync(ExEditor *e, ExRenderer *r) {
+    size_t n, i, pass;
+    float avail;
+    int px, lh;
+    unsigned long ver;
+    if (!wrap_active(e)) return;
+    n = line_count(e);
+    avail = wrap_avail(e, r); px = line_px(e, r); ver = ex_doc_version(e->doc);
+    if (e->avgw <= 0.0f || e->wrap_px != px) {
+        static const char sample[] = "The quick brown fox jumps over the lazy dog";
+        e->avgw = ex_text_measure(r, e->font, e->size, sample, sizeof sample - 1) / (float)(sizeof sample - 1);
+        if (e->avgw <= 0.0f) e->avgw = (float)px * 0.5f;
+    }
+    if (!e->nseg || e->wn == 0 || e->wrap_doc != e->doc || e->wrap_w != avail || e->wrap_px != px || e->wrap_font != ex_font_id(e->font) || e->wrap_mode != e->mode) {
+        wrap_reset(e, n);
+    } else if (ver != e->wrap_ver) wrap_remap(e, n, ver);
+    if (e->wn != n) wrap_reset(e, n);
+    if (!e->nseg) return;
+    e->wrap_doc = e->doc; e->wrap_ver = ver; e->wrap_w = avail; e->wrap_px = px; e->wrap_font = ex_font_id(e->font); e->wrap_mode = e->mode;
+    lh = line_height_px(e, r);
+    {
+        size_t caret = ex_buffer_line_of_offset(buf(e), ex_doc_sel(e->doc, ex_doc_primary(e->doc)).head);
+        if (e->mode == EX_EDITOR_LIVE) { if (caret < e->wn) e->nseg[caret] = 0; if (e->wrap_caret < e->wn) e->nseg[e->wrap_caret] = 0; }   /* the syntax shows where the caret is */
+        e->wrap_caret = caret;
+    }
+    for (pass = 0; pass < 3; pass++) {
+        size_t top, bottom, l0, l1, anchor, changed = 0;
+        float within;
+        if (!e->vpre_ok) wrap_prefix(e);
+        top = (size_t)(e->scroll_y > 0 ? e->scroll_y / (float)lh : 0);
+        bottom = (size_t)((e->scroll_y + e->vh) / (float)lh) + 1;
+        l0 = line_of_vrow(e, top, NULL);
+        l1 = line_of_vrow(e, bottom, NULL);
+        anchor = l0;
+        within = e->scroll_y - (float)e->vpre[anchor] * (float)lh;
+        l0 = l0 > 30 ? l0 - 30 : 0;
+        l1 = l1 + 30 < e->wn ? l1 + 30 : e->wn - 1;
+        {   /* the caret line is measured too: the view follows the caret */
+            size_t caret = e->wrap_caret;
+            if (caret < e->wn && e->nseg[caret] == 0) { WrapLine w; wrap_line(e, r, caret, &w); e->nseg[caret] = (uint32_t)w.n; wl_free(&w); changed++; }
+        }
+        for (i = l0; i <= l1 && i < e->wn; i++) {
+            WrapLine w;
+            if (e->nseg[i] || line_hidden(e, i)) continue;
+            wrap_line(e, r, i, &w);
+            e->nseg[i] = (uint32_t)w.n;
+            wl_free(&w);
+            changed++;
+        }
+        if (!changed) break;
+        wrap_prefix(e);
+        e->scroll_y = (float)e->vpre[anchor] * (float)lh + within;
+        if (e->scroll_y < 0) e->scroll_y = 0;
+    }
+    e->last_rows = e->vpre_ok ? e->vpre[e->wn] : 0;
+}
+
+/* Rows geometry for the places that work in rows: call before using vrow_*. */
+static void geometry(ExEditor *e, ExRenderer *r) { fold_sync(e); wrap_sync(e, r); }
+
+/* Where the row of an offset is: the line, which of its segments, and the segments. The caller frees w. */
+static size_t seg_of(ExEditor *e, ExRenderer *r, size_t line, size_t off, WrapLine *w) {
+    size_t k = 0;
+    wrap_line(e, r, line, w);
+    while (k + 1 < w->n && off >= w->start[k + 1]) k++;
+    return k;
+}
+
+/* The offset in a row for an x measured from the left edge of the text; it stays inside the row. */
+static size_t offset_in_row(ExEditor *e, ExRenderer *r, size_t line, const WrapLine *w, size_t seg, float x) {
+    size_t off = offset_at_x(e, r, line, x + w->x[seg]);
+    if (off < w->start[seg]) off = w->start[seg];
+    if (seg + 1 < w->n && off >= w->start[seg + 1]) off = prev_boundary(e, w->start[seg + 1]);
+    return off;
+}
+
 static void sync_goal(ExEditor *e, size_t n) {
     if (e->ngoal != n) {
         float *g = realloc(e->goal, (n ? n : 1) * sizeof *g);
@@ -649,15 +911,16 @@ static void sync_goal(ExEditor *e, size_t n) {
 
 static void ensure_visible(ExEditor *e, ExRenderer *r) {
     ExSel p;
-    size_t line;
+    size_t line, seg = 0;
     int lh;
     float top, bottom;
     if (e->vh <= 0 || !e->font) return;
-    fold_sync(e);
+    geometry(e, r);
     p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
     line = ex_buffer_line_of_offset(buf(e), p.head);
     lh = line_height_px(e, r);
-    top = (float)row_of_line(e, line) * (float)lh;
+    if (wrap_active(e)) { WrapLine w; seg = seg_of(e, r, line, p.head, &w); wl_free(&w); }
+    top = (float)(vrow_of_line(e, line) + seg) * (float)lh;
     bottom = top + (float)lh;
     if (top < e->scroll_y) e->scroll_y = top;
     else if (bottom > e->scroll_y + e->vh) e->scroll_y = bottom - e->vh;
@@ -703,25 +966,33 @@ static void move_vertical(ExEditor *e, ExRenderer *r, int lines, int shift) {
     size_t n = ex_doc_sel_count(e->doc), i, rows;
     size_t *heads = malloc((n ? n : 1) * sizeof *heads);
     if (!heads) return;
-    fold_sync(e);
-    rows = row_count(e);
+    geometry(e, r);
+    rows = vrow_total(e);
     sync_goal(e, n);
     for (i = 0; i < n; i++) {
         ExSel s = ex_doc_sel(e->doc, i);
-        size_t line = ex_buffer_line_of_offset(buf(e), s.head), target;
-        float x = (e->last_vertical && e->goal && e->goal[i] >= 0) ? e->goal[i] : x_of(e, r, line, s.head);
-        long t = (long)row_of_line(e, line) + lines;                 /* moves by shown rows: hidden lines are skipped */
+        size_t line = ex_buffer_line_of_offset(buf(e), s.head), seg, tseg, target;
+        WrapLine w, tw;
+        float x;
+        long t;
+        seg = seg_of(e, r, line, s.head, &w);
+        x = (e->last_vertical && e->goal && e->goal[i] >= 0) ? e->goal[i] : x_of(e, r, line, s.head) - w.x[seg];
+        t = (long)(vrow_of_line(e, line) + seg) + lines;                 /* moves by rows on the screen: hidden lines are skipped, wrapped lines count each row */
+        wl_free(&w);
         if (e->goal) e->goal[i] = x;
         if (t < 0) { heads[i] = 0; if (e->goal) e->goal[i] = -1; continue; }
         if ((size_t)t >= rows) {
-            size_t last = line_of_row(e, rows - 1), st, en, nx;
+            size_t last = line_of_vrow(e, rows - 1, NULL), st, en, nx;
             if (last + 1 >= line_count(e)) heads[i] = ex_buffer_size(buf(e));
             else { line_range(e, last, &st, &en, &nx); heads[i] = en; }
             if (e->goal) e->goal[i] = -1;
             continue;
         }
-        target = line_of_row(e, (size_t)t);
-        heads[i] = offset_at_x(e, r, target, x);
+        target = line_of_vrow(e, (size_t)t, &tseg);
+        wrap_line(e, r, target, &tw);
+        if (tseg >= tw.n) tseg = tw.n - 1;
+        heads[i] = offset_in_row(e, r, target, &tw, tseg, x);
+        wl_free(&tw);
     }
     set_heads(e, r, heads, shift, 1);
     free(heads);
@@ -731,11 +1002,16 @@ static void move_line_edge(ExEditor *e, ExRenderer *r, int to_end, int shift) {
     size_t n = ex_doc_sel_count(e->doc), i;
     size_t *heads = malloc((n ? n : 1) * sizeof *heads);
     if (!heads) return;
+    geometry(e, r);
     for (i = 0; i < n; i++) {
         ExSel s = ex_doc_sel(e->doc, i);
-        size_t line = ex_buffer_line_of_offset(buf(e), s.head), st, en, nx;
+        size_t line = ex_buffer_line_of_offset(buf(e), s.head), st, en, nx, seg = 0;
+        WrapLine w;
         line_range(e, line, &st, &en, &nx);
-        heads[i] = to_end ? en : st;
+        seg = seg_of(e, r, line, s.head, &w);                          /* a wrapped line has an end and a start for each row */
+        if (to_end) heads[i] = seg + 1 < w.n ? prev_boundary(e, w.start[seg + 1]) : en;
+        else heads[i] = w.start[seg];
+        wl_free(&w);
     }
     set_heads(e, r, heads, shift, 0);
     free(heads);
@@ -1141,12 +1417,18 @@ void ex_editor_key(ExEditor *e, ExRenderer *r, ExKey key, int mods) {
 static size_t point_to_offset(ExEditor *e, ExRenderer *r, float x, float y) {
     int lh = line_height_px(e, r);
     long row = (long)floorf((y - e->vy + e->scroll_y) / (float)(lh > 0 ? lh : 1));
-    size_t rows;
-    fold_sync(e);
-    rows = row_count(e);
+    size_t rows, line, seg, off;
+    WrapLine w;
+    geometry(e, r);
+    rows = vrow_total(e);
     if (row < 0) row = 0;
     if ((size_t)row >= rows) row = (long)rows - 1;
-    return offset_at_x(e, r, line_of_row(e, (size_t)row), x - e->vx - (float)pad_px(r));
+    line = line_of_vrow(e, (size_t)row, &seg);
+    wrap_line(e, r, line, &w);
+    if (seg >= w.n) seg = w.n - 1;
+    off = offset_in_row(e, r, line, &w, seg, x - e->vx - (float)pad_px(r));
+    wl_free(&w);
+    return off;
 }
 
 static void word_bounds(ExEditor *e, size_t off, size_t *a, size_t *b) {
@@ -1172,8 +1454,8 @@ void ex_editor_rect_select(ExEditor *e, ExRenderer *r, float ax, float ay, float
     float xa = ax - e->vx - (float)pad_px(r), xb = x - e->vx - (float)pad_px(r), left, right;
     ExSel *sel;
     if (!e->font || lh <= 0) return;
-    fold_sync(e);
-    rows = row_count(e);
+    geometry(e, r);
+    rows = vrow_total(e);
     ra = (long)floorf((ay - e->vy + e->scroll_y) / (float)lh);
     rb = (long)floorf((y - e->vy + e->scroll_y) / (float)lh);
     if (ra < 0) ra = 0;
@@ -1185,7 +1467,12 @@ void ex_editor_rect_select(ExEditor *e, ExRenderer *r, float ax, float ay, float
     sel = malloc((size_t)(ra > rb ? ra - rb : rb - ra) * sizeof *sel + sizeof *sel);
     if (!sel) return;
     for (k = ra < rb ? ra : rb; k <= (ra > rb ? ra : rb); k++) {
-        size_t line = line_of_row(e, (size_t)k), o0 = offset_at_x(e, r, line, left), o1 = offset_at_x(e, r, line, right);
+        size_t seg, line = line_of_vrow(e, (size_t)k, &seg), o0, o1;
+        WrapLine w;
+        wrap_line(e, r, line, &w);
+        if (seg >= w.n) seg = w.n - 1;
+        o0 = offset_in_row(e, r, line, &w, seg, left); o1 = offset_in_row(e, r, line, &w, seg, right);
+        wl_free(&w);
         sel[n].anchor = xa <= xb ? o0 : o1;
         sel[n].head = xa <= xb ? o1 : o0;
         n++;
@@ -1221,9 +1508,9 @@ void ex_editor_mouse(ExEditor *e, ExRenderer *r, ExMouse kind, float x, float y,
     }
     if (kind == EX_MOUSE_DOWN && x >= e->vx && x < e->vx + (float)gutter_px(r) && e->mode != EX_EDITOR_PLAIN) {   /* the gutter: fold or open */
         size_t row = (size_t)floorf((y - e->vy + e->scroll_y) / (float)line_height_px(e, r)), line;
-        fold_sync(e);
-        if (y >= e->vy && row < row_count(e)) {
-            line = line_of_row(e, row);
+        geometry(e, r);
+        if (y >= e->vy && row < vrow_total(e)) {
+            line = line_of_vrow(e, row, NULL);
             if (ex_editor_toggle_fold_at_line(e, line)) return;
         }
     }
@@ -1329,17 +1616,32 @@ void ex_editor_scroll(ExEditor *e, float dy) {
 
 void ex_editor_caret_rect(ExEditor *e, ExRenderer *r, float *x, float *y, float *w, float *h) {
     ExSel p;
-    size_t line;
+    size_t line, seg = 0;
     int lh = line_height_px(e, r);
     float cx;
-    fold_sync(e);
+    WrapLine wl;
+    geometry(e, r);
     p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
     line = ex_buffer_line_of_offset(buf(e), p.head);
-    cx = e->vx + (float)pad_px(r) + x_of(e, r, line, p.head);
+    seg = seg_of(e, r, line, p.head, &wl);
+    cx = e->vx + (float)pad_px(r) + x_of(e, r, line, p.head) - wl.x[seg];
+    wl_free(&wl);
     if (x) *x = cx;
-    if (y) *y = e->vy + (float)row_of_line(e, line) * (float)lh - e->scroll_y;
+    if (y) *y = e->vy + (float)(vrow_of_line(e, line) + seg) * (float)lh - e->scroll_y;
     if (w) *w = (float)ex_px(r, 1.5f);
     if (h) *h = (float)lh;
+}
+
+void ex_editor_set_wrap(ExEditor *e, int on) { if ((on != 0) != e->wrap) { e->wrap = on != 0; wrap_free_all(e); } }
+
+/* The height of all the rows of the text, for a field that grows with what is typed into it (the title). Valid once the editor has been
+ * laid out and drawn at its width: it answers with the rows of the last measure until then. */
+float ex_editor_content_height(ExEditor *e, ExRenderer *r) {
+    int lh;
+    if (!e->font || e->vw <= 0.0f) return 0.0f;
+    lh = line_height_px(e, r);
+    geometry(e, r);
+    return (float)(vrow_total(e) ? vrow_total(e) : 1) * (float)lh;
 }
 
 void ex_editor_set_mode(ExEditor *e, ExEditorMode mode) { e->mode = mode; e->md_valid = 0; clear_cache(e); }
@@ -1403,13 +1705,16 @@ static size_t misspelled_in_line(ExEditor *e, size_t st, size_t en, size_t out_s
 
 /* Draws one line in source mode or live preview from its layout. */
 static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_t line, size_t nl, float y, int lh, const ExFontMetrics *fm,
-                             int focused, int blink_on, ExColor sel_c, ExColor cur_c, ExColor comp_c) {
-    size_t st, en, nx, si, nsel = ex_doc_sel_count(e->doc), i;
+                             int focused, int blink_on, ExColor sel_c, ExColor cur_c, ExColor comp_c, const WrapLine *wl, size_t seg) {
+    size_t st, en, nx, si, nsel = ex_doc_sel_count(e->doc), i, ss, se;
     LLine *ll = layout_of(e, r, line, &st, &en);
-    float left = e->vx + (float)pad_px(r);
-    int base_ascent = fm->ascent;
+    float text_left = e->vx + (float)pad_px(r), left, segx = wl->x[seg];
+    int base_ascent = fm->ascent, last = seg + 1 == wl->n, wrapped = wl->n > 1;
     if (!ll) return;
     line_range(e, line, &st, &en, &nx);
+    ss = wl->start[seg];                                  /* this row shows the bytes ss..se of the line */
+    se = last ? en : wl->start[seg + 1];
+    left = text_left - segx;
     if (ll->callout) {                                   /* a tint behind a callout's lines */
         ExColor c = ex_theme_color(t, (ExColorToken)(EX_COLOR_CALLOUT_NOTE + (ll->callout - 1 < EX_CALLOUT_COUNT ? ll->callout - 1 : 0)));
         c.a = 34;
@@ -1417,8 +1722,12 @@ static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
     } else if (ll->code) {
         ex_fill_rect(r, e->vx, y, e->vw, (float)lh, ex_theme_color(t, EX_COLOR_CODE_BACKGROUND));
     }
+    if (wrapped) {                                        /* the row shows its part of the line: nothing of the other rows reaches it */
+        float cy0 = y > e->vy ? y : e->vy, cy1 = y + (float)lh < e->vy + e->vh ? y + (float)lh : e->vy + e->vh;
+        if (cy1 > cy0) ex_set_clip(r, (int)text_left, (int)cy0, (int)ceilf(wrap_avail(e, r) + (float)ex_px(r, 2)), (int)ceilf(cy1 - cy0));
+    }
     for (si = 0; si < e->nhl; si++) {                   /* find matches behind the selection */
-        size_t ms = e->hl[si].s > st ? e->hl[si].s : st, me = e->hl[si].e < en ? e->hl[si].e : en;
+        size_t ms = e->hl[si].s > ss ? e->hl[si].s : ss, me = e->hl[si].e < se ? e->hl[si].e : se;
         if (me <= ms) continue;
         ex_fill_rect(r, left + ll_x_of(ll, ms), y, ll_x_of(ll, me) - ll_x_of(ll, ms), (float)lh, ex_theme_color(t, EX_COLOR_HIGHLIGHT));
     }
@@ -1427,13 +1736,13 @@ static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
         ExSel s = ex_doc_sel(e->doc, si);
         size_t a = lo(s), b = hi(s), la, lb;
         float x0, x1;
-        if (a == b || b <= st || (a > en && a >= nx)) continue;
-        la = a > st ? a : st;
-        lb = b < en ? b : en;
+        if (a == b || b <= ss || (last ? (a > en && a >= nx) : a >= se)) continue;
+        la = a > ss ? a : ss;
+        lb = b < se ? b : se;
         x0 = ll_x_of(ll, la);
         x1 = ll_x_of(ll, lb);
         if (x1 < x0) { float tmp = x0; x0 = x1; x1 = tmp; }
-        if (b > en && line + 1 < nl) x1 += (float)ex_px(r, 6);
+        if (b > en && line + 1 < nl && last) x1 += (float)ex_px(r, 6);
         ex_fill_rect(r, left + x0, y, x1 - x0, (float)lh, sel_c);
     }
     if (ll->rule) {
@@ -1442,17 +1751,26 @@ static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
     }
     for (i = 0; i < ll->n; i++) {
         LRun *run = &ll->runs[i];
-        float x = left + run->x;
+        float x = left + run->x, rw = run->w;
+        const char *rtext = run->text;
+        size_t rlen = run->tlen;
         if (run->kind == LRUN_HIDDEN) continue;
-        if (run->bg >= 0 && run->w > 0) ex_fill_rect(r, x, y, run->w, (float)lh, ex_theme_color(t, (ExColorToken)run->bg));
+        if (wrapped && (run->e <= ss || run->s >= se)) continue;        /* a run of another row */
+        if (wrapped && run->kind == LRUN_TEXT && run->shaped && run->tlen == run->e - run->s && (run->s < ss || run->e > se)) {
+            size_t a = run->s > ss ? run->s : ss, b = run->e < se ? run->e : se;        /* the part of a long run that is in this row */
+            float xa = ex_shaped_x_for_offset(&run->sh, a - run->s, run->tlen), xb = ex_shaped_x_for_offset(&run->sh, b - run->s, run->tlen);
+            if (xb < xa) { float tmp = xa; xa = xb; xb = tmp; }
+            x = left + run->x + xa; rw = xb - xa; rtext = run->text + (a - run->s); rlen = b - a;
+        }
+        if (run->bg >= 0 && rw > 0) ex_fill_rect(r, x, y, rw, (float)lh, ex_theme_color(t, (ExColorToken)run->bg));
         if (run->kind == LRUN_TEXT || run->kind == LRUN_SUBST) {
             ExFontMetrics m;
             ExColor col = ex_theme_color(t, (ExColorToken)run->fg);
             float ty = y + (float)(lh - fm->line_height) / 2.0f;
             if (ex_text_metrics(r, run->font, run->size, &m) == 0) ty += (float)(base_ascent - m.ascent);
-            ex_text_draw(r, run->font, run->size, x, ty, run->text, run->tlen, col);
-            if (run->flags & LF_UNDERLINE) ex_fill_rect(r, x, y + (float)(lh + fm->line_height) / 2.0f - (float)ex_px(r, 1), run->w, (float)ex_px(r, 1), col);
-            if (run->flags & LF_STRIKE) ex_fill_rect(r, x, y + (float)lh / 2.0f, run->w, (float)ex_px(r, 1), col);
+            ex_text_draw(r, run->font, run->size, x, ty, rtext, rlen, col);
+            if (run->flags & LF_UNDERLINE) ex_fill_rect(r, x, y + (float)(lh + fm->line_height) / 2.0f - (float)ex_px(r, 1), rw, (float)ex_px(r, 1), col);
+            if (run->flags & LF_STRIKE) ex_fill_rect(r, x, y + (float)lh / 2.0f, rw, (float)ex_px(r, 1), col);
         } else if (run->kind == LRUN_BAR) {
             ex_fill_rect(r, x + run->w * 0.3f, y, (float)ex_px(r, 2), (float)lh, ex_theme_color(t, (ExColorToken)run->fg));
         } else if (run->kind == LRUN_CHECKBOX) {
@@ -1483,7 +1801,9 @@ static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
     for (si = 0; si < nsel; si++) {
         ExSel s = ex_doc_sel(e->doc, si);
         float cx;
-        if (s.head < st || s.head > en || !(s.head < nx || line + 1 == nl)) continue;
+        if (s.head < ss) continue;
+        if (last) { if (s.head > en || !(s.head < nx || line + 1 == nl)) continue; }
+        else if (s.head >= se) continue;
         cx = left + ll_x_of(ll, s.head);
         if (si == ex_doc_primary(e->doc) && e->composition[0]) {
             float ty = y + (float)(lh - fm->line_height) / 2.0f;
@@ -1493,6 +1813,7 @@ static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
         }
         if (focused && blink_on) ex_fill_rect(r, cx, y, (float)ex_px(r, 1.5f), (float)lh, cur_c);
     }
+    if (wrapped) ex_set_clip(r, (int)e->vx, (int)e->vy, (int)e->vw, (int)e->vh);
     ll_free(ll);
 }
 
@@ -1599,7 +1920,7 @@ int ex_editor_word_at_caret(ExEditor *e, size_t *start, size_t *end) {
 
 /* The fold marker of a header line: a triangle in the gutter (pointing right when folded, down when open; open ones only
  * show on the caret's line), and three dots after the text of a folded header. */
-static void draw_fold_marker(ExEditor *e, ExRenderer *r, const ExTheme *t, size_t line, float y, int lh, int caret_line) {
+static void draw_fold_marker(ExEditor *e, ExRenderer *r, const ExTheme *t, size_t line, float y, int lh, int caret_line, const WrapLine *wl, size_t seg) {
     long k = ex_folds_find_hdr(&e->folds, line);
     int folded;
     float g = (float)gutter_px(r), side = g * 0.5f, cx, cy;
@@ -1610,14 +1931,16 @@ static void draw_fold_marker(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
     c = ex_theme_color(t, folded ? EX_COLOR_TEXT : EX_COLOR_TEXT_MUTED);
     cx = e->vx + g * 0.5f;
     cy = y + (float)lh / 2.0f;
-    if (folded) ex_fill_triangle(r, cx - side * 0.35f, cy - side * 0.5f, cx - side * 0.35f, cy + side * 0.5f, cx + side * 0.5f, cy, c);
-    else ex_fill_triangle(r, cx - side * 0.5f, cy - side * 0.3f, cx + side * 0.5f, cy - side * 0.3f, cx, cy + side * 0.4f, c);
-    if (folded) {
+    if (seg == 0) {
+        if (folded) ex_fill_triangle(r, cx - side * 0.35f, cy - side * 0.5f, cx - side * 0.35f, cy + side * 0.5f, cx + side * 0.5f, cy, c);
+        else ex_fill_triangle(r, cx - side * 0.5f, cy - side * 0.3f, cx + side * 0.5f, cy - side * 0.3f, cx, cy + side * 0.4f, c);
+    }
+    if (folded && seg + 1 == wl->n) {
         size_t st, en, nx;
         float x;
         ExFontMetrics fm;
         line_range(e, line, &st, &en, &nx);
-        x = e->vx + (float)pad_px(r) + x_of(e, r, line, en) + (float)ex_px(r, 6);
+        x = e->vx + (float)pad_px(r) + x_of(e, r, line, en) - wl->x[seg] + (float)ex_px(r, 6);
         if (ex_font_metrics(e->font, line_px(e, r), &fm) == 0)
             ex_text_draw(r, e->font, e->size, x, y + (float)(lh - fm.line_height) / 2.0f, "...", 3, ex_theme_color(t, EX_COLOR_TEXT_MUTED));
     }
@@ -1626,6 +1949,8 @@ static void draw_fold_marker(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
 void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, int blink_on) {
     int lh, px, pad;
     size_t nl = line_count(e), first, last, line, row, rows, caret_line, nsel = ex_doc_sel_count(e->doc), si;
+    size_t cached_line = (size_t)-1;
+    WrapLine wl;
     ExFontMetrics fm;
     ExColor text = ex_theme_color(t, EX_COLOR_TEXT), sel_c = ex_theme_color(t, EX_COLOR_SELECTION);
     ExColor cur_c = ex_theme_color(t, EX_COLOR_CURSOR), comp_c = ex_theme_color(t, EX_COLOR_TEXT_MUTED);
@@ -1634,53 +1959,62 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
     px = line_px(e, r);
     pad = pad_px(r);
     if (ex_font_metrics(e->font, px, &fm)) return;
+    memset(&wl, 0, sizeof wl);
     ex_set_clip(r, (int)e->vx, (int)e->vy, (int)e->vw, (int)e->vh);
-    fold_sync(e);
-    rows = row_count(e);
+    geometry(e, r);
+    rows = vrow_total(e);
     first = (size_t)(e->scroll_y / (float)lh);
     last = first + (size_t)(e->vh / (float)lh) + 1;
     if (last >= rows) last = rows - 1;
     caret_line = ex_buffer_line_of_offset(buf(e), ex_doc_sel(e->doc, ex_doc_primary(e->doc)).head);
-    if (e->find && rows) collect_matches(e, line_of_row(e, first), line_of_row(e, last < rows ? last : rows - 1));
+    if (e->find && rows) collect_matches(e, line_of_vrow(e, first, NULL), line_of_vrow(e, last < rows ? last : rows - 1, NULL));
     else e->nhl = 0;
     for (row = first; row <= last && row < rows; row++) {
-        size_t len, st, en, nx;
+        size_t len, st, en, nx, seg, ss, se;
+        int lastseg;
         char *txt;
         const ExShaped *sh;
         float y = e->vy + (float)row * (float)lh - e->scroll_y;
-        float ty = y + (float)(lh - fm.line_height) / 2.0f;
-        line = line_of_row(e, row);
-        if (e->mode != EX_EDITOR_PLAIN) { draw_layout_line(e, r, t, line, nl, y, lh, &fm, focused, blink_on, sel_c, cur_c, comp_c); draw_fold_marker(e, r, t, line, y, lh, line == caret_line); continue; }
+        float ty = y + (float)(lh - fm.line_height) / 2.0f, segx, x0pad;
+        line = line_of_vrow(e, row, &seg);
+        if (line != cached_line) { wl_free(&wl); wrap_line(e, r, line, &wl); cached_line = line; }
+        if (seg >= wl.n) seg = wl.n - 1;
+        if (e->mode != EX_EDITOR_PLAIN) { draw_layout_line(e, r, t, line, nl, y, lh, &fm, focused, blink_on, sel_c, cur_c, comp_c, &wl, seg); draw_fold_marker(e, r, t, line, y, lh, line == caret_line, &wl, seg); continue; }
         txt = line_text(e, line, &len);
         if (!txt) continue;
         line_range(e, line, &st, &en, &nx);
         sh = shaped(e, r, txt, len);
+        ss = wl.start[seg]; lastseg = seg + 1 == wl.n; se = lastseg ? en : wl.start[seg + 1];
+        segx = wl.x[seg];
+        x0pad = e->vx + (float)pad - segx;                 /* where x = 0 of the line is for this row */
         for (si = 0; si < e->nhl; si++) {                 /* find matches behind the selection */
-            size_t ms = e->hl[si].s > st ? e->hl[si].s : st, me = e->hl[si].e < en ? e->hl[si].e : en;
+            size_t ms = e->hl[si].s > ss ? e->hl[si].s : ss, me = e->hl[si].e < se ? e->hl[si].e : se;
             if (me <= ms || !sh) continue;
-            ex_fill_rect(r, e->vx + (float)pad + ex_shaped_x_for_offset(sh, ms - st, len), y, ex_shaped_x_for_offset(sh, me - st, len) - ex_shaped_x_for_offset(sh, ms - st, len), (float)lh, ex_theme_color(t, EX_COLOR_HIGHLIGHT));
+            ex_fill_rect(r, x0pad + ex_shaped_x_for_offset(sh, ms - st, len), y, ex_shaped_x_for_offset(sh, me - st, len) - ex_shaped_x_for_offset(sh, ms - st, len), (float)lh, ex_theme_color(t, EX_COLOR_HIGHLIGHT));
         }
         /* selections behind the text */
         for (si = 0; si < nsel; si++) {
             ExSel s = ex_doc_sel(e->doc, si);
             size_t a = lo(s), b = hi(s), la, lb;
             float x0, x1;
-            if (a == b || b <= st || (a > en && a >= nx)) continue;
-            la = a > st ? a : st;
-            lb = b < en ? b : en;
+            if (a == b || b <= ss || (lastseg ? (a > en && a >= nx) : a >= se)) continue;
+            la = a > ss ? a : ss;
+            lb = b < se ? b : se;
             x0 = sh ? ex_shaped_x_for_offset(sh, la - st, len) : 0;
             x1 = sh ? ex_shaped_x_for_offset(sh, lb - st, len) : 0;
             if (x1 < x0) { float tmp = x0; x0 = x1; x1 = tmp; }
-            if (b > en && line + 1 < nl) x1 += (float)ex_px(r, 6); /* the selected line break */
-            ex_fill_rect(r, e->vx + (float)pad + x0, y, x1 - x0, (float)lh, sel_c);
+            if (b > en && line + 1 < nl && lastseg) x1 += (float)ex_px(r, 6); /* the selected line break */
+            ex_fill_rect(r, x0pad + x0, y, x1 - x0, (float)lh, sel_c);
         }
-        ex_text_draw(r, e->font, e->size, e->vx + (float)pad, ty, txt, len, text);
+        ex_text_draw(r, e->font, e->size, e->vx + (float)pad, ty, txt + (ss - st), se - ss, text);      /* the part of the line in this row */
         /* carets and the IME composition */
         for (si = 0; si < nsel; si++) {
             ExSel s = ex_doc_sel(e->doc, si);
             float cx;
-            if (s.head < st || s.head > en || !(s.head < nx || line + 1 == nl)) continue;
-            cx = e->vx + (float)pad + (sh ? ex_shaped_x_for_offset(sh, s.head - st, len) : 0.0f);
+            if (s.head < ss) continue;
+            if (lastseg) { if (s.head > en || !(s.head < nx || line + 1 == nl)) continue; }
+            else if (s.head >= se) continue;
+            cx = x0pad + (sh ? ex_shaped_x_for_offset(sh, s.head - st, len) : 0.0f);
             if (si == ex_doc_primary(e->doc) && e->composition[0]) {
                 float w = ex_text_draw(r, e->font, e->size, cx, ty, e->composition, strlen(e->composition), comp_c);
                 ex_fill_rect(r, cx, y + (float)lh - (float)ex_px(r, 2), w, (float)ex_px(r, 1), comp_c);
@@ -1690,6 +2024,7 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
         }
         free(txt);
     }
+    wl_free(&wl);
     ex_set_clip(r, (int)e->vx, (int)e->vy, (int)e->vw, (int)e->vh);
     if (e->link_fn && e->link_open) {                                   /* the link suggestions under the caret */
         size_t count = e->link_n, k;

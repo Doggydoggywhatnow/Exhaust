@@ -71,6 +71,7 @@ int main(void) {
     ed = ex_widget_editor(ui, doc, "note");
     ed->width = ex_size_grow(); ed->height = ex_size_grow();
     ex_editor_set_mode(ed->editor, EX_EDITOR_LIVE);
+    ex_editor_set_wrap(ed->editor, 1);                         /* as the note editors are: long lines wrap */
     ex_widget_add(root, ed);
     ex_ui_set_focus(ui, ed);
     ex_ui_layout(ui, root, 1000, 700);

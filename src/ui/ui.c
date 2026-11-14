@@ -795,5 +795,6 @@ void ex_ui_key(ExUi *ui, ExKey key, int mods) {
 
 void ex_ui_text_input(ExUi *ui, const char *utf8, size_t len) {
     ExWidget *f = ui->focus;
+    if (f && f->on_text && f->on_text(f, utf8, len, f->on_text_user)) return;
     if (f && f->type == EX_WIDGET_EDITOR) { ui->tab_leaves_editor = 0; ex_editor_text_input(f->editor, utf8, len); }
 }

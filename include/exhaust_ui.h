@@ -92,6 +92,10 @@ struct ExWidget {
      * it for Enter and Escape). */
     int (*on_key)(ExWidget *w, ExKey key, int mods, void *user);
     void *on_key_user;
+    /* Text filter: called with typed text before an editor takes it; returns 1 if it handled the text itself (the title field
+     * refuses the characters a file name cannot have). */
+    int (*on_text)(ExWidget *w, const char *utf8, size_t len, void *user);
+    void *on_text_user;
     uint32_t tag;                 /* for the application: the pane or tab id a widget stands for */
     int selected;                 /* drawn as the current item (an active tab) */
     void *owned;                  /* anything the widget owns besides itself; freed with it */

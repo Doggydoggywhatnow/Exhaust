@@ -67,6 +67,7 @@ typedef struct App {
     ExWidget *rb_switcher, *rb_graph, *rb_canvas, *rb_palette, *rb_mode, *rb_left, *rb_right, *rb_theme;   /* the ribbon */
     char title_for[512];           /* the path the title shows */
     int title_was_focused;
+    Uint64 title_warn_until;       /* the bubble under the title that names the characters a file name cannot have */
     ExSlashMenu *slash;
     ExSpell *spell;
     ExWidget *wordcount;          /* the word count at the right of the status line */
@@ -126,6 +127,18 @@ static void relayout_and_draw(App *a) {
         ExWidget *ov = ex_panels_overlay(a->panels);
         ex_ui_layout(a->ui, ov, (float)w, (float)h);
         ex_ui_draw(a->ui, ov, a->blink_on);
+    }
+    if (a->title && !a->title->hidden && SDL_GetTicks() < a->title_warn_until) {        /* the bubble under the title */
+        static const char msg[] = "File name cannot contain any of these characters: \\ / : # ^ [ ] |";
+        ExFont *f = ex_ui_font(a->ui, EX_FONT_TOKEN_INTERFACE, 0);
+        float tw = ex_text_measure(a->r, f, 16.0f * 0.9f, msg, strlen(msg)), pad = (float)ex_px(a->r, 12);
+        ExFontMetrics fm;
+        if (ex_text_metrics(a->r, f, 16.0f * 0.9f, &fm) == 0) {
+            float bx = a->title->x + (float)ex_px(a->r, 24), by = a->title->y + a->title->h + (float)ex_px(a->r, 6), bw = tw + 2 * pad, bh = (float)fm.line_height + pad;
+            ex_fill_triangle(a->r, bx + (float)ex_px(a->r, 14), by - (float)ex_px(a->r, 6), bx + (float)ex_px(a->r, 8), by + 1, bx + (float)ex_px(a->r, 20), by + 1, ex_theme_color(&a->theme, EX_COLOR_ERROR));
+            ex_fill_round_rect(a->r, bx, by, bw, bh, (float)ex_px(a->r, 8), ex_theme_color(&a->theme, EX_COLOR_ERROR));
+            ex_text_draw(a->r, f, 16.0f * 0.9f, bx + pad, by + pad / 2, msg, strlen(msg), ex_theme_color(&a->theme, EX_COLOR_BACKGROUND));
+        }
     }
     {   /* a developer's aid: EXHAUST_SHOT=file.ppm writes the sixth frame to the file and ends the program */
         static int frames_drawn;
@@ -424,6 +437,7 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
     }
     ed = ex_widget_editor(a->ui, ex_note_doc(n), t->path);
     if (!ed) return NULL;
+    ex_editor_set_wrap(ed->editor, 1);                                          /* long lines continue on the next row, at the width of the editor */
     ex_editor_set_state(ed->editor, t->cursor_line, t->cursor_column, t->scroll_y);
     ex_editor_set_mode(ed->editor, editor_mode_for(t->mode));
     if (!note_for_tab(a, t->id)) remember_tab_note(a, t->id, n);
@@ -951,6 +965,25 @@ static void title_commit(App *a, int keep_focus) {
     if (keep_focus && a->editor) ex_ui_set_focus(a->ui, a->editor);
 }
 
+#define NAME_FORBIDDEN "\\/:#^[]|"
+
+/* The title is a file name: the characters a name cannot have are not typed (a bubble says which), the rest of a paste goes in. */
+static int title_text(ExWidget *w, const char *utf8, size_t len, void *user) {
+    App *a = user;
+    char clean[512];
+    size_t i, o = 0;
+    int dropped = 0;
+    for (i = 0; i < len && o + 1 < sizeof clean; i++) {
+        unsigned char c = (unsigned char)utf8[i];
+        if (c < 0x20 || c == 0x7f || (c < 0x80 && strchr(NAME_FORBIDDEN, c))) { dropped = 1; continue; }
+        clean[o++] = (char)c;
+    }
+    if (!dropped) return 0;
+    if (o) ex_editor_text_input(w->editor, clean, o);
+    a->title_warn_until = SDL_GetTicks() + 3000;
+    return 1;
+}
+
 static int title_key(ExWidget *w, ExKey key, int mods, void *user) {
     App *a = user;
     (void)w; (void)mods;
@@ -977,6 +1010,11 @@ static void sync_title(App *a) {
     if (!a->title) return;
     a->title->hidden = !show;
     if (!show) { a->title_for[0] = 0; return; }
+    {   /* the field is as tall as the rows of the title (one frame behind the width: it is measured at the width of the last layout) */
+        float h = ex_editor_content_height(a->title->editor, a->r), scale = ex_renderer_scale(a->r), one = (float)ex_px(a->r, 56);
+        if (h < one) h = one;
+        a->title->height = ex_size_px(a->ui, (h + (float)ex_px(a->r, 8)) / (scale > 0 ? scale : 1.0f));
+    }
     if (strcmp(a->title_for, tab->path) || a->title_for[0] == 0) {
         snprintf(a->title_for, sizeof a->title_for, "%s", tab->path);
         title_revert(a);
@@ -1666,9 +1704,11 @@ int main(int argc, char **argv) {
     app.title = app.title_doc ? ex_widget_editor(app.ui, app.title_doc, "Note title") : NULL;
     if (app.title) {                                                           /* the inline title: large and bold, one line, no frame */
         ex_editor_set_mode(app.title->editor, EX_EDITOR_PLAIN);
+        ex_editor_set_wrap(app.title->editor, 1);                              /* a long title continues on the next row and the field grows */
         app.title->text_scale = 2.0f; app.title->bold = 1;
         app.title->width = ex_size_grow(); app.title->height = ex_size_token(EX_SIZE_SPACING, 7.0f);
         app.title->on_key = title_key; app.title->on_key_user = &app;
+        app.title->on_text = title_text; app.title->on_text_user = &app;
         app.title->hidden = 1;
         ex_panes_set_header(app.panes, app.title);                              /* between the tab strip and the text, as in Obsidian */
     }
@@ -1835,8 +1875,9 @@ int main(int argc, char **argv) {
             if (app.session) ex_session_tick(app.session, app.ws, (int64_t)SDL_GetTicks());
         }
         if (app.panels) ex_panels_update(app.panels);
-        if (redraw || (app.panels && ex_panels_overlay(app.panels)) || ex_ws_revision(app.ws) != g_drawn_revision) {
+        if (redraw || app.title_warn_until || (app.panels && ex_panels_overlay(app.panels)) || ex_ws_revision(app.ws) != g_drawn_revision) {
             g_drawn_revision = ex_ws_revision(app.ws);
+            if (app.title_warn_until && SDL_GetTicks() >= app.title_warn_until) app.title_warn_until = 0;     /* drawn once more without the bubble */
             relayout_and_draw(&app);
         }
         if (app.editor && app.editor->editor) {

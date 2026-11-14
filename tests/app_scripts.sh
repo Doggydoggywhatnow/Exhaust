@@ -54,6 +54,19 @@ wait 1500
 quit' Home.md
 check "the title renames the note when it loses the focus" "$work/title_blur/Home Three.md" "$work/title_blur/Home.md"
 
+# the title refuses the characters a file name cannot have: typing "a/b:c" gives "abc"
+run title_chars 'wait 800
+move 420 67
+down 420 67
+up 420 67
+wait 200
+text :x/y#z
+wait 200
+key enter
+wait 1500
+quit' Home.md
+check "the title does not take the characters a file name cannot have" "$work/title_chars/Homexyz.md" "$work/title_chars/Home.md"
+
 # dragging a note onto a folder
 run drag_in 'wait 800
 move 100 112
