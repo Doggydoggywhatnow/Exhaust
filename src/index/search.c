@@ -449,6 +449,32 @@ static int term_in(const Node *n, const char *s, size_t len) {
     return find_in(n->find, s, len);
 }
 
+/* Does one stored value of the property satisfy the filter? (The same test for the candidates and for the evaluation.) */
+static int prop_match(const Node *n, const char *v) {
+    if (n->pop == P_EXISTS) return 1;
+    if (n->pop == P_NULL) return v[0] == 0;
+    if (n->pop == P_EQ) {
+        const char *s = v;
+        for (;;) {
+            const char *e = strchr(s, '\n');
+            size_t l = e ? (size_t)(e - s) : strlen(s);
+            char *k = ex_name_key(s, l);
+            int eq = k && n->pvkey && !strcmp(k, n->pvkey);
+            free(k);
+            if (eq) return 1;
+            if (!e) return 0;
+            s = e + 1;
+        }
+    } else {
+        char *e1, *e2;
+        double a = strtod(v, &e1), b = strtod(n->pvalue, &e2);
+        int cmp;
+        if (v[0] && n->pvalue[0] && *e1 == 0 && *e2 == 0) cmp = a < b ? -1 : a > b;
+        else cmp = strcmp(v, n->pvalue);
+        return n->pop == P_GT ? cmp > 0 : n->pop == P_GE ? cmp >= 0 : n->pop == P_LT ? cmp < 0 : cmp <= 0;
+    }
+}
+
 static int prop_eval(Node *n, Ctx *c) {
     int ok = 0;
     sqlite3_reset(c->prop_st);
@@ -456,28 +482,7 @@ static int prop_eval(Node *n, Ctx *c) {
     sqlite3_bind_text(c->prop_st, 2, n->pkey, -1, SQLITE_STATIC);
     while (!ok && sqlite3_step(c->prop_st) == SQLITE_ROW) {
         const char *v = (const char *)sqlite3_column_text(c->prop_st, 0);
-        if (!v) v = "";
-        if (n->pop == P_EXISTS) ok = 1;
-        else if (n->pop == P_NULL) ok = v[0] == 0;
-        else if (n->pop == P_EQ) {
-            const char *s = v;
-            for (;;) {
-                const char *e = strchr(s, '\n');
-                size_t l = e ? (size_t)(e - s) : strlen(s);
-                char *k = ex_name_key(s, l);
-                if (k && n->pvkey && !strcmp(k, n->pvkey)) ok = 1;
-                free(k);
-                if (ok || !e) break;
-                s = e + 1;
-            }
-        } else {
-            char *e1, *e2;
-            double a = strtod(v, &e1), b = strtod(n->pvalue, &e2);
-            int cmp;
-            if (v[0] && n->pvalue[0] && *e1 == 0 && *e2 == 0) cmp = a < b ? -1 : a > b;
-            else cmp = strcmp(v, n->pvalue);
-            ok = n->pop == P_GT ? cmp > 0 : n->pop == P_GE ? cmp >= 0 : n->pop == P_LT ? cmp < 0 : cmp <= 0;
-        }
+        ok = prop_match(n, v ? v : "");
     }
     sqlite3_reset(c->prop_st);
     return ok;
@@ -680,6 +685,21 @@ static Ids candidates(Node *n, ExIndex *r, const Notes *notes) {
     case N_TAG:
         return sql_ids(r, "SELECT DISTINCT file_id FROM tags WHERE tag_key = ?1 OR substr(tag_key, 1, length(?1) + 1) = ?1 || '/' ORDER BY file_id", n->pkey);
     case N_PROP:
+        if (n->pop != P_EXISTS) {              /* exactly the notes whose value passes: the others are never read */
+            sqlite3_stmt *st = ex_db_prepare(r, "SELECT file_id, value FROM props WHERE name_key = ?1 ORDER BY file_id");
+            size_t cap = 0;
+            if (!st) { s.all = 1; return s; }
+            sqlite3_bind_text(st, 1, n->pkey, -1, SQLITE_STATIC);
+            while (sqlite3_step(st) == SQLITE_ROW) {
+                const char *v = (const char *)sqlite3_column_text(st, 1);
+                int64_t id = sqlite3_column_int64(st, 0);
+                if (!prop_match(n, v ? v : "") || (s.n && s.v[s.n - 1] == id)) continue;
+                if (s.n == cap) { size_t nc = cap ? cap * 2 : 64; int64_t *nv = realloc(s.v, nc * sizeof *nv); if (!nv) break; s.v = nv; cap = nc; }
+                s.v[s.n++] = id;
+            }
+            sqlite3_finalize(st);
+            return s;
+        }
         return sql_ids(r, "SELECT DISTINCT file_id FROM props WHERE name_key = ?1 ORDER BY file_id", n->pkey);
     default: s.all = 1; return s;
     }

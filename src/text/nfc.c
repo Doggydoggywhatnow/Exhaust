@@ -154,7 +154,17 @@ char *ex_nfc(const char *s, size_t len) {
 }
 
 char *ex_name_key(const char *s, size_t len) {
-    char *a = ex_nfc(s, len), *out;
+    char *a, *out;
+    size_t k;
+    for (k = 0; k < len && (unsigned char)s[k] < 0x80; k++) {}
+    if (k == len) {                                   /* ASCII only: already normalized, and folding is lower-casing */
+        out = malloc(len + 1);
+        if (!out) return NULL;
+        for (k = 0; k < len; k++) out[k] = s[k] >= 'A' && s[k] <= 'Z' ? (char)(s[k] + 32) : s[k];
+        out[len] = 0;
+        return out;
+    }
+    a = ex_nfc(s, len);
     Buf in = {0}, f = {0};
     size_t i;
     if (!a) return NULL;
