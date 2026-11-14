@@ -9,6 +9,7 @@
 #include "exhaust_render.h"
 #include "exhaust_fontdb.h"
 #include "exhaust_shape.h"
+#include "exhaust_text.h"
 
 #define BATCH_GLYPHS 128
 
@@ -345,6 +346,34 @@ float ex_text_measure(ExRenderer *r, ExFont *font, float size, const char *utf8,
     ExColor unused; /* measuring draws nothing, so the color is never read */
     memset(&unused, 0, sizeof unused);
     return layout(r, font, size, 0, 0, utf8, len, unused, 0);
+}
+
+size_t ex_text_fit(ExRenderer *r, ExFont *font, float size, const char *utf8, size_t len, float max_w, char *out, size_t cap) {
+    static const char ell[] = "\xE2\x80\xA6";
+    size_t starts[1025], n = 0, pos = 0, lo, hi, best = 0;
+    char tmp[1100];
+    int found = 0;
+    if (!out || cap == 0) return 0;
+    out[0] = 0;
+    if (!utf8 || len == 0 || max_w <= 0.0f) return 0;
+    if (len + 1 <= cap && ex_text_measure(r, font, size, utf8, len) <= max_w) { memcpy(out, utf8, len); out[len] = 0; return len; }
+    if (cap < 4) return 0;
+    while (pos < len && n < 1024) { starts[n++] = pos; pos = ex_grapheme_next(utf8, len, pos); if (pos <= starts[n - 1]) break; }
+    starts[n] = pos < len ? pos : len;
+    /* the longest prefix of k clusters (k = 0..n) whose text plus the ellipsis fits the width and the buffer */
+    lo = 0; hi = n;
+    while (lo <= hi) {
+        size_t mid = lo + (hi - lo) / 2, cut = mid < n ? starts[mid] : starts[n];
+        int ok = cut + 3 + 1 <= cap && cut + 3 <= sizeof tmp;
+        if (ok) {
+            memcpy(tmp, utf8, cut); memcpy(tmp + cut, ell, 3);
+            ok = ex_text_measure(r, font, size, tmp, cut + 3) <= max_w;
+        }
+        if (ok) { best = cut; found = 1; lo = mid + 1; } else { if (mid == 0) break; hi = mid - 1; }
+    }
+    if (!found) return 0;
+    memcpy(out, utf8, best); memcpy(out + best, ell, 3); out[best + 3] = 0;
+    return best + 3;
 }
 
 int ex_text_metrics(ExRenderer *r, ExFont *font, float size, ExFontMetrics *out) {

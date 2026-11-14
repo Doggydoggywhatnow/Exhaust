@@ -661,5 +661,11 @@ add_test(NAME renderer_smoke
 set_tests_properties(renderer_smoke PROPERTIES
   ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
 
+add_executable(test_text_fit tests/test_text_fit.c)
+target_link_libraries(test_text_fit PRIVATE exhaust_render)
+add_test(NAME text_fit COMMAND test_text_fit)
+set_tests_properties(text_fit PROPERTIES
+  ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
+
 # Timing tests must not compete with other tests for the processor.
 set_tests_properties(search_perf ui_not_blocked index_cold frame_budget PROPERTIES RUN_SERIAL TRUE)

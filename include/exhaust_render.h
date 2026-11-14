@@ -81,6 +81,10 @@ uint8_t *ex_renderer_read_rgb(ExRenderer *r, int *w, int *h);
 float ex_text_draw(ExRenderer *r, ExFont *font, float size, float x, float y,
                    const char *utf8, size_t len, ExColor color);
 float ex_text_measure(ExRenderer *r, ExFont *font, float size, const char *utf8, size_t len);
+/* Fits text into max_w pixels: all of it when it fits, else the longest start of it (cut between grapheme clusters) followed by an
+ * ellipsis (U+2026) that fits. Writes a NUL-terminated string of at most cap bytes to out and returns its length (an empty string when
+ * not even the ellipsis fits). Used wherever a name may be longer than the room it has (rows of lists, the tree, popups). */
+size_t ex_text_fit(ExRenderer *r, ExFont *font, float size, const char *utf8, size_t len, float max_w, char *out, size_t cap);
 int ex_text_metrics(ExRenderer *r, ExFont *font, float size, ExFontMetrics *out);
 
 void ex_atlas_stats(const ExRenderer *r, ExAtlasStats *out);

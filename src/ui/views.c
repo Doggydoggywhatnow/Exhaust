@@ -593,7 +593,7 @@ void views_build(ExPanels *p) {
     v->root = vbox(p, "Backlinks");
     {
         ExWidget *row = hbox(p, "Backlink options");
-        row->pad_x = 0; row->pad_y = 0.25f; row->align_y = 1;
+        row->pad_x = 0.75f; row->pad_y = 0.25f; row->align_y = 1;      /* the Unlinked button was flush with the window edge and looked cut off (ISSUES 10) */
         v->summary = summary_label(p, "");
         ex_widget_add(row, v->summary);
         v->extra = small(make_button(p, "Unlinked", "Show unlinked mentions", on_b_unlinked));

@@ -162,13 +162,19 @@ void ex_list_draw(ExUi *ui, ExWidget *w) {
             ex_text_draw(r, f, size * 0.85f, ax + (float)ex_px(r, 5), cy - (float)m.line_height * 0.85f / 2.0f, row->action, strlen(row->action), muted);
             right = ax - (float)ex_px(r, 6);
         }
-        if (row->detail) {
-            float dw = ex_text_measure(r, f, size * 0.85f, row->detail, strlen(row->detail));
-            ex_text_draw(r, f, size * 0.85f, right - dw, cy - (float)m.line_height * 0.85f / 2.0f, row->detail, strlen(row->detail), muted);
+        if (row->detail) {                                          /* the detail never takes more than 45% of the row; the rest is "..." */
+            char fitted[320];
+            float room = (right - x) * 0.45f, dw;
+            ex_text_fit(r, f, size * 0.85f, row->detail, strlen(row->detail), room > 0 ? room : 0, fitted, sizeof fitted);
+            dw = ex_text_measure(r, f, size * 0.85f, fitted, strlen(fitted));
+            ex_text_draw(r, f, size * 0.85f, right - dw, cy - (float)m.line_height * 0.85f / 2.0f, fitted, strlen(fitted), muted);
             right -= dw + (float)ex_px(r, 8);
         }
-        ex_set_clip(r, (int)w->x, (int)w->y, (int)ceilf(right > w->x ? right - w->x : 0), (int)ceilf(w->h));
-        ex_text_draw(r, row->r.bold ? fb : f, size, x, y + (rh - (float)m.line_height) / 2.0f, row->text, strlen(row->text), c);
+        {                                                           /* a name longer than the room is cut with "..." instead of running under the detail or off the row */
+            char fitted[640];
+            ex_text_fit(r, row->r.bold ? fb : f, size, row->text, strlen(row->text), right - x, fitted, sizeof fitted);
+            ex_text_draw(r, row->r.bold ? fb : f, size, x, y + (rh - (float)m.line_height) / 2.0f, fitted, strlen(fitted), c);
+        }
         ex_set_clip(r, (int)w->x, (int)w->y, (int)ceilf(w->w), (int)ceilf(w->h));
     }
     ex_set_clip(r, 0, 0, -1, -1);

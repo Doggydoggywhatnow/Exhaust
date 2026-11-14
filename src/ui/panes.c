@@ -274,6 +274,12 @@ static ExWidget *build_tab_button(ExPanes *p, const ExTab *t, int active_tab, in
     snprintf(label, sizeof label, "%s%s", t->pinned ? "\xE2\x80\xA2 " : "", title);   /* a bullet marks a pinned tab until icons are drawn */
     b = ex_widget_button(p->ui, label, NULL, NULL);
     if (!b) return NULL;
+    {   /* a tab is never wider than 200 px at 100%: a long name ends in "..." (the accessible name below keeps all of it) */
+        char fitted[340];
+        ExRenderer *r = ex_ui_renderer(p->ui);
+        ex_text_fit(r, ex_ui_font(p->ui, b->font_token, b->bold), ex_ui_base_size(p->ui) * b->text_scale, label, strlen(label), (float)ex_px(r, 200) - 2.0f * (float)ex_px(r, 12), fitted, sizeof fitted);
+        ex_widget_set_text(b, fitted);
+    }
     snprintf(name, sizeof name, "Tab: %s%s%s", title, t->pinned ? " (pinned)" : "", t->stacked ? " (stacked)" : "");
     set_name(b, name);
     b->bg_token = EX_COLOR_BACKGROUND_ALT;

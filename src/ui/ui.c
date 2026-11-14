@@ -486,9 +486,10 @@ static void tree_draw(ExUi *ui, ExWidget *w) {
             ex_icon_draw(r, n->expanded ? EX_ICON_CHEVRON_DOWN : EX_ICON_CHEVRON_RIGHT, x + indent / 2.0f - side / 2.0f, cy - side / 2.0f, side, side, ex_theme_color(t, EX_COLOR_TEXT_MUTED));
         }
         {
-            char label[320];
+            char label[320], fitted[340];
             tree_label(n, label, sizeof label);
-            ex_text_draw(r, f, ui->base_size, x + indent, y + (rh - (float)m.line_height) / 2.0f, label, strlen(label),
+            ex_text_fit(r, f, ui->base_size, label, strlen(label), w->x + w->w - (float)ex_px(r, 8) - (x + indent), fitted, sizeof fitted);     /* a long name ends in "..." */
+            ex_text_draw(r, f, ui->base_size, x + indent, y + (rh - (float)m.line_height) / 2.0f, fitted, strlen(fitted),
                          n->excluded || n->link_loop ? muted : text);
         }
     }

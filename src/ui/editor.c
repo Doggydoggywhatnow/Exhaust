@@ -2041,10 +2041,15 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
         ex_fill_round_rect(r, pxl + 1, py + 1, w - 2, h - 2, (float)ex_px(r, 5), bg);
         if (!count) ex_text_draw(r, e->font, e->size, pxl + (float)ex_px(r, 8), py + (float)ex_px(r, 4) + (rowh - (float)fm.line_height) / 2.0f, "No matching notes", 17, ex_theme_color(t, EX_COLOR_TEXT_FAINT));
         for (k = 0; k < count; k++) {
-            float ry = py + (float)ex_px(r, 4) + rowh * (float)k, dw = e->link_items[k].detail[0] ? ex_text_measure(r, e->font, e->size * 0.85f, e->link_items[k].detail, strlen(e->link_items[k].detail)) : 0;
+            char lab[400], det[200];
+            float ry = py + (float)ex_px(r, 4) + rowh * (float)k, inner = w - 2.0f * (float)ex_px(r, 8), dw, lw;
+            ex_text_fit(r, e->font, e->size * 0.85f, e->link_items[k].detail, strlen(e->link_items[k].detail), inner * 0.4f, det, sizeof det);     /* the detail takes at most 40% of the row */
+            dw = det[0] ? ex_text_measure(r, e->font, e->size * 0.85f, det, strlen(det)) : 0;
+            lw = inner - (dw > 0 ? dw + (float)ex_px(r, 8) : 0);
+            ex_text_fit(r, e->font, e->size, e->link_items[k].label, strlen(e->link_items[k].label), lw, lab, sizeof lab);                      /* a long name ends in "..." inside the popup */
             if (k == e->link_sel) ex_fill_rect(r, pxl + 2, ry, w - 4, rowh, ex_theme_color(t, EX_COLOR_SELECTION));
-            ex_text_draw(r, e->font, e->size, pxl + (float)ex_px(r, 8), ry + (rowh - (float)fm.line_height) / 2.0f, e->link_items[k].label, strlen(e->link_items[k].label), ex_theme_color(t, EX_COLOR_TEXT));
-            if (dw > 0) ex_text_draw(r, e->font, e->size * 0.85f, pxl + w - dw - (float)ex_px(r, 8), ry + (rowh - (float)fm.line_height * 0.85f) / 2.0f, e->link_items[k].detail, strlen(e->link_items[k].detail), ex_theme_color(t, EX_COLOR_TEXT_MUTED));
+            ex_text_draw(r, e->font, e->size, pxl + (float)ex_px(r, 8), ry + (rowh - (float)fm.line_height) / 2.0f, lab, strlen(lab), ex_theme_color(t, EX_COLOR_TEXT));
+            if (dw > 0) ex_text_draw(r, e->font, e->size * 0.85f, pxl + w - dw - (float)ex_px(r, 8), ry + (rowh - (float)fm.line_height * 0.85f) / 2.0f, det, strlen(det), ex_theme_color(t, EX_COLOR_TEXT_MUTED));
         }
     }
     if (e->slash && e->slash_open) {                                    /* the slash menu under the caret */
