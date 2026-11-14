@@ -1,5 +1,5 @@
-/* The explorer sidebar: toolbar, file tree and the vault button (layout of the
- * screenshots; icons come later, for now the buttons carry short labels). */
+/* The explorer sidebar: toolbar (drawn icons; each button keeps its name for screen readers), file tree and the vault
+ * button, in the layout of the screenshots. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +15,8 @@ typedef struct Explorer {
     void *new_user;
     void (*on_vault)(ExWidget *w, void *user);   /* the vault button at the bottom */
     void *vault_user;
+    void (*on_menu)(ExWidget *tree, const char *rel, void *user);   /* the More button */
+    void *menu_user;
 } Explorer;
 
 static void free_explorer(void *p) { free(p); }
@@ -59,6 +61,13 @@ static void new_item(ExWidget *button, void *user, int folder) {
 static void on_vault_button(ExWidget *w, void *u) {
     Explorer *e = u;
     if (e->on_vault) e->on_vault(w, e->vault_user);
+}
+
+static void on_more(ExWidget *w, void *u) {
+    Explorer *e = u;
+    const ExNode *n = ex_tree_selected(e->tree);
+    (void)w;
+    if (e->on_menu) e->on_menu(e->tree, n ? n->rel : "", e->menu_user);
 }
 
 static void on_new_note(ExWidget *w, void *u) { new_item(w, u, 0); }
@@ -108,13 +117,15 @@ ExWidget *ex_explorer_sidebar(ExUi *ui, ExVault *vault, void (*on_open)(ExWidget
     bar->width = ex_size_grow();
     bar->pad_x = 0.5f; bar->pad_y = 0.5f; bar->gap = 0.5f;
     b = ex_widget_button(ui, "New note", on_new_note, e);
-    b->text_scale = 0.8f; b->pad_x = 0.75f; b->pad_y = 0.4f; ex_widget_add(bar, b);
+    ex_widget_set_icon(b, EX_ICON_NEW_NOTE); ex_widget_add(bar, b);
     b = ex_widget_button(ui, "New folder", on_new_folder, e);
-    b->text_scale = 0.8f; b->pad_x = 0.75f; b->pad_y = 0.4f; ex_widget_add(bar, b);
+    ex_widget_set_icon(b, EX_ICON_NEW_FOLDER); ex_widget_add(bar, b);
     b = ex_widget_button(ui, "Sort", on_sort, e);
-    b->text_scale = 0.8f; b->pad_x = 0.75f; b->pad_y = 0.4f; ex_widget_add(bar, b);
+    ex_widget_set_icon(b, EX_ICON_SORT); ex_widget_add(bar, b);
     b = ex_widget_button(ui, "Expand all", on_toggle_all, e);
-    b->text_scale = 0.8f; b->pad_x = 0.75f; b->pad_y = 0.4f; ex_widget_add(bar, b);
+    ex_widget_set_icon(b, EX_ICON_EXPAND); ex_widget_add(bar, b);
+    b = ex_widget_button(ui, "More", on_more, e);
+    ex_widget_set_icon(b, EX_ICON_MORE); ex_widget_add(bar, b);
     ex_widget_add(side, bar);
 
     e->tree = ex_widget_tree(ui, vault, "Files", on_open, user);
@@ -147,4 +158,11 @@ void ex_explorer_set_vault_handler(ExWidget *sidebar, void (*fn)(ExWidget *w, vo
     if (!e) return;
     e->on_vault = fn;
     e->vault_user = user;
+}
+
+void ex_explorer_set_menu_handler(ExWidget *sidebar, void (*fn)(ExWidget *tree, const char *rel, void *user), void *user) {
+    Explorer *e = sidebar ? sidebar->owned : NULL;
+    if (!e) return;
+    e->on_menu = fn;
+    e->menu_user = user;
 }

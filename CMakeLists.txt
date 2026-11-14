@@ -336,7 +336,7 @@ if(EXHAUST_A11Y)
   target_link_libraries(exhaust_a11y PUBLIC accesskit)
 endif()
 
-add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/editor_layout.c src/ui/editor_fold.c src/ui/editor_keys.c src/ui/editor_format.c src/ui/findbar.c src/ui/reading_view.c src/ui/ui.c src/ui/list.c src/ui/service.c src/ui/views.c src/ui/dialogs.c src/ui/panels.c src/ui/panes.c src/ui/vault_screen.c ${THEME_C})
+add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/editor_layout.c src/ui/editor_fold.c src/ui/editor_keys.c src/ui/editor_format.c src/ui/findbar.c src/ui/reading_view.c src/ui/ui.c src/ui/list.c src/ui/icons.c src/ui/service.c src/ui/views.c src/ui/dialogs.c src/ui/panels.c src/ui/fileactions.c src/ui/fileprops.c src/ui/panes.c src/ui/vault_screen.c ${THEME_C})
 target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
 target_link_libraries(exhaust_ui PUBLIC exhaust_nav exhaust_index exhaust_spell exhaust_settings exhaust_find exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace exhaust_markdown clay_impl)
 if(NOT MSVC)

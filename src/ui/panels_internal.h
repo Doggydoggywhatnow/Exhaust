@@ -5,7 +5,7 @@
 #include "exhaust_query.h"
 #include "service.h"
 
-enum { V_FILES, V_SEARCH, V_BOOKMARKS, V_BACKLINKS, V_OUTGOING, V_TAGS, V_PROPS, V_OUTLINE, V_FOOTNOTES, V_COUNT };
+enum { V_FILES, V_SEARCH, V_BOOKMARKS, V_BACKLINKS, V_OUTGOING, V_TAGS, V_PROPS, V_FILEPROPS, V_OUTLINE, V_FOOTNOTES, V_COUNT };
 
 typedef struct View {
     const char *id, *title, *label, *feature;
@@ -53,6 +53,8 @@ struct ExPanels {
     ExWidget *bottom, *bottom_list;
     /* the properties view */
     ExWidget *prop_rename, *prop_type;
+    /* the properties of the open note */
+    ExWidget *fp_add, *fp_edit, *fp_remove, *fp_type;
     /* the bookmarks view */
     ExWidget *bm_remove, *bm_rename;
     /* dialogs */
@@ -116,5 +118,12 @@ void send_job(ExPanels *p, QJob *j);
 void link_update_mode(ExPanels *p);
 void do_rename_flow(ExPanels *p, const char *from, const char *to);
 void panels_open_note(ExPanels *p, const char *path, size_t offset, int new_tab);
+/* fileprops.c */
+void fileprops_on_add(ExWidget *w, void *u);
+void fileprops_on_edit(ExWidget *w, void *u);
+void fileprops_on_remove(ExWidget *w, void *u);
+void fileprops_on_type(ExWidget *w, void *u);
+void panels_move_done(ExPanels *p, const char *folder, void *arg);
+void fileactions_init(ExPanels *p);
 void note_title(const char *path, char *out, size_t cap);
 #endif

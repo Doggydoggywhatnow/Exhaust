@@ -1010,6 +1010,42 @@ static int host_move_file(void *u, const char *from, const char *to) {
     return rc == EX_VAULT_OK ? 0 : -1;
 }
 
+/* The explorer menu's file operations (sub-slice 4d). */
+static int host_file_op(void *u, int what, const char *path, const char *arg) {
+    App *a = u;
+    char *abs;
+    int rc = -1;
+    if (!a->vault) return -1;
+    switch (what) {
+    case EX_FILEOP_DELETE: {
+        size_t i, fl = strlen(path);
+        if (!path[0]) return -1;
+        for (i = ex_ws_tab_count(a->ws); i > 0; i--) {              /* the tabs that show it close; their notes are saved first */
+            const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i - 1));
+            if (t && (!strcmp(t->path, path) || (!strncmp(t->path, path, fl) && t->path[fl] == '/'))) ex_ws_close_tab(a->ws, ex_ws_tab_at(a->ws, i - 1));
+        }
+        ex_panes_update(a->panes);
+        if (a->notes) ex_notes_flush(a->notes);
+        rc = ex_vault_delete(a->vault, path) == EX_VAULT_OK ? 0 : -1;
+        ex_vault_rescan(a->vault);
+        if (rc == 0 && a->panels) ex_panels_file_removed(a->panels, path);
+        break;
+    }
+    case EX_FILEOP_NEW_FOLDER: {
+        char *out = NULL;
+        rc = arg && ex_vault_create_folder(a->vault, path, arg, &out) == EX_VAULT_OK ? 0 : -1;
+        if (rc == 0 && out) ex_tree_select_path(a->tree, out);
+        free(out);
+        break;
+    }
+    case EX_FILEOP_COPY_REL: rc = ex_vault_copy_path(a->vault, path, 0); break;
+    case EX_FILEOP_COPY_ABS: rc = ex_vault_copy_path(a->vault, path, 1); break;
+    case EX_FILEOP_OPEN_DEFAULT: rc = ex_vault_open_default(a->vault, path); break;
+    case EX_FILEOP_SHOW: abs = ex_vault_abs_path(a->vault, path); if (abs) { rc = ex_platform_show_in_file_manager(abs); free(abs); } break;
+    }
+    return rc;
+}
+
 static ExWidget *ribbon_button(App *a, const char *text, const char *name, ExClickFn fn) {
     ExWidget *b = ex_widget_button(a->ui, text, fn, a);
     if (!b) return NULL;
@@ -1318,7 +1354,7 @@ int main(int argc, char **argv) {
         pi.settings = app.settings; pi.features = app.features; pi.commands = app.commands; pi.ws = app.ws; pi.files = left_content;
         pi.host.user = &app;
         pi.host.open_note = host_open_note; pi.host.active_path = host_active_path; pi.host.active_text = host_active_text; pi.host.read_text = host_read_text;
-        pi.host.replace_text = host_replace_text; pi.host.select_range = host_select_range; pi.host.move_file = host_move_file; pi.host.message = host_message;
+        pi.host.replace_text = host_replace_text; pi.host.select_range = host_select_range; pi.host.move_file = host_move_file; pi.host.file_op = host_file_op; pi.host.message = host_message;
         pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
         pi.wake = wake_ui;
         app.panels = ex_panels_create(&pi);
@@ -1452,7 +1488,9 @@ int main(int argc, char **argv) {
                 float density = SDL_GetWindowPixelDensity(ex_renderer_window(app.r));
                 x *= density; y *= density; /* window coordinates to output pixels */
                 ExWidget *input_root = app.panels && ex_panels_modal(app.panels) ? ex_panels_overlay(app.panels) : app.root;
-                if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+                if ((e.type == SDL_EVENT_MOUSE_BUTTON_DOWN || e.type == SDL_EVENT_MOUSE_BUTTON_UP) && e.button.button == SDL_BUTTON_RIGHT) {   /* the context menu of a file or folder */
+                    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && app.panels && input_root == app.root) { ex_panels_pointer(app.panels, app.root, -1, -1, 0); ex_panels_context_menu(app.panels, app.root, x, y); }
+                } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
                     Uint64 now = SDL_GetTicks();
                     clicks = now - last_click < 400 ? clicks + 1 : 1;
                     last_click = now;

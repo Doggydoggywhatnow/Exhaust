@@ -16,6 +16,7 @@ extern "C" {
 #endif
 
 typedef struct ExPanels ExPanels;
+enum { EX_FILEOP_DELETE, EX_FILEOP_NEW_FOLDER, EX_FILEOP_COPY_REL, EX_FILEOP_COPY_ABS, EX_FILEOP_OPEN_DEFAULT, EX_FILEOP_SHOW };
 
 typedef struct ExPanelsHost {
     void *user;
@@ -32,6 +33,9 @@ typedef struct ExPanelsHost {
     void (*message)(void *user, const char *text);                       /* a line in the status bar */
     void (*query_results)(void *user, const char *path, const char *expanded);   /* reading mode: the note with its query blocks replaced by their results */
     void (*flush_notes)(void *user);                                     /* write every open note now */
+    /* what the explorer menu does with a file or folder (EX_FILEOP_*): delete (closes its tabs, by files.trash_mode), new folder (arg is the
+     * name, path the folder), copy the path, open with the default program, show in the file manager. 0 on success. */
+    int (*file_op)(void *user, int op, const char *path, const char *arg);
 } ExPanelsHost;
 
 typedef struct ExPanelsInit {
@@ -76,7 +80,10 @@ void ex_panels_register(ExPanels *p);
 /* Actions the application calls itself. */
 void ex_panels_show(ExPanels *p, const char *panel);                /* "files", "search", "bookmarks", "backlinks", ... */
 void ex_panels_search_for(ExPanels *p, const char *query);          /* opens Search with this text and runs it */
-void ex_panels_rename_file(ExPanels *p, const char *path);          /* asks for the new name, then for the links */
+void ex_panels_rename_file(ExPanels *p, const char *path);
+void ex_panels_move_file_prompt(ExPanels *p, const char *path);    /* asks for the folder, then for the links */
+void ex_panels_file_menu(ExPanels *p, const char *path);           /* the menu of a file or folder ("" the vault), as a dialog */
+int ex_panels_context_menu(ExPanels *p, ExWidget *root, float x, float y);   /* right click on a row of the file explorer */          /* asks for the new name, then for the links */
 /* Reading mode: asks for the note's text with every `query` block replaced by its results; the answer comes through host.query_results. */
 void ex_panels_expand_queries(ExPanels *p, const char *path, const char *text, size_t len);
 void ex_panels_open_switcher(ExPanels *p);

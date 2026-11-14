@@ -106,7 +106,9 @@ int ex_editor_slash_open(const ExEditor *e);
 
 /* Link suggestions (sub-slice 4c): typing "[[" opens a list of notes under the caret; what is typed after it narrows the list
  * (the application's function decides how: names, aliases, "Note#" for headings, "Note#^" for blocks). Up and Down move, Enter
- * or Tab or a click inserts the item and closes the brackets, Escape, "]" or "|" or a line break closes the list. NULL: off. */
+ * or Tab or a click inserts the item and closes the brackets, Escape, "]" or "|" or a line break closes the list. NULL: off.
+ * Typing "](" (after a Markdown link's text) opens the same list for the address: the function is called with the query prefixed by the
+ * character '\x02' and answers with paths from the vault; accepting inserts the path and ")". */
 typedef struct ExLinkSuggestion { char label[160]; char insert[200]; char detail[64]; } ExLinkSuggestion;
 typedef size_t (*ExLinkSuggestFn)(void *user, const char *query, ExLinkSuggestion *out, size_t max);
 void ex_editor_set_link_suggest(ExEditor *e, ExLinkSuggestFn fn, void *user);

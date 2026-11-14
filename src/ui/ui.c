@@ -16,6 +16,7 @@ struct ExUi {
     ExWidget *focus;
     ExWidget *pressed;
     ExWidget *captured;      /* took the press through on_mouse; gets the drag and release */
+    ExWidget *tree_drag;     /* a tree a row of which is being pressed or dragged: gets the drag and release wherever the pointer is */
     uint32_t next_id;
     ExWidget *last_root;
     int clay_errors;
@@ -141,6 +142,15 @@ ExWidget *ex_widget_button(ExUi *ui, const char *text, ExClickFn fn, void *user)
     return w;
 }
 
+void ex_widget_set_icon(ExWidget *b, int icon) {
+    if (!b) return;
+    b->icon = icon;
+    b->width = ex_size_token(EX_SIZE_SPACING, 3.0f);
+    b->height = ex_size_token(EX_SIZE_SPACING, 3.0f);
+    b->pad_x = b->pad_y = 0;
+    if (icon) { char *e = dup_str(""); if (e) { free(b->text); b->text = e; } }
+}
+
 ExWidget *ex_widget_editor(ExUi *ui, ExDoc *doc, const char *name) {
     ExWidget *w = new_widget(ui, EX_WIDGET_EDITOR, EX_ROLE_TEXT_INPUT, name);
     if (!w) return NULL;
@@ -217,6 +227,7 @@ ExWidget *ex_widget_tree(ExUi *ui, ExVault *vault, const char *name,
     ExWidget *w = new_widget(ui, EX_WIDGET_TREE, EX_ROLE_TREE, name);
     if (!w) return NULL;
     w->vault = vault;
+    w->tree_drag_row = -1; w->tree_drop_row = -1;
     w->on_tree_open = on_open;
     w->on_tree_open_user = user;
     w->width = ex_size_grow();
@@ -325,6 +336,74 @@ static void tree_key(ExUi *ui, ExWidget *w, ExKey key) {
     tree_ensure_visible(ui, w);
 }
 
+static long tree_row_at(ExUi *ui, const ExWidget *w, float y) {
+    float rh = tree_row_h(ui, w);
+    long row = (long)((y - w->y + w->tree_scroll) / rh);
+    if (y < w->y || row < 0 || !w->vault || (size_t)row >= ex_vault_row_count(w->vault)) return -1;
+    return row;
+}
+
+const ExNode *ex_tree_node_at(ExUi *ui, ExWidget *w, float y, int select) {
+    long row = tree_row_at(ui, w, y);
+    if (row < 0) return NULL;
+    if (select) w->tree_selected = (size_t)row;
+    return ex_vault_row(w->vault, (size_t)row, NULL);
+}
+
+void ex_tree_set_drop_handler(ExWidget *w, void (*fn)(ExWidget *, const char *, const char *, void *), void *user) {
+    w->on_tree_drop = fn;
+    w->on_tree_drop_user = user;
+}
+
+/* The folder a row dragged to the row `over` would go into: that folder, or the folder of the file; "" for the empty area. NULL: nowhere. */
+static const char *drop_folder(ExWidget *w, long over) {
+    const ExNode *from = w->tree_drag_row >= 0 ? ex_vault_row(w->vault, (size_t)w->tree_drag_row, NULL) : NULL, *n;
+    const char *dest;
+    size_t fl;
+    if (!from) return NULL;
+    if (over < 0) dest = "";
+    else {
+        n = ex_vault_row(w->vault, (size_t)over, NULL);
+        if (!n) return NULL;
+        dest = n->is_dir ? n->rel : (n->parent ? n->parent->rel : "");
+    }
+    fl = strlen(from->rel);
+    if (!strcmp(dest, from->rel)) return NULL;                                        /* onto itself */
+    if (from->is_dir && !strncmp(dest, from->rel, fl) && dest[fl] == '/') return NULL; /* into its own folder */
+    {
+        const char *slash = strrchr(from->rel, '/');
+        size_t pl = slash ? (size_t)(slash - from->rel) : 0;
+        if (strlen(dest) == pl && !strncmp(dest, from->rel, pl)) return NULL;          /* already there */
+    }
+    return dest;
+}
+
+static void tree_drag_event(ExUi *ui, ExWidget *w, ExMouse kind, float x, float y) {
+    long over;
+    if (!w->vault || w->tree_drag_row < 0) { ui->tree_drag = NULL; return; }
+    over = tree_row_at(ui, w, y);
+    if (x < w->x || x > w->x + w->w || y > w->y + w->h || y < w->y) over = -2;     /* outside the tree: no drop */
+    if (kind == EX_MOUSE_DRAG) {
+        float dx = x - w->tree_drag_x, dy = y - w->tree_drag_y;
+        if (!w->tree_dragging && dx * dx + dy * dy > (float)(ex_px(ui->r, 6) * ex_px(ui->r, 6))) w->tree_dragging = 1;
+        w->tree_drop_row = -1;
+        if (w->tree_dragging && over != -2 && drop_folder(w, over)) w->tree_drop_row = over < 0 ? -3 : over;   /* -3: the vault folder */
+        return;
+    }
+    /* release */
+    if (w->tree_dragging && over != -2 && w->on_tree_drop) {
+        const char *dest = drop_folder(w, over);
+        const ExNode *from = ex_vault_row(w->vault, (size_t)w->tree_drag_row, NULL);
+        if (dest && from) {
+            char *src = dup_str(from->rel), *dst = dup_str(dest);
+            if (src && dst) w->on_tree_drop(w, src, dst, w->on_tree_drop_user);
+            free(src); free(dst);
+        }
+    }
+    w->tree_dragging = 0; w->tree_drag_row = -1; w->tree_drop_row = -1;
+    ui->tree_drag = NULL;
+}
+
 static void tree_mouse(ExUi *ui, ExWidget *w, ExMouse kind, float x, float y, int clicks) {
     float rh = tree_row_h(ui, w);
     long row;
@@ -343,6 +422,10 @@ static void tree_mouse(ExUi *ui, ExWidget *w, ExMouse kind, float x, float y, in
         tree_activate(w);
     }
     tree_clamp(w);
+    if (w->on_tree_drop && n && n->rel[0]) {                                        /* a press may become a drag */
+        w->tree_drag_row = row; w->tree_drop_row = -1; w->tree_dragging = 0; w->tree_drag_x = x; w->tree_drag_y = y;
+        ui->tree_drag = w;
+    }
 }
 
 static void tree_draw(ExUi *ui, ExWidget *w) {
@@ -364,6 +447,8 @@ static void tree_draw(ExUi *ui, ExWidget *w) {
         float y = w->y + (float)i * rh - w->tree_scroll, x = w->x + pad + (float)depth * indent;
         float cy = y + rh / 2.0f, s = (float)ex_px(r, 3);
         if (!n) break;
+        if (w->tree_dragging && (long)i == w->tree_drop_row)
+            ex_stroke_round_rect(r, w->x + (float)ex_px(r, 2), y, w->w - (float)ex_px(r, 4), rh, (float)ex_px(r, ex_theme_size(t, EX_SIZE_RADIUS)), (float)ex_px(r, 1) + 1.0f, ex_theme_color(t, EX_COLOR_ACCENT));
         if (i == w->tree_selected) {
             ExColor sel = ex_theme_color(t, ui->focus == w ? EX_COLOR_SELECTION : EX_COLOR_SURFACE_HOVER);
             ex_fill_round_rect(r, w->x + (float)ex_px(r, 2), y, w->w - (float)ex_px(r, 4), rh, (float)ex_px(r, ex_theme_size(t, EX_SIZE_RADIUS)), sel);
@@ -534,6 +619,10 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
             ex_text_draw(r, f, size, x, y, w->text, strlen(w->text), ex_theme_color(t, (ExColorToken)w->text_token));
         }
     }
+    if (w->type == EX_WIDGET_BUTTON && w->icon) {
+        float pad = w->w * 0.2f;
+        ex_icon_draw(r, w->icon, w->x + pad, w->y + pad, w->w - 2 * pad, w->h - 2 * pad, ex_theme_color(t, (ExColorToken)(w->pressed ? EX_COLOR_BACKGROUND : w->text_token >= 0 ? w->text_token : EX_COLOR_TEXT)));
+    }
     if (w->type == EX_WIDGET_EDITOR && w->editor) {
         ex_editor_draw(w->editor, r, t, ui->focus == w, blink_on);
     }
@@ -579,6 +668,7 @@ void ex_ui_release(ExUi *ui, ExWidget *subtree) {
     if (ui->focus && inside(subtree, ui->focus)) ui->focus = NULL;
     if (ui->pressed && inside(subtree, ui->pressed)) ui->pressed = NULL;
     if (ui->captured && inside(subtree, ui->captured)) ui->captured = NULL;
+    if (ui->tree_drag && inside(subtree, ui->tree_drag)) ui->tree_drag = NULL;
     if (ui->last_root && inside(subtree, ui->last_root)) ui->last_root = NULL;
 }
 
@@ -591,7 +681,9 @@ int ex_ui_drop(ExUi *ui, ExWidget *root, int is_file, const char *data, float x,
 }
 
 void ex_ui_mouse(ExUi *ui, ExWidget *root, ExMouse kind, float x, float y, int mods, int clicks) {
-    ExWidget *hit = ex_ui_widget_at(root, x, y), *target = hit, *hook;
+    ExWidget *hit, *target, *hook;
+    if (ui->tree_drag && kind != EX_MOUSE_DOWN) { tree_drag_event(ui, ui->tree_drag, kind, x, y); return; }
+    hit = ex_ui_widget_at(root, x, y); target = hit;
     if (kind == EX_MOUSE_DOWN) {
         ui->captured = NULL;
         for (hook = hit; hook; hook = hook->parent)

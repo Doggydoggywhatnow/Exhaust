@@ -54,6 +54,7 @@ struct ExWidget {
     int font_token;               /* ExFontToken */
     float text_scale;             /* times the base text size (1.0) */
     int bold;
+    int icon;                     /* ExIcon: a button drawn as a picture (its name stays the accessible name) */
 
     /* behaviour */
     int focusable;
@@ -68,6 +69,12 @@ struct ExWidget {
     float tree_scroll;            /* pixels */
     void (*on_tree_open)(ExWidget *w, const char *rel, void *user); /* Enter or double click on a file */
     void *on_tree_open_user;
+    /* Drag a row onto a folder row (or the empty area: the vault folder, to_folder ""): the application moves it. */
+    void (*on_tree_drop)(ExWidget *w, const char *from_rel, const char *to_folder, void *user);
+    void *on_tree_drop_user;
+    long tree_drag_row, tree_drop_row;   /* the row being dragged (-1 none) and the folder row under it (-1 none) */
+    int tree_dragging;
+    float tree_drag_x, tree_drag_y;
     /* Mouse hook: called with press, drag and release for a press that started on this widget or a
      * descendant that has no hook of its own. `under` is the widget below the pointer. Returning
      * non-zero on the press takes it: the widget then gets the drag and the release too, and the
@@ -105,6 +112,13 @@ ExFont *ex_ui_font(ExUi *ui, int font_token, int bold);
 ExWidget *ex_widget_box(ExUi *ui, int vertical, const char *name);
 ExWidget *ex_widget_label(ExUi *ui, const char *text);
 ExWidget *ex_widget_button(ExUi *ui, const char *text, ExClickFn fn, void *user);
+/* Icons for buttons (sub-slice 4d): drawn in the button's text color; the button keeps its accessible name. */
+typedef enum ExIcon {
+    EX_ICON_NONE, EX_ICON_FILES, EX_ICON_SEARCH, EX_ICON_BOOKMARK, EX_ICON_BACKLINKS, EX_ICON_LINKS, EX_ICON_TAGS, EX_ICON_PROPERTIES,
+    EX_ICON_FILE_PROPERTIES, EX_ICON_OUTLINE, EX_ICON_FOOTNOTES, EX_ICON_NEW_NOTE, EX_ICON_NEW_FOLDER, EX_ICON_SORT, EX_ICON_EXPAND, EX_ICON_MORE
+} ExIcon;
+void ex_widget_set_icon(ExWidget *button, int icon);                 /* a square button of the theme's spacing: 3 units */
+void ex_icon_draw(ExRenderer *r, int icon, float x, float y, float w, float h, ExColor c);
 ExWidget *ex_widget_editor(ExUi *ui, ExDoc *doc, const char *name);
 /* Reading mode: the note's text drawn as formatted pages to the width of the widget (read only, scrolls, follows links
  * and folds callouts). The text is copied; use ex_reading_set_text to show another or a changed one. */
@@ -122,6 +136,9 @@ ExWidget *ex_widget_tree(ExUi *ui, ExVault *vault, const char *name,
                          void (*on_open)(ExWidget *w, const char *rel, void *user), void *user);
 void ex_tree_select_path(ExWidget *tree, const char *rel);          /* reveals and selects */
 const ExNode *ex_tree_selected(ExWidget *tree);
+/* The row under a window position (and the node of it) or NULL; selects it when select is set. For the context menu. */
+const ExNode *ex_tree_node_at(ExUi *ui, ExWidget *tree, float y, int select);
+void ex_tree_set_drop_handler(ExWidget *tree, void (*fn)(ExWidget *w, const char *from_rel, const char *to_folder, void *user), void *user);
 /* The explorer sidebar of the screenshots: a toolbar (new note, new folder, expand or
  * collapse all, sort), the tree, and the vault button at the bottom. */
 ExWidget *ex_explorer_sidebar(ExUi *ui, ExVault *vault, void (*on_open)(ExWidget *w, const char *rel, void *user), void *user,
@@ -175,6 +192,8 @@ void ex_widget_insert_before(ExWidget *parent, ExWidget *child, ExWidget *before
 void ex_widget_remove(ExWidget *parent, ExWidget *child);   /* unlinks it; the caller frees it or adds it elsewhere */
 /* The New note button creates no file: it asks the application (which starts a note that is
  * only written once something is typed). Without a handler the button creates an empty file. */
+/* The More button of the toolbar calls this with the selected row's path ("" when nothing is selected). */
+void ex_explorer_set_menu_handler(ExWidget *sidebar, void (*fn)(ExWidget *tree, const char *rel, void *user), void *user);
 void ex_explorer_set_new_note_handler(ExWidget *sidebar, void (*fn)(ExWidget *w, const char *parent_rel, void *user), void *user);
 /* The vault button at the bottom of the explorer calls this (the application opens the vault manager). */
 void ex_explorer_set_vault_handler(ExWidget *sidebar, void (*fn)(ExWidget *w, void *user), void *user);

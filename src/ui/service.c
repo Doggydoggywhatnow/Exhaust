@@ -278,6 +278,24 @@ static void do_outline(QJob *j, QRes *res) {
     res->ok = 1;
 }
 
+/* The properties of the open note, from its text (the buffer), so a change shows at once. */
+static void do_fileprops(QJob *j, QRes *res) {
+    ExExtract *x = ex_extract(j->text ? j->text : "", j->len);
+    size_t i;
+    if (!x) return;
+    for (i = 0; i < x->nprops; i++) {
+        char d[400], *nl;
+        snprintf(d, sizeof d, "%s", x->props[i].value ? x->props[i].value : "");
+        for (nl = d; *nl; nl++) if (*nl == '\n') *nl = ',';
+        qrows_add(&res->rows, x->props[i].name, d, x->props[i].name, 0, EX_GLYPH_NONE, 0, 0, x->props[i].type, x->props[i].start, x->props[i].end);
+    }
+    res->total = x->nprops;
+    if (!x->front_valid && x->front_end > x->front_start) snprintf(res->summary, sizeof res->summary, "The front matter is not valid YAML; it is left alone");
+    else snprintf(res->summary, sizeof res->summary, "%zu propert%s", x->nprops, x->nprops == 1 ? "y" : "ies");
+    ex_extract_free(x);
+    res->ok = 1;
+}
+
 static void do_footnotes(QJob *j, QRes *res) {
     ExFootnote *f = NULL;
     size_t n = 0, i;
@@ -376,6 +394,7 @@ static void service_job(ExWorker *self, const ExMessage *m, void *user) {
     case QJ_PROPS: do_props(s, res); break;
     case QJ_OUTLINE: do_outline(j, res); break;
     case QJ_FOOTNOTES: do_footnotes(j, res); break;
+    case QJ_FILEPROPS: do_fileprops(j, res); break;
     case QJ_PREVIEW: {                       /* a is a note path, or (i1) a link target to resolve from the note in text */
         char *path = NULL;
         if (j->i1) { int64_t id = ex_link_resolve(s->r, j->text ? j->text : "", j->a, EX_LINK_WIKI); path = id ? ex_index_file_path(s->r, id) : NULL; }
@@ -392,7 +411,7 @@ static void service_job(ExWorker *self, const ExMessage *m, void *user) {
     case QJ_EXPAND: do_expand(s, j, res); break;
     default: break;
     }
-    if (j->kind == QJ_OUTLINE || j->kind == QJ_FOOTNOTES) { if (!res->ok) res->ok = 1; }
+    if (j->kind == QJ_OUTLINE || j->kind == QJ_FOOTNOTES || j->kind == QJ_FILEPROPS) { if (!res->ok) res->ok = 1; }
     ex_worker_send(self, EX_MSG_SERVICE, res, sizeof *res, (void (*)(void *))qres_free);
 }
 

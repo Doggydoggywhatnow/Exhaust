@@ -102,6 +102,7 @@ ExPanels *ex_panels_create(const ExPanelsInit *init) {
     p->bookmarks = ex_bookmarks_load(p->root, 1);
     p->saved = ex_saved_queries_load(p->root);
     views_build(p);
+    fileactions_init(p);
     {   /* the panel shown on each side when the vault was closed */
         int side, i;
         for (side = 0; side < 2; side++) {
@@ -378,7 +379,7 @@ void ex_panels_update(ExPanels *p) {
         if (path) ex_panels_note_opened(p, path);
     }
     if (ver != p->text_version) { p->text_version = ver; p->text_seen_at = now; p->text_dirty = 1; }
-    if (p->text_dirty && now - p->text_seen_at >= 300) { p->text_dirty = 0; p->views[V_OUTLINE].stale = p->views[V_FOOTNOTES].stale = 1; }
+    if (p->text_dirty && now - p->text_seen_at >= 300) { p->text_dirty = 0; p->views[V_OUTLINE].stale = p->views[V_FOOTNOTES].stale = p->views[V_FILEPROPS].stale = 1; }
     if (p->index_dirty_at && now - p->index_dirty_at >= 500) {
         p->index_dirty_at = 0;
         mark_index_views_stale(p);
@@ -421,12 +422,23 @@ void ex_panels_pointer(ExPanels *p, ExWidget *root, float x, float y, int ctrl) 
         int i;
         for (i = 0; r && i < V_COUNT; i++) {
             View *v = &p->views[i];
-            if ((w == v->list || w == v->list2) && (i == V_BACKLINKS || i == V_OUTGOING || i == V_BOOKMARKS) && r->key && strstr(r->key, ".md")) {
+            if ((w == v->list) && i == V_OUTLINE && p->cur_path && r->text && r->text[0]) {   /* a heading of the open note */
+                snprintf(target, sizeof target, "\x01%s", p->cur_path);
+                snprintf(heading, sizeof heading, "%s", r->text);
+                need = "ctrl_required_outline";
+                found = 1;
+            } else if ((w == v->list || w == v->list2) && (i == V_BACKLINKS || i == V_OUTGOING || i == V_BOOKMARKS) && r->key && strstr(r->key, ".md")) {
                 snprintf(target, sizeof target, "\x01%s", r->key);
                 need = i == V_BOOKMARKS ? "ctrl_required_bookmarks" : "ctrl_required_links_panels";
                 found = 1;
             }
         }
+    } else if (w && w->type == EX_WIDGET_TREE) {                  /* a note of the file explorer */
+        const ExNode *n = ex_tree_node_at(p->ui, w, y, 0);
+        if (n && !n->is_dir && n->kind == EX_KIND_MARKDOWN) { snprintf(target, sizeof target, "\x01%s", n->rel); need = "ctrl_required_files"; found = 1; }
+    } else if (w && w->type == EX_WIDGET_BUTTON && w->tag && w->on_mouse && p->in.ws) {   /* a tab header */
+        const ExTab *t = ex_ws_tab(p->in.ws, w->tag);
+        if (t && t->path && strstr(t->path, ".md")) { snprintf(target, sizeof target, "\x01%s", t->path); need = "ctrl_required_tab_header"; found = 1; }
     } else if (w && w->type == EX_WIDGET_READING) {
         char t[300];
         if (ex_reading_internal_link_at(w, x, y, t, sizeof t)) {
@@ -468,8 +480,11 @@ static void suggest_fill(ExLinkSuggestion *o, const char *label, const char *ins
 
 size_t ex_panels_suggest_links(void *panels, const char *query, ExLinkSuggestion *out, size_t max) {
     ExPanels *p = panels;
-    const char *hash = strchr(query, '#');
+    const char *hash;
     size_t n = 0, i;
+    int md = query[0] == '\x02';                                    /* typed after "](": a path from the vault, not a name */
+    if (md) query++;
+    hash = md ? NULL : strchr(query, '#');
     if (hash) {                                                       /* Note#Heading, Note#^block, or #Heading in this note */
         char note[300], path[400] = "", *text;
         size_t len = 0, nl = (size_t)(hash - query);
@@ -521,6 +536,18 @@ size_t ex_panels_suggest_links(void *panels, const char *query, ExLinkSuggestion
             char title[300], ins[620], detail[420];
             const char *slash = strrchr(it[i].path, '/');
             note_title(it[i].path, title, sizeof title);
+            if (md) {                                                 /* [text](Folder/Note.md): spaces and brackets are written %20 and so on */
+                const char *q;
+                size_t o = 0;
+                if (it[i].via_alias) continue;
+                for (q = it[i].path; *q && o + 4 < sizeof ins; q++) {
+                    if (*q == ' ' || *q == '(' || *q == ')' || *q == '%' || *q == '<' || *q == '>') o += (size_t)snprintf(ins + o, sizeof ins - o, "%%%02X", (unsigned char)*q);
+                    else ins[o++] = *q;
+                }
+                ins[o] = 0;
+                suggest_fill(&out[n++], it[i].is_note ? title : it[i].path, ins, slash ? it[i].path : "");
+                continue;
+            }
             if (!it[i].is_note) snprintf(ins, sizeof ins, "%s", slash ? slash + 1 : it[i].path);
             else if (it[i].via_alias) snprintf(ins, sizeof ins, "%s|%s", title, it[i].label);
             else snprintf(ins, sizeof ins, "%s", title);
@@ -544,6 +571,7 @@ static void cmd_show_outgoing(void *u) { views_show(u, V_OUTGOING); }
 static void cmd_show_tags(void *u) { views_show(u, V_TAGS); }
 static void cmd_show_props(void *u) { views_show(u, V_PROPS); }
 static void cmd_show_outline(void *u) { views_show(u, V_OUTLINE); }
+static void cmd_show_fileprops(void *u) { views_show(u, V_FILEPROPS); }
 static void cmd_show_footnotes(void *u) { views_show(u, V_FOOTNOTES); }
 static int has_note(void *u) { return ((ExPanels *)u)->cur_path != NULL; }
 static int has_index(void *u) { return ((ExPanels *)u)->index_ready; }
@@ -574,7 +602,7 @@ static void cmd_rename(void *u) {
     else if (p->cur_path) ex_panels_rename_file(p, p->cur_path);
 }
 
-static void move_done(ExPanels *p, const char *folder, void *arg) {
+void panels_move_done(ExPanels *p, const char *folder, void *arg) {
     char to[600], *slash;
     const char *from = arg, *base;
     slash = strrchr(from, '/');
@@ -591,6 +619,15 @@ static void move_done(ExPanels *p, const char *folder, void *arg) {
     }
 }
 
+void ex_panels_move_file_prompt(ExPanels *p, const char *path) {
+    char initial[512] = "";
+    const char *slash = strrchr(path, '/');
+    free(p->dialog_arg_text);
+    p->dialog_arg_text = dup_s(path);
+    if (slash) snprintf(initial, sizeof initial, "%.*s", (int)(slash - path), path);
+    dialog_prompt(p, "Move to folder", "Folder (from the vault; empty for the top)", initial, panels_move_done, p->dialog_arg_text);
+}
+
 static void cmd_move(void *u) {
     ExPanels *p = u;
     char *slash;
@@ -601,7 +638,7 @@ static void cmd_move(void *u) {
     {
         char initial[512] = "";
         if (slash) snprintf(initial, sizeof initial, "%.*s", (int)(slash - p->cur_path), p->cur_path);
-        dialog_prompt(p, "Move current file", "Folder (from the vault; empty for the top)", initial, move_done, p->dialog_arg_text);
+        dialog_prompt(p, "Move current file", "Folder (from the vault; empty for the top)", initial, panels_move_done, p->dialog_arg_text);
     }
 }
 
@@ -712,7 +749,7 @@ void ex_panels_register(ExPanels *p) {
     ex_commands_bind(c, "outgoing-links.open-outgoing-links-for-the-current-file", cmd_show_outgoing, has_note, p);
     ex_commands_bind(c, "tags-view.show-tags", cmd_show_tags, NULL, p);
     ex_commands_bind(c, "properties-view.show-all-properties", cmd_show_props, NULL, p);
-    ex_commands_bind(c, "properties-view.show-file-properties", cmd_show_props, has_note, p);
+    ex_commands_bind(c, "properties-view.show-file-properties", cmd_show_fileprops, has_note, p);
     ex_commands_bind(c, "outline.show-outline", cmd_show_outline, NULL, p);
     ex_commands_bind(c, "outline.open-outline-of-the-current-file", cmd_show_outline, has_note, p);
     ex_commands_bind(c, "footnotes.show-footnotes", cmd_show_footnotes, NULL, p);

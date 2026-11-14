@@ -194,7 +194,7 @@ void ex_list_key(ExUi *ui, ExWidget *w, ExKey key) {
             if ((key == EX_KEY_LEFT && open) || (key == EX_KEY_RIGHT && !open)) d->h.toggle(w, d->selected, d->h.user);
         }
         break;
-    case EX_KEY_ENTER: case EX_KEY_SPACE: activate(w, d->selected); break;
+    case EX_KEY_ENTER: case EX_KEY_SPACE: activate(w, d->selected); return;    /* the handler may close the dialog that holds this list */
     default: break;
     }
     ensure_visible(w);
@@ -213,8 +213,8 @@ void ex_list_mouse(ExUi *ui, ExWidget *w, ExMouse kind, float x, float y, int cl
         if (rr->r.glyph >= EX_GLYPH_CHEVRON_CLOSED && rr->r.glyph <= EX_GLYPH_CHEVRON_OPEN && x < cx0 + indent && d->h.toggle) { d->drag_from = -1; d->h.toggle(w, (size_t)row, d->h.user); return; }
         d->click_pending = -1;
         if (d->h.single_click && d->h.drag) d->click_pending = row;
-        else if (d->h.single_click) { d->drag_from = -1; activate(w, (size_t)row); }
-        else if (clicks >= 2) { d->drag_from = -1; activate(w, (size_t)row); }
+        else if (d->h.single_click) { d->drag_from = -1; activate(w, (size_t)row); return; }     /* the handler may have closed the dialog that holds this list */
+        else if (clicks >= 2) { d->drag_from = -1; activate(w, (size_t)row); return; }
     } else if (kind == EX_MOUSE_DRAG && d->drag_from >= 0 && d->h.drag) {
         if (fabsf(y - d->press_y) > rh / 2) d->dragging = 1;
         if (d->dragging) {

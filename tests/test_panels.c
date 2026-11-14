@@ -24,8 +24,10 @@ typedef struct Fake {
     char msg[300];
     int moved; char moved_from[260], moved_to[260];
     char *replaced; size_t selected_from;
+    int fileop; char fop_path[260], fop_arg[260]; int fop_count;
 } Fake;
 static Fake F;
+static ExUi *g_ui;
 
 static void put(const char *rel, const char *text) {
     char p[400], *d, *s;
@@ -52,6 +54,20 @@ static int h_move(void *u, const char *from, const char *to) {
     return ex_platform_rename_noreplace(a, b);
 }
 static void h_flush(void *u) { (void)u; }
+static int h_fileop(void *u, int op, const char *path, const char *arg) {
+    (void)u;
+    F.fileop = op; F.fop_count++;
+    snprintf(F.fop_path, sizeof F.fop_path, "%s", path); snprintf(F.fop_arg, sizeof F.fop_arg, "%s", arg ? arg : "");
+    if (op == EX_FILEOP_DELETE) return ex_vault_delete(F.vault, path) == EX_VAULT_OK ? 0 : -1;
+    if (op == EX_FILEOP_NEW_FOLDER) return ex_vault_create_folder(F.vault, path, arg, NULL) == EX_VAULT_OK ? 0 : -1;
+    return 0;
+}
+static float row_y(ExWidget *tree, const char *rel) {
+    float y;
+    for (y = tree->y + 1; y < tree->y + tree->h; y += 3) { const ExNode *n = ex_tree_node_at(g_ui, tree, y, 0); if (n && !strcmp(n->rel, rel)) return y; }
+    return -1;
+}
+static int dummy_mouse(ExWidget *w, ExMouse k, float x, float y, ExWidget *u, void *user) { (void)w; (void)k; (void)x; (void)y; (void)u; (void)user; return 0; }
 static char g_expanded[4000];
 static void h_query(void *u, const char *path, const char *text) { (void)u; (void)path; snprintf(g_expanded, sizeof g_expanded, "%s", text); }
 
@@ -64,7 +80,6 @@ static ExWidget *find(ExWidget *w, ExWidgetType type, const char *name) {
     return NULL;
 }
 
-static ExUi *g_ui;
 static void pump(int ms) {
     int i;
     for (i = 0; i < ms / 5; i++) { ex_panels_update(F.p); SDL_Delay(5); }
@@ -81,6 +96,13 @@ static int has_row(ExWidget *list, const char *text) {
 }
 static void type(const char *s) { ex_ui_text_input(g_ui, s, strlen(s)); }
 static void key(ExKey k, int mods) { ex_ui_key(g_ui, k, mods); }
+static void pick(ExWidget *overlay, const char *title, const char *label) {
+    ExWidget *l = find(overlay, EX_WIDGET_LIST, title);
+    size_t i;
+    for (i = 0; l && i < ex_list_count(l); i++) if (!strcmp(ex_list_row(l, i)->text, label)) { ex_list_select(l, i); ex_ui_set_focus(g_ui, l); key(EX_KEY_ENTER, 0); return; }
+    fprintf(stderr, "no row \"%s\" in the menu \"%s\"\n", label, title);
+    failures++;
+}
 
 
 static void shot(ExRenderer *r, ExWidget *root, const char *path) {
@@ -132,7 +154,7 @@ int main(void) {
     pi.ui = g_ui; pi.vault_root = ex_vault_path(F.vault); pi.vault_id = ex_vault_id(F.vault); pi.settings = settings; pi.features = features; pi.commands = commands; pi.ws = ws; pi.files = files;
     pi.index_path = index_path;
     pi.host.open_note = h_open; pi.host.active_path = h_active; pi.host.active_text = h_text; pi.host.read_text = h_read; pi.host.replace_text = h_replace;
-    pi.host.select_range = h_select; pi.host.move_file = h_move; pi.host.message = h_msg; pi.host.flush_notes = h_flush; pi.host.query_results = h_query;
+    pi.host.select_range = h_select; pi.host.move_file = h_move; pi.host.message = h_msg; pi.host.flush_notes = h_flush; pi.host.query_results = h_query; pi.host.file_op = h_fileop;
     F.p = ex_panels_create(&pi);
     CHECK(F.p != NULL);
     if (!F.p) return 1;
@@ -450,6 +472,218 @@ int main(void) {
     t = ex_platform_read_file(V "/Gamma.md", NULL);
     CHECK(t && strstr(t, "Plain note about Beta, not linked."));        /* a mention without a link is not a link */
     free(t);
+
+    /* sub-slice 4d: the explorer menu and its actions, delete, drag and drop, previews, "](" suggestions, the properties of the note */
+    put("Doomed.md", "Delete me.\n");
+    put("Mover.md", "# Mover\n\nNobody links here.\n");
+    put("Box/Inside.md", "# Inside\n");
+    {
+        ExVaultOptions vo;
+        ex_vault_get_options(F.vault, &vo); vo.trash_mode = EX_TRASH_PERMANENT; ex_vault_set_options(F.vault, &vo);
+    }
+    ex_vault_rescan(F.vault);
+    ex_panels_tree_changed(F.p);
+    pump(600);
+    ex_panels_file_menu(F.p, "Doomed.md");
+    CHECK(ex_panels_modal(F.p));
+    list = find(ex_panels_overlay(F.p), EX_WIDGET_LIST, "Doomed.md");
+    CHECK(list && has_row(list, "Rename...") && has_row(list, "Move to folder...") && has_row(list, "Delete") && has_row(list, "Show in file manager") && !has_row(list, "New folder in this folder"));
+    pick(ex_panels_overlay(F.p), "Doomed.md", "Copy path from the vault");
+    CHECK(!ex_panels_modal(F.p) && F.fileop == EX_FILEOP_COPY_REL && !strcmp(F.fop_path, "Doomed.md"));
+    ex_panels_file_menu(F.p, "Box");
+    list = find(ex_panels_overlay(F.p), EX_WIDGET_LIST, "Box");
+    CHECK(list && has_row(list, "New note in this folder") && has_row(list, "New folder in this folder"));
+    pick(ex_panels_overlay(F.p), "Box", "New note in this folder");
+    CHECK(!strcmp(F.opened, "Box/Untitled.md"));
+    ex_panels_file_menu(F.p, "Box");
+    pick(ex_panels_overlay(F.p), "Box", "New folder in this folder");
+    CHECK(ex_panels_modal(F.p));
+    type("Inner");
+    key(EX_KEY_ENTER, 0);
+    CHECK(F.fileop == EX_FILEOP_NEW_FOLDER && !strcmp(F.fop_path, "Box") && !strcmp(F.fop_arg, "Inner"));
+    ex_panels_file_menu(F.p, "");
+    list = find(ex_panels_overlay(F.p), EX_WIDGET_LIST, "Vault");
+    CHECK(list && has_row(list, "New note in this folder") && !has_row(list, "Rename...") && !has_row(list, "Delete"));
+    ex_panels_close_dialog(F.p);
+    /* delete: it asks first (files.confirm_delete), and the file is gone after the answer */
+    ex_panels_file_menu(F.p, "Doomed.md");
+    pick(ex_panels_overlay(F.p), "Doomed.md", "Delete");
+    CHECK(ex_panels_modal(F.p));
+    {
+        ExWidget *del = find(ex_panels_overlay(F.p), EX_WIDGET_BUTTON, "Delete"), *no = find(ex_panels_overlay(F.p), EX_WIDGET_BUTTON, "Cancel");
+        ExPathInfo pi2;
+        CHECK(del && no);
+        if (no) no->on_click(no, no->on_click_user);
+        CHECK(ex_platform_path_info(V "/Doomed.md", &pi2) == 0);                 /* cancelled: still there */
+        ex_panels_file_menu(F.p, "Doomed.md");
+        pick(ex_panels_overlay(F.p), "Doomed.md", "Delete");
+        del = find(ex_panels_overlay(F.p), EX_WIDGET_BUTTON, "Delete");
+        if (del) del->on_click(del, del->on_click_user);
+        CHECK(ex_platform_path_info(V "/Doomed.md", &pi2) != 0);
+    }
+    /* the context menu: a right click on a row of the tree */
+    ex_panels_show(F.p, "files");
+    ex_ui_layout(g_ui, root, 1000, 700);
+    {
+        float y = row_y(tree, "Mover.md");
+        CHECK(y > 0);
+        if (y > 0) {
+            CHECK(ex_panels_context_menu(F.p, root, tree->x + 40, y) == 1);
+            CHECK(ex_panels_modal(F.p) && find(ex_panels_overlay(F.p), EX_WIDGET_LIST, "Mover.md") != NULL);
+            ex_panels_close_dialog(F.p);
+        }
+    }
+    /* drag and drop: a note onto a folder moves it (the same flow as Move to folder) */
+    {
+        float ya = row_y(tree, "Mover.md"), yb = row_y(tree, "Box"), x = tree->x + 60;
+        CHECK(ya > 0 && yb > 0);
+        if (ya > 0 && yb > 0) {
+            int before = F.moved;
+            ex_ui_mouse(g_ui, root, EX_MOUSE_DOWN, x, ya, 0, 1);
+            ex_ui_mouse(g_ui, root, EX_MOUSE_DRAG, x, (ya + yb) / 2, 0, 1);
+            ex_ui_mouse(g_ui, root, EX_MOUSE_DRAG, x, yb, 0, 1);
+            CHECK(tree->tree_dragging && tree->tree_drop_row >= 0);
+            ex_ui_mouse(g_ui, root, EX_MOUSE_UP, x, yb, 0, 1);
+            pump(800);
+            CHECK(F.moved == before + 1 && !strcmp(F.moved_from, "Mover.md") && !strcmp(F.moved_to, "Box/Mover.md"));
+            CHECK(!tree->tree_dragging);
+        }
+        /* a click without a drag moves nothing */
+        {
+            int n0 = F.moved;
+            ex_vault_rescan(F.vault);
+            ya = row_y(tree, "Alpha.md");
+            ex_ui_mouse(g_ui, root, EX_MOUSE_DOWN, x, ya, 0, 1);
+            ex_ui_mouse(g_ui, root, EX_MOUSE_UP, x, ya, 0, 1);
+            pump(100);
+            CHECK(F.moved == n0 && !ex_panels_modal(F.p));
+        }
+    }
+    /* the page preview on a row of the tree (Ctrl held), on an outline row, and on a tab header */
+    ex_ui_layout(g_ui, root, 1000, 700);
+    {
+        float y = row_y(tree, "Alpha.md"), x = tree->x + 60;
+        CHECK(y > 0);
+        if (y > 0) {
+            ex_panels_pointer(F.p, root, x, y, 0);
+            pump(700);
+            CHECK(ex_panels_overlay(F.p) == NULL);
+            ex_panels_pointer(F.p, root, x, y, 1);
+            pump(1200);
+            CHECK(ex_panels_overlay(F.p) != NULL && !ex_panels_modal(F.p));
+            ex_panels_pointer(F.p, root, 5, 5, 1);
+            CHECK(ex_panels_overlay(F.p) == NULL);
+        }
+    }
+    snprintf(F.active, sizeof F.active, "Alpha.md");
+    ex_panels_show(F.p, "outline");
+    ex_ui_layout(g_ui, root, 1000, 700);
+    list = find(root, EX_WIDGET_LIST, "Outline");
+    CHECK(list && wait_rows(list, 1, 2000));
+    if (list && ex_list_count(list) >= 1) {
+        float x = list->x + 30, y = list->y + ex_list_row_height(list) * 0.5f;
+        ex_panels_pointer(F.p, root, x, y, 1);
+        pump(1200);
+        CHECK(ex_panels_overlay(F.p) != NULL);
+        ex_panels_pointer(F.p, root, 5, 5, 1);
+    }
+    {
+        ExId tab = ex_ws_new_tab(ws, 0, "Alpha.md", "note");
+        ExWidget *hdr = ex_widget_button(g_ui, "Alpha", NULL, NULL);
+        CHECK(tab != 0 && hdr != NULL);
+        if (tab && hdr) {
+            hdr->tag = tab; hdr->on_mouse = dummy_mouse; hdr->width = ex_size_px(g_ui, 80); hdr->height = ex_size_px(g_ui, 30);
+            ex_widget_add(root, hdr);
+            ex_ui_layout(g_ui, root, 1000, 700);
+            ex_panels_pointer(F.p, root, hdr->x + 10, hdr->y + 10, 0);
+            pump(700);
+            CHECK(ex_panels_overlay(F.p) == NULL);
+            ex_panels_pointer(F.p, root, hdr->x + 10, hdr->y + 10, 1);
+            pump(1200);
+            CHECK(ex_panels_overlay(F.p) != NULL);
+            ex_panels_pointer(F.p, root, 5, 5, 1);
+            ex_ui_release(g_ui, hdr); ex_widget_remove(root, hdr); ex_widget_free(hdr);
+            ex_ws_close_tab(ws, tab);
+        }
+    }
+    /* "](" suggestions: paths from the vault, with the characters of an address written %XX */
+    {
+        ExLinkSuggestion s[8];
+        size_t n = ex_panels_suggest_links(F.p, "\002alph", s, 8);
+        CHECK(n >= 1 && !strcmp(s[0].insert, "Alpha.md"));
+        n = ex_panels_suggest_links(F.p, "\002daily", s, 8);
+        CHECK(n >= 1 && !strcmp(s[0].insert, "Daily%20notes.md"));
+    }
+    {   /* the editor opens the list on "](" and inserts the address and the closing bracket */
+        ExDoc *d = ex_doc_create("see [text]", 10);
+        ExWidget *ed = ex_widget_editor(g_ui, d, "Test editor");
+        char *got;
+        size_t gl = 0;
+        CHECK(ed && ed->editor);
+        if (ed && ed->editor) {
+            ed->width = ex_size_px(g_ui, 300); ed->height = ex_size_px(g_ui, 100);
+            ex_widget_add(root, ed);
+            ex_ui_layout(g_ui, root, 1000, 700);
+            ex_ui_draw(g_ui, root, 1);                                           /* the editor takes its font when it is first drawn */
+            ex_editor_set_link_suggest(ed->editor, ex_panels_suggest_links, F.p);
+            ex_doc_set_caret(d, 10);
+            ex_editor_text_input(ed->editor, "(", 1);
+            CHECK(ex_editor_link_suggest_open(ed->editor));
+            ex_editor_text_input(ed->editor, "alph", 4);
+            CHECK(ex_editor_link_suggest_open(ed->editor));
+            ex_editor_key(ed->editor, ex_ui_renderer(g_ui), EX_KEY_ENTER, 0);
+            gl = ex_buffer_size(ex_doc_buffer(d));
+            got = malloc(gl + 1);
+            if (got) { gl = ex_buffer_read(ex_doc_buffer(d), 0, got, gl); got[gl] = 0; }
+            CHECK(got && !strcmp(got, "see [text](Alpha.md)"));
+            free(got);
+        }
+        ex_ui_release(g_ui, ed); ex_widget_remove(root, ed);
+        ex_widget_free(ed);
+        ex_doc_free(d);
+    }
+    /* the properties of the open note: add, edit, change the type of and remove one, as text edits of the front matter */
+    snprintf(F.active, sizeof F.active, "Gamma.md");
+    ex_panels_show(F.p, "fileprops");
+    ex_ui_layout(g_ui, root, 1000, 700);
+    list = find(root, EX_WIDGET_LIST, "Properties of this note");
+    CHECK(list && wait_rows(list, 1, 3000) && has_row(list, "state"));
+    {
+        ExWidget *add = find(root, EX_WIDGET_BUTTON, "Add a property to this note"), *edit = find(root, EX_WIDGET_BUTTON, "Edit the selected property");
+        ExWidget *rm = find(root, EX_WIDGET_BUTTON, "Remove the selected property from this note");
+        char *tx;
+        CHECK(add && edit && rm);
+        if (add) add->on_click(add, add->on_click_user);
+        CHECK(ex_panels_modal(F.p));
+        type("priority");
+        key(EX_KEY_ENTER, 0);
+        CHECK(ex_panels_modal(F.p));                                            /* then the value */
+        type("high");
+        key(EX_KEY_ENTER, 0);
+        tx = ex_platform_read_file(V "/Gamma.md", NULL);
+        CHECK(tx && strstr(tx, "priority: high") && strstr(tx, "state: waiting") && strstr(tx, "Plain note about Beta"));
+        free(tx);
+        pump(800);
+        CHECK(has_row(list, "priority"));
+        {
+            size_t i;
+            for (i = 0; i < ex_list_count(list); i++) if (!strcmp(ex_list_row(list, i)->text, "priority")) ex_list_select(list, i);
+            if (edit) edit->on_click(edit, edit->on_click_user);
+            CHECK(ex_panels_modal(F.p));
+            type("high now");                                                    /* the value is selected in the prompt */
+            key(EX_KEY_ENTER, 0);
+            tx = ex_platform_read_file(V "/Gamma.md", NULL);
+            CHECK(tx && (strstr(tx, "priority: high now") || strstr(tx, "priority: \"high now\"")));
+            free(tx);
+            pump(800);
+            for (i = 0; i < ex_list_count(list); i++) if (!strcmp(ex_list_row(list, i)->text, "priority")) ex_list_select(list, i);
+            if (rm) rm->on_click(rm, rm->on_click_user);
+            tx = ex_platform_read_file(V "/Gamma.md", NULL);
+            CHECK(tx && !strstr(tx, "priority") && strstr(tx, "state: waiting"));
+            free(tx);
+        }
+    }
+    ex_panels_show(F.p, "files");
 
     if (getenv("PANELS_SHOT")) {
         char path[600];

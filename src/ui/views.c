@@ -14,8 +14,14 @@ static const struct { const char *id, *title, *label, *feature; int side, auto_c
     {"outgoing", "Outgoing links", "Links", "outgoing_links", 1, 0},
     {"tags", "Tags", "Tags", "tags_view", 1, 1},
     {"properties", "All properties", "Properties", "properties_view", 1, 0},
+    {"fileprops", "File properties", "Note properties", "properties_view", 1, 0},
     {"outline", "Outline", "Outline", "outline", 1, 0},
     {"footnotes", "Footnotes", "Notes", "footnotes", 1, 0},
+};
+
+static const int STRIP_ICONS[V_COUNT] = {
+    EX_ICON_FILES, EX_ICON_SEARCH, EX_ICON_BOOKMARK, EX_ICON_BACKLINKS, EX_ICON_LINKS, EX_ICON_TAGS, EX_ICON_PROPERTIES,
+    EX_ICON_FILE_PROPERTIES, EX_ICON_OUTLINE, EX_ICON_FOOTNOTES
 };
 
 View *view_by_id(ExPanels *p, const char *id) { int i; for (i = 0; i < V_COUNT; i++) if (!strcmp(p->views[i].id, id)) return &p->views[i]; return NULL; }
@@ -492,6 +498,8 @@ static void setup_list(ExPanels *p, View *v, ExWidget *list, int second, const E
     ex_list_set_handlers(list, &hh);
 }
 
+static void fileprops_activate(ExWidget *w, size_t row, void *user) { Ctx *c = user; (void)w; (void)row; fileprops_on_edit(NULL, c->p); }
+
 static void on_strip_click(ExWidget *w, void *u) {
     ExPanels *p = u;
     int i;
@@ -638,6 +646,25 @@ void views_build(ExPanels *p) {
     setup_list(p, v, v->list, 0, &h);
     ex_list_set_empty_text(v->list, "No properties in this vault");
     ex_widget_add(v->root, v->list);
+    /* the properties of the open note */
+    v = &p->views[V_FILEPROPS];
+    v->root = vbox(p, "File properties");
+    {
+        ExWidget *row = ex_widget_box(p->ui, 0, "Property actions");
+        row->width = ex_size_grow(); row->gap = 0.5f; row->pad_x = 0.5f; row->pad_y = 0.25f;
+        p->fp_add = small(make_button(p, "Add", "Add a property to this note", fileprops_on_add));
+        p->fp_edit = small(make_button(p, "Edit", "Edit the selected property", fileprops_on_edit));
+        p->fp_type = small(make_button(p, "Type", "Change the type of the selected property", fileprops_on_type));
+        p->fp_remove = small(make_button(p, "Remove", "Remove the selected property from this note", fileprops_on_remove));
+        ex_widget_add(row, p->fp_add); ex_widget_add(row, p->fp_edit); ex_widget_add(row, p->fp_type); ex_widget_add(row, p->fp_remove);
+        ex_widget_add(v->root, row);
+    }
+    v->summary = summary_label(p, ""); ex_widget_add(v->root, v->summary);
+    v->list = ex_widget_list(p->ui, "Properties of this note");
+    memset(&h, 0, sizeof h); h.activate = fileprops_activate;
+    setup_list(p, v, v->list, 0, &h);
+    ex_list_set_empty_text(v->list, "This note has no properties");
+    ex_widget_add(v->root, v->list);
     /* outline */
     v = &p->views[V_OUTLINE];
     v->root = vbox(p, "Outline");
@@ -673,7 +700,7 @@ void views_build(ExPanels *p) {
         View *x = &p->views[i];
         int s = x->side;
         x->button = make_button(p, x->label, x->title, on_strip_click);
-        x->button->text_scale = 0.8f; x->button->pad_x = 0.5f; x->button->pad_y = 0.4f;
+        ex_widget_set_icon(x->button, STRIP_ICONS[i]);
         ex_widget_add(s ? p->right_strip : p->left_strip, x->button);
         if (x->root) { x->root->hidden = 1; if (x->root->parent == NULL) ex_widget_add(s ? p->right_stack : p->left_stack, x->root); }
         x->root->width = ex_size_grow(); x->root->height = ex_size_grow();
@@ -734,7 +761,7 @@ void views_show(ExPanels *p, int view) {
 }
 
 void views_note_changed(ExPanels *p) {
-    p->views[V_BACKLINKS].stale = p->views[V_OUTGOING].stale = p->views[V_OUTLINE].stale = p->views[V_FOOTNOTES].stale = 1;
+    p->views[V_BACKLINKS].stale = p->views[V_OUTGOING].stale = p->views[V_OUTLINE].stale = p->views[V_FOOTNOTES].stale = p->views[V_FILEPROPS].stale = 1;
 }
 
 /* Sends the requests for the views that are showing and out of date. */
@@ -775,9 +802,9 @@ void views_refresh(ExPanels *p) {
             break;
         case V_TAGS: j = qjob_new(QJ_TAGS, v->req = ++p->next_req); if (j) send_job(p, j); break;
         case V_PROPS: j = qjob_new(QJ_PROPS, v->req = ++p->next_req); if (j) send_job(p, j); break;
-        case V_OUTLINE: case V_FOOTNOTES:
+        case V_OUTLINE: case V_FOOTNOTES: case V_FILEPROPS:
             if (!p->cur_path) { qrows_free(&v->rows); fill_list(v, v->list, &v->rows); set_summary(v, "No note is open"); break; }
-            j = text_job(p, i == V_OUTLINE ? QJ_OUTLINE : QJ_FOOTNOTES, &v->req);
+            j = text_job(p, i == V_OUTLINE ? QJ_OUTLINE : i == V_FILEPROPS ? QJ_FILEPROPS : QJ_FOOTNOTES, &v->req);
             if (j) send_job(p, j);
             break;
         default: break;
@@ -797,6 +824,7 @@ void views_result(ExPanels *p, QRes *r) {
     case QJ_TAGS: v = &p->views[V_TAGS]; if (r->req != v->req) return; take_rows(&v->rows, &r->rows); fill_list(v, v->list, &v->rows); set_summary(v, r->summary); break;
     case QJ_PROPS: v = &p->views[V_PROPS]; if (r->req != v->req) return; take_rows(&v->rows, &r->rows); fill_list(v, v->list, &v->rows); set_summary(v, r->summary); break;
     case QJ_OUTLINE: v = &p->views[V_OUTLINE]; if (r->req != v->req) return; take_rows(&v->rows, &r->rows); fill_list(v, v->list, &v->rows); set_summary(v, r->summary); break;
+    case QJ_FILEPROPS: v = &p->views[V_FILEPROPS]; if (r->req != v->req) return; take_rows(&v->rows, &r->rows); fill_list(v, v->list, &v->rows); set_summary(v, r->summary); break;
     case QJ_FOOTNOTES: v = &p->views[V_FOOTNOTES]; if (r->req != v->req) return; take_rows(&v->rows, &r->rows); fill_list(v, v->list, &v->rows); set_summary(v, r->summary); break;
     case QJ_SNAPSHOT: if (r->snapshot) { ex_switcher_free(p->snapshot); p->snapshot = r->snapshot; r->snapshot = NULL; } break;
     case QJ_PROPOP:

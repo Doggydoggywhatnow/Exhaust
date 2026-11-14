@@ -65,7 +65,7 @@ struct ExEditor {
     int slash_open;
     size_t slash_start;           /* offset of the "/" that opened the menu */
     ExLinkSuggestFn link_fn; void *link_user;
-    int link_open; size_t link_start;       /* the offset after the "[[" that opened the list */
+    int link_open, link_md; size_t link_start;       /* the offset after the "[[" that opened the list */
     ExLinkSuggestion link_items[8]; size_t link_n, link_sel;
     float sp_x, sp_y, sp_w, sp_rowh;   /* the popup as last drawn, for clicks */
     size_t sp_first, sp_rows;
@@ -808,14 +808,15 @@ int ex_editor_link_suggest_open(const ExEditor *e) { return e->link_fn && e->lin
 
 static void link_refresh(ExEditor *e) {
     ExSel p;
-    char q[256];
-    size_t n;
+    char q[258];
+    size_t n, off = 0;
     if (!e->link_fn || !e->link_open) return;
     p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
     if (ex_doc_sel_count(e->doc) != 1 || p.anchor != p.head || p.head < e->link_start || p.head - e->link_start >= sizeof q) { e->link_open = 0; return; }
-    n = ex_buffer_read(buf(e), e->link_start, q, p.head - e->link_start);
-    q[n] = 0;
-    if (strpbrk(q, "]|\r\n")) { e->link_open = 0; return; }
+    if (e->link_md) q[off++] = '\x02';
+    n = ex_buffer_read(buf(e), e->link_start, q + off, p.head - e->link_start);
+    q[off + n] = 0;
+    if (strpbrk(q + off, e->link_md ? ")\r\n" : "]|\r\n")) { e->link_open = 0; return; }
     e->link_n = e->link_fn(e->link_user, q, e->link_items, 8);
     if (e->link_sel >= e->link_n) e->link_sel = 0;
 }
@@ -828,9 +829,10 @@ static void link_accept(ExEditor *e, ExRenderer *r) {
     size_t k;
     if (e->link_sel >= e->link_n) { e->link_open = 0; return; }
     k = ex_buffer_read(buf(e), p.head, ahead, 2);
-    snprintf(text, sizeof text, "%s%s", e->link_items[e->link_sel].insert, (k == 2 && ahead[0] == ']' && ahead[1] == ']') ? "" : "]]");
+    if (e->link_md) snprintf(text, sizeof text, "%s%s", e->link_items[e->link_sel].insert, (k >= 1 && ahead[0] == ')') ? "" : ")");
+    else snprintf(text, sizeof text, "%s%s", e->link_items[e->link_sel].insert, (k == 2 && ahead[0] == ']' && ahead[1] == ']') ? "" : "]]");
     c.offset = e->link_start; c.remove_len = p.head - e->link_start; c.text = text; c.text_len = strlen(text);
-    after.anchor = after.head = e->link_start + strlen(e->link_items[e->link_sel].insert) + 2;
+    after.anchor = after.head = e->link_start + strlen(e->link_items[e->link_sel].insert) + (e->link_md ? 1 : 2);
     e->link_open = 0;
     ex_doc_apply(e->doc, &c, 1, 0, &after, 1);
     ensure_visible(e, r);
@@ -880,7 +882,9 @@ void ex_editor_text_input(ExEditor *e, const char *text, size_t len) {
         ExSel p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
         char before;
         if (!e->link_open && len == 1 && text[0] == '[' && ex_doc_sel_count(e->doc) == 1 && p.head >= 2 && ex_buffer_read(buf(e), p.head - 2, &before, 1) == 1 && before == '[') {
-            e->link_open = 1; e->link_start = p.head; e->link_sel = 0; e->link_n = 0;
+            e->link_open = 1; e->link_md = 0; e->link_start = p.head; e->link_sel = 0; e->link_n = 0;
+        } else if (!e->link_open && len == 1 && text[0] == '(' && ex_doc_sel_count(e->doc) == 1 && p.head >= 2 && ex_buffer_read(buf(e), p.head - 2, &before, 1) == 1 && before == ']') {
+            e->link_open = 1; e->link_md = 1; e->link_start = p.head; e->link_sel = 0; e->link_n = 0;   /* "](" : a Markdown link's address */
         }
         link_refresh(e);
     }

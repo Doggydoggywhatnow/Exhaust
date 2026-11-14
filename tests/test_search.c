@@ -172,6 +172,15 @@ static void t_results(void) {
       o.sort = EX_SEARCH_MATCHES_LEAST; CHECK(ex_search_run(g_ix, g_root, s, &o, &g_res, &g_n, NULL) == 0 && g_res[0].total_matches <= g_res[g_n - 1].total_matches);
       ex_search_results_free(g_res, g_n); g_res = NULL;
       o.sort = 0; o.max_results = 2; CHECK(ex_search_run(g_ix, g_root, s, &o, &g_res, &g_n, NULL) == 0 && g_n == 2);
+      ex_search_results_free(g_res, g_n); g_res = NULL;
+      /* by creation time (sub-slice 4d): newest first, oldest first; a file system without birth times gives equal times and the path order */
+      o.max_results = 0;
+      o.sort = EX_SEARCH_CREATED_NEW; CHECK(ex_search_run(g_ix, g_root, s, &o, &g_res, &g_n, NULL) == 0 && g_n == 4);
+      { size_t i; for (i = 1; i < g_n; i++) CHECK(g_res[i - 1].ctime >= g_res[i].ctime); }
+      ex_search_results_free(g_res, g_n); g_res = NULL;
+      o.sort = EX_SEARCH_CREATED_OLD; CHECK(ex_search_run(g_ix, g_root, s, &o, &g_res, &g_n, NULL) == 0 && g_n == 4);
+      { size_t i; for (i = 1; i < g_n; i++) CHECK(g_res[i - 1].ctime <= g_res[i].ctime); }
+      ex_search_results_free(g_res, g_n); g_res = NULL; g_n = 0;
       ex_search_free(s); }
     /* syntax errors */
     { char err[200];
