@@ -6,12 +6,12 @@ Read this first when resuming. It tracks the sub-slices of [`0.1.0.md`](0.1.0.md
 
 **Rules:** one sub-slice at a time; commit and push to `dev` after each; CI green on all three OSes before the next; never push to `main`; never skip, loosen or delete a test. **Checkpoints, stop and report for review:** after 1b-iv (first typing build), after 3b (first live-preview build), after 4b-iv (first usable build).
 
-## Where things stand (2026-11-14, agent v.02)
+## Where things stand (2026-11-14, agent v.03)
 
-- **28 of 61 rows are done** (the plan had 59 sub-slices; 4c and 4d were added). Everything through 4d is built. Slices 5 to 9 are not started. About 32,000 lines of C in `src/`; **94 ctest tests**.
-- **CI is red.** `ui_not_blocked` fails on the Windows and macOS runners on every push I read since `855d89d` (`ISSUES.md` 18). Last green runs: 43534314351 (4a to 4c) and 43538167668 (4d). Per the rules, nothing new should be built until this is fixed.
-- The user hand-tested an AppImage and many fixes followed (the section "After 4d" below). The items marked "fixed, to be confirmed by hand" in `ISSUES.md` have not been confirmed by the user.
-- Read [`HANDOFF-agent-v.02.md`](HANDOFF-agent-v.02.md) for how the code fits together, the tools, and what I got wrong.
+- **28 of 61 rows are done** (the plan had 59 sub-slices; 4c and 4d were added). Everything through 4d is built, plus the hand-test fixes after it. **Slices 5 to 9 are not started, and the user has said not to start 5a yet: ask first.** About 33,000 lines of C in `src/`; **96 ctest tests**; 208 commands in the registry.
+- **CI is green on Linux, Windows and macOS**: run 43578695787 on commit `3562c79` (all nine jobs: builds with tests on three systems, sanitizers, fuzzers, size, accessibility builds). It had been red since `855d89d` for two reasons: `ui_not_blocked` (the test measured an unbounded search on the UI thread, ISSUES 18) and, on macOS, `app_scripts` (GNU-only `sed -i`, ISSUES 24).
+- The user hand-tested three AppImages after this session began. Confirmed by them: ISSUES 1 to 8, 10, 12 to 15, 17 (with 20), 19, 20, 21, 22. Still open: 9, 11, 16. Waiting for a hand test: 23 (the 200 px minimum sidebar width). Issue 24 is a CI fix, confirmed by CI.
+- Read [`HANDOFF-agent-v.03.md`](HANDOFF-agent-v.03.md) first (how the work went, what I built, tools, mistakes), then [`HANDOFF-agent-v.02.md`](HANDOFF-agent-v.02.md) (how slices 4a to 4d fit together; still correct). **`AGENTS.md` now has a section on efficiency and input latency and a guide to the slices that are left.**
 
 ## Sub-slices
 
@@ -97,12 +97,30 @@ Built from the user's hand-testing of AppImages from `dev`. Each is in `ISSUES.m
 
 Screenshots added to `screenshots/` from the user: a new note (`new-note.png`), the right-click menu (`note-context-menu.png`), the file list with several top-level folders (`file-tree-top-level.png`), each with a description in `screenshots/README.md`.
 
+## After the v.02 handoff (agent v.03)
+
+More hand-test fixes and test work, again not numbered sub-slices. Each is in `ISSUES.md` with its cause.
+
+| Commit | What |
+| --- | --- |
+| `b18a31a` | **ISSUES 18:** `ui_not_blocked` now reads what a frame reads on the "UI thread" while a second thread runs the search; the 16 ms limit is unchanged. |
+| `f9754f7`, `523e621`, `dfafd2d`, `f5fb44d` | **GitHub issue #2, wide sidebars (ISSUES 22):** wrap down to one character a row; a sidebar can take everything except the other sidebar; the main text view is hidden under about 20 px and the two divider strips are its handle; a sidebar dragged in under 60 px hides, and a handle at the window edge brings it back (both sides); command *Toggle main text view*. Screenshots `screenshots/wide-right-sidebar.webp` and `wide-explorer.webp`. Test `workspace_layout_panes` (also: the pane follows the column down to nothing). |
+| `dfafd2d` | Magnifying-glass icon drawn as a true ring. |
+| `6f85d62` | **ISSUES 21:** the pointer is the desktop's size on Linux (`ex_platform_match_cursor_size`). |
+| `568960a` | **ISSUES 10 and 19:** `ex_text_fit` shortens long names with an ellipsis in the `[[` popup, lists, the explorer and tabs; margins on the *Unlinked* row; test `text_fit`. |
+| `51a62d7` | The user's name for the middle area is the **main text view**; command and docs renamed (`app.toggle-main-text-view`). |
+| `c9522a0` | **ISSUES 23:** `ctest -R long_names` (T-TEXT-BOX-01, started): long names in every panel and dialog, eleven kinds of input in every text box (including the find bar, the title and the vault manager), a layout walk after every step; minimum sidebar width 120 to 200 (`EX_SIDEBAR_MIN_WIDTH`); two ASan finds fixed (stale focus after the vault screen is freed; `qsort` with null). |
+| `3562c79` | **ISSUES 24:** `tests/app_scripts.sh` no longer uses `sed -i`, so the sidebar test runs on macOS. |
+| docs | `TESTS.md` brought from the old branch onto `dev`; GitHub issue #3 (all icons from SVG, future) filed; `AGENTS.md` rewritten for the next agent; the two letters and the v.03 handoff. |
+
 ## Backlog and ideas
 
 Ideas that are not yet part of a sub-slice. Each links to its issue; decide the release before building.
 
 - **Vertical stacking of views** ([#1](https://github.com/Doggydoggywhatnow/Exhaust/issues/1)): drag the top or bottom edge of a note view to shorten it (aligned to the opposite edge); a new view opens in the freed space, optionally showing another note. The 2c workspace model already has `EX_SPLIT_VERTICAL` and `ex_ws_split`, so this is mostly a gesture in `src/ui/panes.c`. Needs the session format in `docs/formats.md` first, commands, a feature switch and a keyboard route. Not started; release not decided. Recent related work: sidebar and explorer resizing by a divider strip (`b90676a`, `docs/ISSUES.md` 17) and soft wrap (`cca56b0`) both touch pane geometry, so read them first. Note that GitHub issue numbers (#1) and the numbers in `docs/ISSUES.md` are two separate lists.
-- **A note open in the right sidebar**, expandable to nearly the whole page (the user's reference screenshot): not built. The right sidebar now resizes up to what the window leaves; showing a note view in it is a workspace and panes change (`EX_SIDE_RIGHT` holds panel ids today, not tabs).
+- **A note open in the right sidebar**, expandable to nearly the whole page (the user's reference screenshots, GitHub issue #2): the *widths* are built (a sidebar can fill the window, the main text view folds into a handle, sidebars hide and return); showing a *note* in a sidebar is not (`EX_SIDE_RIGHT` holds panel ids today, not tabs).
+- **All icons from SVG files** ([#3](https://github.com/Doggydoggywhatnow/Exhaust/issues/3), future, after 0.1.0): nanosvg is already planned for 6c-i; keep the code-drawn icons as a fallback and convert one at a time, checking each at 100%, 125% and 200%.
+- **Settings key for the sidebar minimum width and the hide threshold** (200 px and 60 px are constants today): add to `docs/formats.md` if the user wants them adjustable.
 - **Menu entries not built yet:** "Open to the right", "Open in new window", "Merge entire file with", "Open version history" (the user's reference menu has them; they belong to later slices).
 - **Soft wrap refinements:** a hanging indent for wrapped list items, a readable line length setting, wrap of tables and code blocks (not wrapped as special cases).
 
@@ -115,17 +133,19 @@ Collected from the "Honest gaps" and TODO-verify text of the rows above. Nothing
 - **Watching:** Windows and macOS use the polling fallback; ReadDirectoryChangesW and FSEvents backends are not written (2b).
 - **UI gaps (rows 2a to 2e, partly closed since by 4c, 4d and the hand-test fixes; check `docs/ISSUES.md`):** the explorer's Sort button may still not write its settings (2d); the vault manager's menu was inline (2e) and Remove has no confirmation.
 - **Editor:** reading view has no find, no saved scroll, and shows images, embeds and math as placeholders; folds are not saved in the session; about 30 of the 73 editor commands were still unbound stubs at 3d (tables, templates, composer, bases); COLR v1 emoji are not rendered (1a-ii); `query` results are not drawn inside live preview or source mode (fixed row height, see 4d); a graph bookmark cannot be opened until slice 5.
-- **Open hand-test issues** (`docs/ISSUES.md`): 9 (first edit in a 6000-line note freezes the window about 270 ms), 10 (the *Unlinked* button is cut off in the right sidebar), 11 (the inline title does not scroll with the text and is one per window, not per pane), 16 (moving a folder out of a folder by dragging did not work for the user; not reproducible in scripted tests, needs the exact drag), **18 (CI red)**. The ones marked "fixed, to be confirmed by hand" still need the user.
-- **Timing tests:** `ui_not_blocked` now fails on Windows and macOS (`ISSUES.md` 18, the first thing to fix); `frame_budget` and `search_perf` have failed on slow runners before. Re-run once to tell load from a regression, find the slow code, and never raise a limit.
+- **Open hand-test issues** (`docs/ISSUES.md`): 9 (first edit in a 6000-line note freezes the window about 270 ms), 11 (the inline title does not scroll with the text and is one per window, not per pane), 16 (moving a folder out of a folder by dragging did not work for the user; not reproducible in scripted tests, needs the exact drag). Waiting for the user: 23 (minimum sidebar width 200 px).
+- **Timing tests:** `ui_not_blocked` is fixed (ISSUES 18) and green on all three systems; `frame_budget` and `search_perf` have failed on slow runners before. Re-run once to tell load from a regression, find the slow code, and never raise a limit. New perf tests should measure CPU time or work done, not wall-clock frames per second (see `AGENTS.md`).
 - **Spell check:** one language, no context menu, edit-distance-1 suggestions only (3e).
-- **Tests to add:** a regular-expression fuzz target (3d); `libFuzzer` targets for frontmatter, canvas JSON, base expressions and importers when each module is written.
+- **Tests to add:** T-TEXT-BOX-01 for every screen still to come (settings pages, page previews, the status bar: add each to `tests/test_long_names.c`); a regular-expression fuzz target (3d); `libFuzzer` targets for frontmatter, canvas JSON, base expressions and importers when each module is written.
 - **TODO-verify in CI or by hand:** SDL drop events and the folder dialog on Wayland, Windows and macOS; `SDL_GetSystemTheme`; Windows registry code (compiles only); the Ctrl+Tab versus Escape route out of the editor on macOS; Windows and macOS system font folders.
-- **Checkpoints:** 1b-iv and 3b were passed on the user's instruction to continue. 4b-iv (first usable build) is done and the user has since hand-tested an AppImage from `dev` (see `docs/ISSUES.md`), so treat that review as under way: confirm with the user which fixes they have accepted before moving on to slice 5.
+- **Checkpoints:** 1b-iv and 3b were passed on the user's instruction to continue. 4b-iv (first usable build) is done and the user has hand-tested it thoroughly (see `docs/ISSUES.md`). **Next in the plan is 5a, but the user said not to start it: ask.**
 - **Not started:** slices 5 (graph) to 9 (packaging). The index, search, links, rename, panels, explorer actions and the hand-test fixes (4a to 4d and after) are built.
 
-See also [`HANDOFF-agent-v.02.md`](HANDOFF-agent-v.02.md).
+See also [`HANDOFF-agent-v.03.md`](HANDOFF-agent-v.03.md) and [`HANDOFF-agent-v.02.md`](HANDOFF-agent-v.02.md).
 
 ## Notes for the next session
+
+- **Check the remote and CI first** (`git fetch origin dev`; the GitHub MCP tools `actions_list` and `get_job_logs`; there is no `gh`). A full CI run takes about 10 minutes. Details and the other tools (local sanitizers with gcc, `EXHAUST_SCRIPT`, building the AppImage and the permission it needs) are in `HANDOFF-agent-v.03.md` section 6.
 
 - Environment used so far (cloud container): Linux x86-64, gcc 13, clang 18 without the sanitizer runtime (the local sanitizer run used gcc; CI uses clang), cmake 3.28, nasm, cargo. Windows and macOS can only be verified by CI.
 - Network: `git clone` of GitHub repositories works through the proxy; release tarballs and `api.github.com` do not. Vendored sources were taken from git tags at the commits in `third_party/VERSIONS.md`.
@@ -138,4 +158,4 @@ Added after hand-testing, so that every later feature stays inside the 16 ms rul
 
 ## Issues found by hand-testing
 
-The list is [`ISSUES.md`](ISSUES.md): 1 to 8 and 12 to 15 and 17 are fixed in code (to be confirmed by hand); open: 9, 10, 11, 16, and 18 (CI red). Causes are written there. Fix an issue with the next sub-slice or earlier if the user asks, and move it to **Fixed** with the commit.
+The list is [`ISSUES.md`](ISSUES.md) (24 entries): all fixed in code except 9, 11 and 16, which are open; the ones the user has confirmed are marked. Causes are written there. Fix an issue with the next sub-slice or earlier if the user asks, and move it to **Fixed** with the commit.
