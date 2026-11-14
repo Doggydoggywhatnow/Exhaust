@@ -79,7 +79,7 @@ Read this first when resuming. It tracks the sub-slices of [`0.1.0.md`](0.1.0.md
 
 Ideas that are not yet part of a sub-slice. Each links to its issue; decide the release before building.
 
-- **Vertical stacking of views** ([#1](https://github.com/Doggydoggywhatnow/Exhaust/issues/1)): drag the top or bottom edge of a note view to shorten it (aligned to the opposite edge); a new view opens in the freed space, optionally showing another note. The 2c workspace model already has `EX_SPLIT_VERTICAL` and `ex_ws_split`, so this is mostly a gesture in `src/ui/panes.c`. Needs the session format in `docs/formats.md` first, commands, a feature switch and a keyboard route. Not started; release not decided.
+- **Vertical stacking of views** ([#1](https://github.com/Doggydoggywhatnow/Exhaust/issues/1)): drag the top or bottom edge of a note view to shorten it (aligned to the opposite edge); a new view opens in the freed space, optionally showing another note. The 2c workspace model already has `EX_SPLIT_VERTICAL` and `ex_ws_split`, so this is mostly a gesture in `src/ui/panes.c`. Needs the session format in `docs/formats.md` first, commands, a feature switch and a keyboard route. Not started; release not decided. Recent related work: sidebar and explorer resizing by a divider strip (`b90676a`, `docs/ISSUES.md` 17) and soft wrap (`cca56b0`) both touch pane geometry, so read them first. Note that GitHub issue numbers (#1) and the numbers in `docs/ISSUES.md` are two separate lists.
 
 ## Open items carried forward
 
@@ -88,12 +88,15 @@ Collected from the "Honest gaps" and TODO-verify text of the rows above. Nothing
 - **Accessibility:** the AccessKit tree is not attached to the real OS adapters (AT-SPI, UI Automation, NSAccessibility); needs native window handles and a screen reader (before 7f and 9d).
 - **Pop-out windows** are not operating-system windows yet (2c); stacked tabs are stored but drawn as normal tabs; no tab context menu or tab-switching shortcut; a restored split ratio on a small window can overflow its pane.
 - **Watching:** Windows and macOS use the polling fallback; ReadDirectoryChangesW and FSEvents backends are not written (2b).
-- **UI gaps:** no popup menu, modal dialogs or right-click menu yet (2a, 2e); icons are text; the explorer's Sort button does not write its settings (2d); the right sidebar is a placeholder.
-- **Editor:** no soft wrap; reading view has no find, no saved scroll, and shows images, embeds and math as placeholders; folds are not saved in the session; 30 of the 73 editor commands are still unbound stubs; COLR v1 emoji are not rendered (1a-ii).
+- **UI gaps (rows 2a to 2e, partly closed since by 4c, 4d and the hand-test fixes; check `docs/ISSUES.md`):** the explorer's Sort button may still not write its settings (2d); the vault manager's menu was inline (2e) and Remove has no confirmation.
+- **Editor:** reading view has no find, no saved scroll, and shows images, embeds and math as placeholders; folds are not saved in the session; about 30 of the 73 editor commands were still unbound stubs at 3d (tables, templates, composer, bases); COLR v1 emoji are not rendered (1a-ii); `query` results are not drawn inside live preview or source mode (fixed row height, see 4d); a graph bookmark cannot be opened until slice 5.
+- **Open hand-test issues** (`docs/ISSUES.md`): 9 (first edit in a 6000-line note freezes the window about 270 ms), 10 (the *Unlinked* button is cut off in the right sidebar), 11 (the inline title does not scroll with the text and there is one per window, not per pane), 16 (moving a folder out of a folder by dragging did not work for the user; not reproducible in scripted tests, needs the exact drag). The ones marked "fixed, to be confirmed by hand" still need a human to confirm.
+- **Timing tests are the flaky ones:** `ui_not_blocked`, `frame_budget` and `search_perf` have failed on slow runners (one macOS runner took 95 s for a 15 s test). Re-run once to tell load from a regression, and never raise a limit to make one pass.
 - **Spell check:** one language, no context menu, edit-distance-1 suggestions only (3e).
 - **Tests to add:** a regular-expression fuzz target (3d); `libFuzzer` targets for frontmatter, canvas JSON, base expressions and importers when each module is written.
 - **TODO-verify in CI or by hand:** SDL drop events and the folder dialog on Wayland, Windows and macOS; `SDL_GetSystemTheme`; Windows registry code (compiles only); the Ctrl+Tab versus Escape route out of the editor on macOS; Windows and macOS system font folders.
-- **Checkpoint:** stop and report after 4b-iv (first usable build). The 1b-iv and 3b checkpoints were passed on the user's instruction to continue.
+- **Checkpoints:** 1b-iv and 3b were passed on the user's instruction to continue. 4b-iv (first usable build) is done and the user has since hand-tested an AppImage from `dev` (see `docs/ISSUES.md`), so treat that review as under way: confirm with the user which fixes they have accepted before moving on to slice 5.
+- **Not started:** slices 5 (graph) to 9 (packaging). The index, search, links, rename, panels and explorer actions (4a to 4d) are done.
 
 See also [`HANDOFF-agent-v02.md`](HANDOFF-agent-v02.md).
 
