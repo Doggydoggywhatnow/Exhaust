@@ -21,7 +21,7 @@ typedef struct View {
     char summary_text[240];
 } View;
 
-typedef enum { D_NONE, D_SWITCHER, D_PALETTE, D_PROMPT, D_CHOICE, D_CONFIRM } DialogKind;
+typedef enum { D_NONE, D_SWITCHER, D_PALETTE, D_PROMPT, D_CHOICE, D_CONFIRM, D_POPUP } DialogKind;
 
 struct ExPanels {
     ExPanelsInit in;
@@ -65,6 +65,7 @@ struct ExPanels {
     void (*on_prompt)(ExPanels *p, const char *text, void *arg);
     void (*on_choice)(ExPanels *p, size_t index, const char *key, void *arg);
     void (*on_confirm)(ExPanels *p, int button, void *arg);
+    void (*on_popup)(ExPanels *p, int id, void *arg);
     void *dialog_arg;
     char *dialog_arg_text;
     ExPaletteItem *palette; size_t npalette;
@@ -102,6 +103,10 @@ void dialog_close(ExPanels *p);
 void dialog_prompt(ExPanels *p, const char *title, const char *label, const char *initial, void (*cb)(ExPanels *, const char *, void *), void *arg);
 void dialog_choice(ExPanels *p, const char *title, const char **labels, size_t n, size_t selected, void (*cb)(ExPanels *, size_t, const char *, void *), void *arg);
 void dialog_confirm(ExPanels *p, const char *title, const char *message, const char *b1, const char *b2, const char *b3, void (*cb)(ExPanels *, int, void *), void *arg);
+/* A popup menu at a window position (pixels): entries with an icon, separators between groups, a chevron for a submenu, a red
+ * entry for something that deletes. Opens next to the pointer, kept inside the window; Escape or a click outside closes it. */
+typedef struct PopupItem { const char *label; int icon; int id; int danger, sep_before, submenu; } PopupItem;
+void dialog_popup(ExPanels *p, float x, float y, const PopupItem *items, size_t n, void (*cb)(ExPanels *, int, void *), void *arg);
 void dialog_switcher(ExPanels *p);
 void dialog_palette(ExPanels *p);
 void dialog_refresh(ExPanels *p);

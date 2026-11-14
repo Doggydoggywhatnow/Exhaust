@@ -16,7 +16,7 @@ extern "C" {
 #endif
 
 typedef struct ExPanels ExPanels;
-enum { EX_FILEOP_DELETE, EX_FILEOP_NEW_FOLDER, EX_FILEOP_COPY_REL, EX_FILEOP_COPY_ABS, EX_FILEOP_OPEN_DEFAULT, EX_FILEOP_SHOW };
+enum { EX_FILEOP_DELETE, EX_FILEOP_NEW_FOLDER, EX_FILEOP_COPY_REL, EX_FILEOP_COPY_ABS, EX_FILEOP_OPEN_DEFAULT, EX_FILEOP_SHOW, EX_FILEOP_COPY_FILE };
 
 typedef struct ExPanelsHost {
     void *user;
@@ -85,7 +85,8 @@ void ex_panels_rename_file(ExPanels *p, const char *path);
  * for any rename. Returns 0 if it was started, -1 (with a message in the status line) if the name is not valid or is taken. */
 int ex_panels_rename_to(ExPanels *p, const char *path, const char *new_name);
 void ex_panels_move_file_prompt(ExPanels *p, const char *path);    /* asks for the folder, then for the links */
-void ex_panels_file_menu(ExPanels *p, const char *path);           /* the menu of a file or folder ("" the vault), as a dialog */
+void ex_panels_file_menu(ExPanels *p, const char *path);           /* the menu of a file or folder ("" the vault) at a default place */
+void ex_panels_file_menu_at(ExPanels *p, const char *path, float x, float y);   /* ... at a window position, next to the pointer */
 int ex_panels_context_menu(ExPanels *p, ExWidget *root, float x, float y);   /* right click on a row of the file explorer */          /* asks for the new name, then for the links */
 /* Reading mode: asks for the note's text with every `query` block replaced by its results; the answer comes through host.query_results. */
 void ex_panels_expand_queries(ExPanels *p, const char *path, const char *text, size_t len);

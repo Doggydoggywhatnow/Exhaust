@@ -66,6 +66,7 @@ typedef struct App {
     ExWidget *title;
     ExWidget *rb_switcher, *rb_graph, *rb_canvas, *rb_palette, *rb_mode, *rb_left, *rb_right, *rb_theme;   /* the ribbon */
     char title_for[512];           /* the path the title shows */
+    int title_was_focused;
     ExSlashMenu *slash;
     ExSpell *spell;
     ExWidget *wordcount;          /* the word count at the right of the status line */
@@ -146,6 +147,63 @@ static void relayout_and_draw(App *a) {
         if (slow_only && (double)(t3 - t0) * f < 16.0) return;
         fprintf(stderr, "frame: sync %.1f ms, layout %.1f ms, draw %.1f ms, present %.1f ms\n", (double)(t1 - t0) * f, (double)(t2 - t1) * f, (double)(t3 - t2) * f, (double)(SDL_GetPerformanceCounter() - t3) * f);
     }
+}
+
+/* ---- a developer's aid: EXHAUST_SCRIPT=file feeds scripted input to the real program (see tools/run_script.sh) ----
+ * One command a line: wait MS | move X Y | down X Y | up X Y | rdown X Y | text STRING | key enter|escape|down|tab | shot FILE.ppm | quit.
+ * The commands become SDL events, so they take the same path as a person's input. */
+typedef struct Script { char *text; char *next; Uint64 until; int button_down; int active; } Script;
+static Script g_script;
+
+static void script_start(void) {
+    const char *f = getenv("EXHAUST_SCRIPT");
+    if (!f) return;
+    g_script.text = ex_platform_read_file(f, NULL);
+    g_script.next = g_script.text;
+    g_script.active = g_script.text != NULL;
+}
+
+static void script_step(App *a) {
+    char *line, *end;
+    SDL_Event e;
+    float x = 0, y = 0;
+    if (!g_script.active || SDL_GetTicks() < g_script.until) return;
+    if (!g_script.next || !*g_script.next) { g_script.active = 0; return; }
+    line = g_script.next;
+    end = strchr(line, '\n');
+    if (end) { *end = 0; g_script.next = end + 1; } else g_script.next = line + strlen(line);
+    memset(&e, 0, sizeof e);
+    if (!strncmp(line, "wait ", 5)) g_script.until = SDL_GetTicks() + (Uint64)atoi(line + 5);
+    else if (!strncmp(line, "move ", 5) && sscanf(line + 5, "%f %f", &x, &y) == 2) {
+        e.type = SDL_EVENT_MOUSE_MOTION; e.motion.x = x; e.motion.y = y; e.motion.state = g_script.button_down ? SDL_BUTTON_LMASK : 0;
+        SDL_PushEvent(&e);
+    } else if ((!strncmp(line, "down ", 5) || !strncmp(line, "rdown ", 6)) && sscanf(line + (line[0] == 'r' ? 6 : 5), "%f %f", &x, &y) == 2) {
+        e.type = SDL_EVENT_MOUSE_BUTTON_DOWN; e.button.button = line[0] == 'r' ? SDL_BUTTON_RIGHT : SDL_BUTTON_LEFT; e.button.x = x; e.button.y = y; e.button.clicks = 1;
+        g_script.button_down = line[0] != 'r';
+        SDL_PushEvent(&e);
+    } else if (!strncmp(line, "up ", 3) && sscanf(line + 3, "%f %f", &x, &y) == 2) {
+        e.type = SDL_EVENT_MOUSE_BUTTON_UP; e.button.button = SDL_BUTTON_LEFT; e.button.x = x; e.button.y = y;
+        g_script.button_down = 0;
+        SDL_PushEvent(&e);
+    } else if (!strncmp(line, "text ", 5)) {
+        static char typed[256];
+        snprintf(typed, sizeof typed, "%s", line + 5);
+        e.type = SDL_EVENT_TEXT_INPUT; e.text.text = typed;
+        SDL_PushEvent(&e);
+    } else if (!strncmp(line, "key ", 4)) {
+        SDL_Keycode k = !strcmp(line + 4, "enter") ? SDLK_RETURN : !strcmp(line + 4, "escape") ? SDLK_ESCAPE : !strcmp(line + 4, "down") ? SDLK_DOWN : !strcmp(line + 4, "tab") ? SDLK_TAB : SDLK_UNKNOWN;
+        e.type = SDL_EVENT_KEY_DOWN; e.key.key = k; e.key.down = true;
+        SDL_PushEvent(&e);
+    } else if (!strncmp(line, "shot ", 5)) {
+        int sw, sh;
+        uint8_t *px;
+        FILE *f;
+        relayout_and_draw(a);
+        px = ex_renderer_read_rgb(a->r, &sw, &sh);
+        f = px ? fopen(line + 5, "wb") : NULL;
+        if (f) { fprintf(f, "P6\n%d %d\n255\n", sw, sh); fwrite(px, 1, (size_t)sw * (size_t)sh * 3, f); fclose(f); }
+        free(px);
+    } else if (!strcmp(line, "quit")) { SDL_Event q; memset(&q, 0, sizeof q); q.type = SDL_EVENT_QUIT; SDL_PushEvent(&q); }
 }
 
 static void set_label(ExWidget *w, const char *text) {
@@ -459,6 +517,12 @@ static void on_toggle_theme(ExWidget *w, void *user) {
         a->theme = next;
         ex_ui_set_theme(a->ui, &a->theme);
         ex_settings_set(a->settings, "appearance", "color_scheme", to_dark ? "dark" : "light");   /* written at once */
+        {   /* the vault manager has no vault, so it reads the setting kept with the program: both windows must agree */
+            char *cfg = ex_platform_config_dir();
+            ExSettings *global = ex_settings_open(NULL, cfg);
+            if (global) { ex_settings_set(global, "appearance", "color_scheme", to_dark ? "dark" : "light"); ex_settings_close(global); }
+            free(cfg);
+        }
     }
 }
 
@@ -860,7 +924,7 @@ static void title_revert(App *a) {
 }
 
 /* Enter in the title: the note is renamed (a note that is not on disk yet is started again under the new name). */
-static void title_commit(App *a) {
+static void title_commit(App *a, int keep_focus) {
     size_t len = 0;
     char *typed = ex_buffer_text(ex_doc_buffer(a->title_doc), &len), path[512];
     ExId tab = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
@@ -884,20 +948,29 @@ static void title_commit(App *a) {
         }
     } else if (ex_panels_rename_to(a->panels, path, typed) != 0) title_revert(a);
     free(typed);
-    if (a->editor) ex_ui_set_focus(a->ui, a->editor);
+    if (keep_focus && a->editor) ex_ui_set_focus(a->ui, a->editor);
 }
 
 static int title_key(ExWidget *w, ExKey key, int mods, void *user) {
     App *a = user;
     (void)w; (void)mods;
-    if (key == EX_KEY_ENTER) { title_commit(a); return 1; }
+    if (key == EX_KEY_ENTER) { title_commit(a, 1); return 1; }
     if (key == EX_KEY_ESCAPE) { title_revert(a); if (a->editor) ex_ui_set_focus(a->ui, a->editor); return 1; }
     if (key == EX_KEY_DOWN) { if (a->editor) ex_ui_set_focus(a->ui, a->editor); return 1; }
     return 0;
 }
 
-/* Shows the title of the active note (not while it is being typed in). */
+/* Shows the title of the active note (not while it is being typed in). Leaving the title with a changed name renames the note, as Enter does. */
 static void sync_title(App *a) {
+    int focused = a->title && ex_ui_focus(a->ui) == a->title;
+    if (a->title_was_focused && !focused && a->title_for[0]) {
+        size_t len = 0;
+        char *typed = ex_buffer_text(ex_doc_buffer(a->title_doc), &len), name[300];
+        note_name_of(a->title_for, name, sizeof name);
+        if (typed && strcmp(typed, name)) title_commit(a, 0);          /* clicked elsewhere or switched away: the rename is made */
+        free(typed);
+    }
+    a->title_was_focused = focused;
     ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
     const ExTab *tab = t ? ex_ws_tab(a->ws, t) : NULL;
     int show = a->title && tab && a->note && tab->path[0] && ex_file_kind(tab->path) == EX_KIND_MARKDOWN && ex_settings_get_bool(a->settings, "editor", "inline_title");
@@ -1194,6 +1267,23 @@ static int host_file_op(void *u, int what, const char *path, const char *arg) {
     case EX_FILEOP_COPY_REL: rc = ex_vault_copy_path(a->vault, path, 0); break;
     case EX_FILEOP_COPY_ABS: rc = ex_vault_copy_path(a->vault, path, 1); break;
     case EX_FILEOP_OPEN_DEFAULT: rc = ex_vault_open_default(a->vault, path); break;
+    case EX_FILEOP_COPY_FILE: {                                        /* "Make a copy": Name 1.md, Name 2.md ... next to the note */
+        char *src = ex_vault_abs_path(a->vault, path), dst[1500];
+        size_t len = 0, k;
+        const char *dot = strrchr(path, '.');
+        char *bytes = src ? ex_platform_read_file(src, &len) : NULL;
+        if (a->notes) ex_notes_flush(a->notes);
+        for (k = 1; bytes && k < 1000; k++) {
+            ExPathInfo info;
+            snprintf(dst, sizeof dst, "%s/%.*s %zu%s", ex_vault_path(a->vault), (int)(dot ? (size_t)(dot - path) : strlen(path)), path, k, dot ? dot : "");
+            if (ex_platform_path_info(dst, &info) == 0) continue;
+            rc = ex_platform_write_file_atomic(dst, bytes, len) == 0 ? 0 : -1;
+            break;
+        }
+        free(bytes); free(src);
+        ex_vault_rescan(a->vault);
+        break;
+    }
     case EX_FILEOP_SHOW: abs = ex_vault_abs_path(a->vault, path); if (abs) { rc = ex_platform_show_in_file_manager(abs); free(abs); } break;
     }
     return rc;
@@ -1421,8 +1511,18 @@ int main(int argc, char **argv) {
     }
     {
         const char *scheme = ex_settings_get(app.settings, "appearance", "color_scheme");
-        int dark = strcmp(scheme, "light") != 0;
+        char *global_scheme = NULL;
+        int dark;
+        if (!ex_settings_is_set(app.settings, "appearance", "color_scheme")) {      /* a vault that never chose follows the program's setting, as the vault manager does */
+            char *cfg = ex_platform_config_dir();
+            ExSettings *global = ex_settings_open(NULL, cfg);
+            if (global) { const char *g = ex_settings_get(global, "appearance", "color_scheme"); global_scheme = g ? dup_text(g) : NULL; ex_settings_close(global); }
+            free(cfg);
+            if (global_scheme) scheme = global_scheme;
+        }
+        dark = strcmp(scheme, "light") != 0;
         if (strcmp(scheme, "system") == 0) dark = SDL_GetSystemTheme() != SDL_SYSTEM_THEME_LIGHT;
+        free(global_scheme);
         if (ex_theme_init_builtin(&app.theme, dark ? EX_THEME_DARK : EX_THEME_LIGHT) != 0) return 1;
     }
     ex_renderer_set_display_scale(app.r, ex_renderer_detect_display_scale(app.r));
@@ -1626,12 +1726,14 @@ int main(int argc, char **argv) {
     if (worker) ex_worker_post(worker, &job);
 
     ex_text_input_start(ex_renderer_window(app.r));
+    script_start();
     if (getenv("EXHAUST_OPEN") && app.vault) open_path(&app, 0, getenv("EXHAUST_OPEN"));       /* a developer's aid: open this note at start */
     relayout_and_draw(&app);
     while (running) {
         ExTextEvent te;
         ExKey key;
         int mods;
+        script_step(&app);
         int timed_out = !SDL_WaitEventTimeout(&e, 100); /* wakes ten times a second for autosave and the watcher */
         static int idle_ticks;
         if (g_signal) running = 0;

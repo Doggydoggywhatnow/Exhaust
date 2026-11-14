@@ -56,6 +56,8 @@ struct ExWidget {
     int bold;
     int disabled;                 /* a button that does nothing yet: drawn faint, no focus, no click (its name says so)
  */
+    int menu_item;                /* a button of a popup menu: icon and text at the left, a chevron at the right when submenu is set */
+    int submenu;
     int icon;                     /* ExIcon: a button drawn as a picture (its name stays the accessible name) */
 
     /* behaviour */
@@ -76,7 +78,7 @@ struct ExWidget {
     void *on_tree_drop_user;
     long tree_drag_row, tree_drop_row;   /* the row being dragged (-1 none) and the folder row under it (-1 none) */
     int tree_dragging;
-    float tree_drag_x, tree_drag_y;
+    float tree_drag_x, tree_drag_y, tree_cur_x, tree_cur_y;   /* where the press began, and where the pointer is now */
     /* Mouse hook: called with press, drag and release for a press that started on this widget or a
      * descendant that has no hook of its own. `under` is the widget below the pointer. Returning
      * non-zero on the press takes it: the widget then gets the drag and the release too, and the
@@ -118,7 +120,8 @@ ExWidget *ex_widget_button(ExUi *ui, const char *text, ExClickFn fn, void *user)
 typedef enum ExIcon {
     EX_ICON_NONE, EX_ICON_FILES, EX_ICON_SEARCH, EX_ICON_BOOKMARK, EX_ICON_BACKLINKS, EX_ICON_LINKS, EX_ICON_TAGS, EX_ICON_PROPERTIES,
     EX_ICON_FILE_PROPERTIES, EX_ICON_OUTLINE, EX_ICON_FOOTNOTES, EX_ICON_NEW_NOTE, EX_ICON_NEW_FOLDER, EX_ICON_SORT, EX_ICON_EXPAND, EX_ICON_MORE,
-    EX_ICON_PALETTE, EX_ICON_GRAPH, EX_ICON_CANVAS, EX_ICON_THEME, EX_ICON_SIDEBAR_LEFT, EX_ICON_SIDEBAR_RIGHT, EX_ICON_MODE
+    EX_ICON_PALETTE, EX_ICON_GRAPH, EX_ICON_CANVAS, EX_ICON_THEME, EX_ICON_SIDEBAR_LEFT, EX_ICON_SIDEBAR_RIGHT, EX_ICON_MODE,
+    EX_ICON_TRASH, EX_ICON_COPY, EX_ICON_EXTERNAL, EX_ICON_MOVE, EX_ICON_CLIPBOARD
 } ExIcon;
 void ex_widget_set_icon(ExWidget *button, int icon);                 /* a square button of the theme's spacing: 3 units */
 void ex_icon_draw(ExRenderer *r, int icon, float x, float y, float w, float h, ExColor c);
@@ -195,8 +198,8 @@ void ex_widget_insert_before(ExWidget *parent, ExWidget *child, ExWidget *before
 void ex_widget_remove(ExWidget *parent, ExWidget *child);   /* unlinks it; the caller frees it or adds it elsewhere */
 /* The New note button creates no file: it asks the application (which starts a note that is
  * only written once something is typed). Without a handler the button creates an empty file. */
-/* The More button of the toolbar calls this with the selected row's path ("" when nothing is selected). */
-void ex_explorer_set_menu_handler(ExWidget *sidebar, void (*fn)(ExWidget *tree, const char *rel, void *user), void *user);
+/* The More button of the toolbar calls this with the selected row's path ("" when nothing is selected) and the place below the button. */
+void ex_explorer_set_menu_handler(ExWidget *sidebar, void (*fn)(ExWidget *tree, const char *rel, float x, float y, void *user), void *user);
 void ex_explorer_set_new_note_handler(ExWidget *sidebar, void (*fn)(ExWidget *w, const char *parent_rel, void *user), void *user);
 /* The vault button at the bottom of the explorer calls this (the application opens the vault manager). */
 void ex_explorer_set_vault_handler(ExWidget *sidebar, void (*fn)(ExWidget *w, void *user), void *user);

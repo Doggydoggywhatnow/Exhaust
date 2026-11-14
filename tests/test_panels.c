@@ -98,11 +98,12 @@ static int has_row(ExWidget *list, const char *text) {
 }
 static void type(const char *s) { ex_ui_text_input(g_ui, s, strlen(s)); }
 static void key(ExKey k, int mods) { ex_ui_key(g_ui, k, mods); }
+static int menu_has(ExWidget *overlay, const char *label) { return overlay && find(overlay, EX_WIDGET_BUTTON, label) != NULL; }
 static void pick(ExWidget *overlay, const char *title, const char *label) {
-    ExWidget *l = find(overlay, EX_WIDGET_LIST, title);
-    size_t i;
-    for (i = 0; l && i < ex_list_count(l); i++) if (!strcmp(ex_list_row(l, i)->text, label)) { ex_list_select(l, i); ex_ui_set_focus(g_ui, l); key(EX_KEY_ENTER, 0); return; }
-    fprintf(stderr, "no row \"%s\" in the menu \"%s\"\n", label, title);
+    ExWidget *b = overlay ? find(overlay, EX_WIDGET_BUTTON, label) : NULL;
+    (void)title;
+    if (b && b->on_click) { b->on_click(b, b->on_click_user); return; }
+    fprintf(stderr, "no entry \"%s\" in the menu\n", label);
     failures++;
 }
 
@@ -488,13 +489,15 @@ int main(void) {
     pump(600);
     ex_panels_file_menu(F.p, "Doomed.md");
     CHECK(ex_panels_modal(F.p));
-    list = find(ex_panels_overlay(F.p), EX_WIDGET_LIST, "Doomed.md");
-    CHECK(list && has_row(list, "Rename...") && has_row(list, "Move to folder...") && has_row(list, "Delete") && has_row(list, "Show in file manager") && !has_row(list, "New folder in this folder"));
-    pick(ex_panels_overlay(F.p), "Doomed.md", "Copy path from the vault");
+    {   ExWidget *ov = ex_panels_overlay(F.p);
+        CHECK(menu_has(ov, "Rename...") && menu_has(ov, "Move to folder...") && menu_has(ov, "Delete") && menu_has(ov, "Show in file manager") && menu_has(ov, "Make a copy") && menu_has(ov, "Copy path") && !menu_has(ov, "New folder in this folder"));
+    }
+    pick(ex_panels_overlay(F.p), "Doomed.md", "Copy path");
+    CHECK(ex_panels_modal(F.p) && menu_has(ex_panels_overlay(F.p), "Path from the vault folder"));       /* the submenu */
+    pick(ex_panels_overlay(F.p), "", "Path from the vault folder");
     CHECK(!ex_panels_modal(F.p) && F.fileop == EX_FILEOP_COPY_REL && !strcmp(F.fop_path, "Doomed.md"));
     ex_panels_file_menu(F.p, "Box");
-    list = find(ex_panels_overlay(F.p), EX_WIDGET_LIST, "Box");
-    CHECK(list && has_row(list, "New note in this folder") && has_row(list, "New folder in this folder"));
+    CHECK(menu_has(ex_panels_overlay(F.p), "New note in this folder") && menu_has(ex_panels_overlay(F.p), "New folder in this folder"));
     pick(ex_panels_overlay(F.p), "Box", "New note in this folder");
     CHECK(!strcmp(F.opened, "Box/Untitled.md"));
     ex_panels_file_menu(F.p, "Box");
@@ -504,8 +507,7 @@ int main(void) {
     key(EX_KEY_ENTER, 0);
     CHECK(F.fileop == EX_FILEOP_NEW_FOLDER && !strcmp(F.fop_path, "Box") && !strcmp(F.fop_arg, "Inner"));
     ex_panels_file_menu(F.p, "");
-    list = find(ex_panels_overlay(F.p), EX_WIDGET_LIST, "Vault");
-    CHECK(list && has_row(list, "New note in this folder") && !has_row(list, "Rename...") && !has_row(list, "Delete"));
+    CHECK(menu_has(ex_panels_overlay(F.p), "New note in this folder") && !menu_has(ex_panels_overlay(F.p), "Rename...") && !menu_has(ex_panels_overlay(F.p), "Delete"));
     ex_panels_close_dialog(F.p);
     /* delete: it asks first (files.confirm_delete), and the file is gone after the answer */
     ex_panels_file_menu(F.p, "Doomed.md");
@@ -531,7 +533,7 @@ int main(void) {
         CHECK(y > 0);
         if (y > 0) {
             CHECK(ex_panels_context_menu(F.p, root, tree->x + 40, y) == 1);
-            CHECK(ex_panels_modal(F.p) && find(ex_panels_overlay(F.p), EX_WIDGET_LIST, "Mover.md") != NULL);
+            CHECK(ex_panels_modal(F.p) && menu_has(ex_panels_overlay(F.p), "Rename..."));
             ex_panels_close_dialog(F.p);
         }
     }

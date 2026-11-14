@@ -116,6 +116,75 @@ void dialog_choice(ExPanels *p, const char *title, const char **labels, size_t n
     ex_ui_set_focus(p->ui, p->dialog_list);
 }
 
+/* ---- a popup menu at the pointer ---- */
+
+static float px_to_units_exact(ExPanels *p, float px) { return px / ((float)ex_theme_size(ex_ui_theme(p->ui), EX_SIZE_SPACING) * ex_renderer_scale(ex_ui_renderer(p->ui))); }
+
+static void popup_click(ExWidget *w, void *u) {
+    ExPanels *p = u;
+    void (*cb)(ExPanels *, int, void *) = p->on_popup;
+    void *arg = p->dialog_arg;
+    int id = (int)w->tag;
+    dialog_close(p);
+    if (cb) cb(p, id, arg);
+}
+
+static int popup_key(ExWidget *w, ExKey key, int mods, void *u) {
+    ExPanels *p = u;
+    (void)w; (void)mods;
+    if (key == EX_KEY_DOWN) { ex_ui_focus_move(p->ui, 1); return 1; }
+    if (key == EX_KEY_UP) { ex_ui_focus_move(p->ui, -1); return 1; }
+    if (key == EX_KEY_ESCAPE) { dialog_close(p); return 1; }
+    return 0;
+}
+
+void dialog_popup(ExPanels *p, float x, float y, const PopupItem *items, size_t n, void (*cb)(ExPanels *, int, void *), void *arg) {
+    ExWidget *root, *box, *first = NULL;
+    ExRenderer *r = ex_ui_renderer(p->ui);
+    float scale = ex_renderer_scale(r), mw = 270.0f * scale, mh;
+    int ww, wh;
+    size_t i, seps = 0;
+    dialog_close(p);
+    preview_hide(p);
+    for (i = 0; i < n; i++) if (items[i].sep_before) seps++;
+    mh = ((float)n * 30.0f + (float)seps * 9.0f + 12.0f) * scale;
+    ex_renderer_size(r, &ww, &wh);
+    if (x + mw > (float)ww - 4.0f) x = (float)ww - mw - 4.0f;                 /* kept inside the window */
+    if (y + mh > (float)wh - 4.0f) y = (float)wh - mh - 4.0f;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    root = ex_widget_box(p->ui, 1, "Menu");
+    root->width = ex_size_grow(); root->height = ex_size_grow();
+    root->pad_x = px_to_units_exact(p, x); root->pad_y = px_to_units_exact(p, y);
+    box = ex_widget_box(p->ui, 1, "Menu");
+    box->width = ex_size_px(p->ui, 270);
+    box->bg_token = EX_COLOR_SURFACE; box->border_token = EX_COLOR_BORDER; box->radius_token = EX_SIZE_RADIUS_LARGE;
+    box->pad_x = 0.5f; box->pad_y = 0.5f; box->gap = 0;
+    for (i = 0; i < n; i++) {
+        ExWidget *b;
+        if (items[i].sep_before) {
+            ExWidget *sep = ex_widget_box(p->ui, 1, "Separator"), *line = ex_widget_box(p->ui, 1, "Separator line");
+            sep->width = ex_size_grow(); sep->pad_y = 0.5f;
+            line->width = ex_size_grow(); line->height = ex_size_px(p->ui, 1); line->bg_token = EX_COLOR_BORDER;
+            ex_widget_add(sep, line); ex_widget_add(box, sep);
+        }
+        b = ex_widget_button(p->ui, items[i].label, popup_click, p);
+        b->tag = (uint32_t)items[i].id;
+        b->menu_item = 1; b->icon = items[i].icon; b->submenu = items[i].submenu;
+        b->width = ex_size_grow(); b->height = ex_size_px(p->ui, 30);
+        b->bg_token = EX_COLOR_SURFACE; b->border_token = -1; b->radius_token = EX_SIZE_RADIUS;
+        b->text_token = items[i].danger ? EX_COLOR_ERROR : EX_COLOR_TEXT;
+        b->on_key = popup_key; b->on_key_user = p;
+        ex_widget_add(box, b);
+        if (!first) first = b;
+    }
+    ex_widget_add(root, box);
+    p->overlay = root;
+    snprintf(p->dialog_title, sizeof p->dialog_title, "Menu");
+    p->dkind = D_POPUP; p->on_popup = cb; p->dialog_arg = arg;
+    if (first) ex_ui_set_focus(p->ui, first);
+}
+
 /* ---- confirmation ---- */
 
 static void confirm_click(ExWidget *w, void *u) {

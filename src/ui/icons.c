@@ -135,6 +135,32 @@ void ex_icon_draw(ExRenderer *r, int icon, float x, float y, float w, float h, E
         ex_fill_triangle(r, x + s * 0.14f, y + s * 0.86f, x + s * 0.22f, y + s * 0.66f, x + s * 0.34f, y + s * 0.78f, c);
         line(r, x + s * 0.74f, y + s * 0.26f, x + s * 0.82f, y + s * 0.18f, th * 2.0f, c);
         break;
+    case EX_ICON_TRASH:
+        line(r, x + s * 0.2f, y + s * 0.24f, x + s * 0.8f, y + s * 0.24f, th, c);
+        ex_fill_rect(r, x + s * 0.4f, y + s * 0.13f, s * 0.2f, th, c);
+        ex_stroke_round_rect(r, x + s * 0.27f, y + s * 0.28f, s * 0.46f, s * 0.58f, th, th, c);
+        line(r, x + s * 0.42f, y + s * 0.42f, x + s * 0.42f, y + s * 0.72f, th, c);
+        line(r, x + s * 0.58f, y + s * 0.42f, x + s * 0.58f, y + s * 0.72f, th, c);
+        break;
+    case EX_ICON_COPY:
+        ex_stroke_round_rect(r, x + s * 0.3f, y + s * 0.14f, s * 0.5f, s * 0.58f, th, th, c);
+        ex_stroke_round_rect(r, x + s * 0.18f, y + s * 0.28f, s * 0.5f, s * 0.58f, th, th, c);
+        break;
+    case EX_ICON_EXTERNAL:                                                      /* an arrow leaving a corner */
+        line(r, x + s * 0.28f, y + s * 0.72f, x + s * 0.74f, y + s * 0.26f, th, c);
+        line(r, x + s * 0.4f, y + s * 0.26f, x + s * 0.74f, y + s * 0.26f, th, c);
+        line(r, x + s * 0.74f, y + s * 0.26f, x + s * 0.74f, y + s * 0.6f, th, c);
+        break;
+    case EX_ICON_MOVE:                                                          /* a folder with an arrow */
+        folder(r, x, y, s, th, c);
+        line(r, x + s * 0.34f, y + s * 0.58f, x + s * 0.66f, y + s * 0.58f, th, c);
+        line(r, x + s * 0.54f, y + s * 0.48f, x + s * 0.66f, y + s * 0.58f, th, c);
+        line(r, x + s * 0.54f, y + s * 0.68f, x + s * 0.66f, y + s * 0.58f, th, c);
+        break;
+    case EX_ICON_CLIPBOARD:
+        ex_stroke_round_rect(r, x + s * 0.24f, y + s * 0.2f, s * 0.52f, s * 0.68f, th * 1.5f, th, c);
+        ex_fill_round_rect(r, x + s * 0.38f, y + s * 0.12f, s * 0.24f, s * 0.16f, th, c);
+        break;
     default: break;
     }
 }

@@ -383,6 +383,7 @@ static void tree_drag_event(ExUi *ui, ExWidget *w, ExMouse kind, float x, float 
     if (!w->vault || w->tree_drag_row < 0) { ui->tree_drag = NULL; return; }
     over = tree_row_at(ui, w, y);
     if (x < w->x || x > w->x + w->w || y > w->y + w->h || y < w->y) over = -2;     /* outside the tree: no drop */
+    w->tree_cur_x = x; w->tree_cur_y = y;
     if (kind == EX_MOUSE_DRAG) {
         float dx = x - w->tree_drag_x, dy = y - w->tree_drag_y;
         if (!w->tree_dragging && dx * dx + dy * dy > (float)(ex_px(ui->r, 6) * ex_px(ui->r, 6))) w->tree_dragging = 1;
@@ -464,6 +465,16 @@ static void tree_draw(ExUi *ui, ExWidget *w) {
             snprintf(label, sizeof label, "%s%s", n->name, n->link_loop ? "  (loop)" : "");
             ex_text_draw(r, f, ui->base_size, x + indent, y + (rh - (float)m.line_height) / 2.0f, label, strlen(label),
                          n->excluded || n->link_loop ? muted : text);
+        }
+    }
+    if (w->tree_dragging && w->tree_drag_row >= 0) {                    /* the dragged name follows the pointer; the vault folder is marked when it is the target */
+        const ExNode *dn = ex_vault_row(w->vault, (size_t)w->tree_drag_row, NULL);
+        if (w->tree_drop_row == -3)
+            ex_stroke_round_rect(r, w->x + (float)ex_px(r, 1), w->y + (float)ex_px(r, 1), w->w - (float)ex_px(r, 2), w->h - (float)ex_px(r, 2), (float)ex_px(r, ex_theme_size(t, EX_SIZE_RADIUS)), (float)ex_px(r, 1) + 1.0f, ex_theme_color(t, EX_COLOR_ACCENT));
+        if (dn) {
+            float tw = ex_text_measure(r, f, ui->base_size, dn->name, strlen(dn->name)), gx = w->tree_cur_x + (float)ex_px(r, 12), gy = w->tree_cur_y + (float)ex_px(r, 8), pd = (float)ex_px(r, 6);
+            ex_fill_round_rect(r, gx, gy, tw + 2 * pd, (float)m.line_height + pd, (float)ex_px(r, ex_theme_size(t, EX_SIZE_RADIUS)), ex_theme_color(t, EX_COLOR_SURFACE_HOVER));
+            ex_text_draw(r, f, ui->base_size, gx + pd, gy + pd / 2, dn->name, strlen(dn->name), text);
         }
     }
 }
@@ -615,11 +626,24 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
         ExFontMetrics m;
         float size = ui->base_size * w->text_scale, tw = ex_text_measure(r, f, size, w->text, strlen(w->text)), x = w->x, y = w->y;
         if (ex_text_metrics(r, f, size, &m) == 0) {
-            if (w->type == EX_WIDGET_BUTTON) { x = w->x + (w->w - tw) / 2.0f; y = w->y + (w->h - (float)m.line_height) / 2.0f; }
+            if (w->type == EX_WIDGET_BUTTON && w->menu_item) { x = w->x + (float)ex_px(r, 12) + (float)m.line_height + (float)ex_px(r, 12); y = w->y + (w->h - (float)m.line_height) / 2.0f; }
+            else if (w->type == EX_WIDGET_BUTTON) { x = w->x + (w->w - tw) / 2.0f; y = w->y + (w->h - (float)m.line_height) / 2.0f; }
             ex_text_draw(r, f, size, x, y, w->text, strlen(w->text), ex_theme_color(t, (ExColorToken)w->text_token));
         }
     }
-    if (w->type == EX_WIDGET_BUTTON && w->icon) {
+    if (w->type == EX_WIDGET_BUTTON && w->menu_item) {                  /* a popup menu entry: the icon in its own column, a chevron for a submenu */
+        ExFontMetrics m;
+        ExFont *f = ex_ui_font(ui, w->font_token, 0);
+        if (ex_text_metrics(r, f, ui->base_size * w->text_scale, &m) == 0) {
+            float is = (float)m.line_height, ix = w->x + (float)ex_px(r, 12), iy = w->y + (w->h - is) / 2.0f;
+            ExColor ic = ex_theme_color(t, (ExColorToken)(w->text_token >= 0 ? w->text_token : EX_COLOR_TEXT));
+            if (w->icon) ex_icon_draw(r, w->icon, ix, iy, is, is, ic);
+            if (w->submenu) {
+                float cx = w->x + w->w - (float)ex_px(r, 16), cy = w->y + w->h / 2.0f, q = (float)ex_px(r, 4);
+                ex_fill_triangle(r, cx - q / 2, cy - q, cx - q / 2, cy + q, cx + q, cy, ex_theme_color(t, EX_COLOR_TEXT_MUTED));
+            }
+        }
+    } else if (w->type == EX_WIDGET_BUTTON && w->icon) {
         float pad = w->w * 0.14f;
         ex_icon_draw(r, w->icon, w->x + pad, w->y + pad, w->w - 2 * pad, w->h - 2 * pad, ex_theme_color(t, (ExColorToken)(w->disabled ? EX_COLOR_TEXT_FAINT : w->pressed ? EX_COLOR_BACKGROUND : w->selected ? EX_COLOR_ACCENT : w->text_token >= 0 ? w->text_token : EX_COLOR_TEXT)));
     }

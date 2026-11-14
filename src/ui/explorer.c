@@ -15,7 +15,7 @@ typedef struct Explorer {
     void *new_user;
     void (*on_vault)(ExWidget *w, void *user);   /* the vault button at the bottom */
     void *vault_user;
-    void (*on_menu)(ExWidget *tree, const char *rel, void *user);   /* the More button */
+    void (*on_menu)(ExWidget *tree, const char *rel, float x, float y, void *user);   /* the More button */
     void *menu_user;
 } Explorer;
 
@@ -67,7 +67,7 @@ static void on_more(ExWidget *w, void *u) {
     Explorer *e = u;
     const ExNode *n = ex_tree_selected(e->tree);
     (void)w;
-    if (e->on_menu) e->on_menu(e->tree, n ? n->rel : "", e->menu_user);
+    if (e->on_menu) e->on_menu(e->tree, n ? n->rel : "", w->x, w->y + w->h, e->menu_user);
 }
 
 static void on_new_note(ExWidget *w, void *u) { new_item(w, u, 0); }
@@ -160,7 +160,7 @@ void ex_explorer_set_vault_handler(ExWidget *sidebar, void (*fn)(ExWidget *w, vo
     e->vault_user = user;
 }
 
-void ex_explorer_set_menu_handler(ExWidget *sidebar, void (*fn)(ExWidget *tree, const char *rel, void *user), void *user) {
+void ex_explorer_set_menu_handler(ExWidget *sidebar, void (*fn)(ExWidget *tree, const char *rel, float x, float y, void *user), void *user) {
     Explorer *e = sidebar ? sidebar->owned : NULL;
     if (!e) return;
     e->on_menu = fn;

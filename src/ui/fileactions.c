@@ -9,11 +9,7 @@
 #include "exhaust_settings.h"
 #include "panels_internal.h"
 
-enum { A_OPEN_TAB, A_NEW_NOTE, A_NEW_FOLDER, A_RENAME, A_MOVE, A_DELETE, A_COPY_REL, A_COPY_ABS, A_DEFAULT, A_SHOW, A_COUNT };
-static const char *const LABELS[A_COUNT] = {
-    "Open in new tab", "New note in this folder", "New folder in this folder", "Rename...", "Move to folder...", "Delete",
-    "Copy path from the vault", "Copy path from the system root", "Open in default app", "Show in file manager"
-};
+enum { A_OPEN_TAB, A_NEW_NOTE, A_NEW_FOLDER, A_RENAME, A_MOVE, A_DELETE, A_COPY_REL, A_COPY_ABS, A_DEFAULT, A_SHOW, A_COPY_FILE, A_BOOKMARK, A_COPY_PATH_MENU, A_COUNT };
 
 static int op(ExPanels *p, int what, const char *path, const char *arg) {
     return p->in.host.file_op ? p->in.host.file_op(p->in.host.user, what, path, arg) : -1;
@@ -65,25 +61,15 @@ static void new_folder_done(ExPanels *p, const char *name, void *arg) {
     else say(p, "That folder could not be created.");
 }
 
-static void action_done(ExPanels *p, size_t index, const char *key, void *arg) {
-    char path[700], rel[700];                        /* a copy: the actions below replace dialog_arg_text, which arg points into */
-    int a, is_dir = 0;
-    (void)index;
-    snprintf(path, sizeof path, "%s", (const char *)arg);
-    for (a = 0; a < A_COUNT; a++) if (!strcmp(key, LABELS[a])) break;
-    if (a == A_COUNT) return;
-    {
-        char abs[1400];
-        ExPathInfo info;
-        snprintf(abs, sizeof abs, "%s/%s", p->root, path);
-        is_dir = !path[0] || (ex_platform_path_info(abs, &info) == 0 && info.is_dir);
-    }
+static void action_done(ExPanels *p, int a, void *arg) {
+    char path[700], rel[700];
+    (void)rel;
+    snprintf(path, sizeof path, "%s", (const char *)arg);                      /* a copy: the actions below replace dialog_arg_text, which arg points into */
     switch (a) {
     case A_OPEN_TAB: panels_open_note(p, path, (size_t)-1, 1); break;
     case A_NEW_NOTE: {
         free_name(p, path, "Untitled", ".md", rel, sizeof rel);
         panels_open_note(p, rel, (size_t)-1, 1);
-        ex_panels_tree_changed(p);
         break;
     }
     case A_NEW_FOLDER: {
@@ -99,30 +85,65 @@ static void action_done(ExPanels *p, size_t index, const char *key, void *arg) {
     case A_COPY_ABS: op(p, EX_FILEOP_COPY_ABS, path, NULL); say(p, "Path copied."); break;
     case A_DEFAULT: if (op(p, EX_FILEOP_OPEN_DEFAULT, path, NULL) != 0) say(p, "It could not be opened."); break;
     case A_SHOW: if (op(p, EX_FILEOP_SHOW, path, NULL) != 0) say(p, "The file manager could not be opened."); break;
+    case A_COPY_FILE: if (op(p, EX_FILEOP_COPY_FILE, path, NULL) == 0) { say(p, "A copy was made."); ex_panels_tree_changed(p); } else say(p, "The copy could not be made."); break;
+    case A_BOOKMARK: {
+        ExBookmark b;
+        memset(&b, 0, sizeof b);
+        b.type = EX_BM_NOTE; b.path = path;
+        ex_bookmarks_add(p->bookmarks, &b, 0);
+        views_bookmarks_changed(p);
+        say(p, "Note bookmarked.");
+        break;
     }
-    (void)is_dir;
+    }
 }
 
-/* The menu for a file or folder of the vault ("" is the vault folder itself). */
-void ex_panels_file_menu(ExPanels *p, const char *path) {
-    const char *items[A_COUNT];
+/* "Copy path": its own small menu next to the first one. */
+static void copy_path_menu(ExPanels *p, float x, float y, const char *path) {
+    static const PopupItem items[] = {
+        {"Path from the vault folder", EX_ICON_CLIPBOARD, A_COPY_REL, 0, 0, 0},
+        {"Path from the system root", EX_ICON_CLIPBOARD, A_COPY_ABS, 0, 0, 0},
+    };
+    free(p->dialog_arg_text);
+    p->dialog_arg_text = dup_s(path);
+    dialog_popup(p, x, y, items, 2, action_done, p->dialog_arg_text);
+}
+
+static float g_menu_x, g_menu_y;
+static void menu_chosen(ExPanels *p, int a, void *arg) {
+    if (a == A_COPY_PATH_MENU) { char path[700]; snprintf(path, sizeof path, "%s", (const char *)arg); copy_path_menu(p, g_menu_x + 262.0f, g_menu_y + 120.0f, path); return; }
+    action_done(p, a, arg);
+}
+
+/* The menu for a file or folder of the vault ("" is the vault folder itself), at a window position. */
+void ex_panels_file_menu_at(ExPanels *p, const char *path, float x, float y) {
+    PopupItem items[16];
     size_t n = 0;
-    char abs[1400], title[320];
+    char abs[1400];
     ExPathInfo info;
     int is_dir, is_root = !path[0];
     snprintf(abs, sizeof abs, "%s/%s", p->root, path);
     is_dir = is_root || (ex_platform_path_info(abs, &info) == 0 && info.is_dir);
-    if (!is_dir) items[n++] = LABELS[A_OPEN_TAB];
-    if (is_dir) { items[n++] = LABELS[A_NEW_NOTE]; items[n++] = LABELS[A_NEW_FOLDER]; }
-    if (!is_root) { items[n++] = LABELS[A_RENAME]; items[n++] = LABELS[A_MOVE]; items[n++] = LABELS[A_DELETE]; items[n++] = LABELS[A_COPY_REL]; }
-    items[n++] = LABELS[A_COPY_ABS];
-    if (!is_dir) items[n++] = LABELS[A_DEFAULT];
-    items[n++] = LABELS[A_SHOW];
+#define ITEM(l, ic, id, dg, sep, sub) do { PopupItem it_ = {l, ic, id, dg, sep, sub}; items[n++] = it_; } while (0)
+    if (!is_dir) ITEM("Open in new tab", EX_ICON_NEW_NOTE, A_OPEN_TAB, 0, 0, 0);
+    if (is_dir) { ITEM("New note in this folder", EX_ICON_NEW_NOTE, A_NEW_NOTE, 0, 0, 0); ITEM("New folder in this folder", EX_ICON_NEW_FOLDER, A_NEW_FOLDER, 0, 0, 0); }
+    if (!is_root) {
+        if (!is_dir) ITEM("Make a copy", EX_ICON_COPY, A_COPY_FILE, 0, 1, 0);
+        ITEM("Move to folder...", EX_ICON_MOVE, A_MOVE, 0, is_dir ? 1 : 0, 0);
+        if (!is_dir) ITEM("Bookmark", EX_ICON_BOOKMARK, A_BOOKMARK, 0, 0, 0);
+    }
+    ITEM("Copy path", EX_ICON_CLIPBOARD, A_COPY_PATH_MENU, 0, 1, 1);
+    if (!is_dir) ITEM("Open in default app", EX_ICON_EXTERNAL, A_DEFAULT, 0, 1, 0);
+    ITEM("Show in file manager", EX_ICON_EXTERNAL, A_SHOW, 0, is_dir ? 1 : 0, 0);
+    if (!is_root) { ITEM("Rename...", EX_ICON_MODE, A_RENAME, 0, 1, 0); ITEM("Delete", EX_ICON_TRASH, A_DELETE, 1, 0, 0); }
+#undef ITEM
+    g_menu_x = x; g_menu_y = y;
     free(p->dialog_arg_text);
     p->dialog_arg_text = dup_s(path);
-    snprintf(title, sizeof title, "%s", is_root ? "Vault" : path);
-    dialog_choice(p, title, items, n, 0, action_done, p->dialog_arg_text);
+    dialog_popup(p, x, y, items, n, menu_chosen, p->dialog_arg_text);
 }
+
+void ex_panels_file_menu(ExPanels *p, const char *path) { ex_panels_file_menu_at(p, path, 120.0f, 120.0f); }
 
 /* The context menu: a right click at window position (x, y). Returns 1 if it opened one. */
 int ex_panels_context_menu(ExPanels *p, ExWidget *root, float x, float y) {
@@ -131,12 +152,12 @@ int ex_panels_context_menu(ExPanels *p, ExWidget *root, float x, float y) {
     while (w && w->type != EX_WIDGET_TREE) w = w->parent;
     if (!w || ex_panels_modal(p)) return 0;
     n = ex_tree_node_at(p->ui, w, y, 1);
-    ex_panels_file_menu(p, n ? n->rel : "");
+    ex_panels_file_menu_at(p, n ? n->rel : "", x, y);
     return 1;
 }
 
-/* The More button of the toolbar: the menu of the selected row, or of the vault. */
-static void on_more(ExWidget *tree, const char *rel, void *user) { (void)tree; ex_panels_file_menu(user, rel ? rel : ""); }
+/* The More button of the toolbar: the menu of the selected row, or of the vault, below the button. */
+static void on_more(ExWidget *tree, const char *rel, float x, float y, void *user) { (void)tree; ex_panels_file_menu_at(user, rel ? rel : "", x, y); }
 
 /* A row dragged onto a folder: the same flow as Move to folder (the link update included). */
 static void on_drop(ExWidget *tree, const char *from, const char *to_folder, void *user) {
