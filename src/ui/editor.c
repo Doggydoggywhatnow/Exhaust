@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -63,6 +64,9 @@ struct ExEditor {
     ExSlashMenu *slash;           /* not owned */
     int slash_open;
     size_t slash_start;           /* offset of the "/" that opened the menu */
+    ExLinkSuggestFn link_fn; void *link_user;
+    int link_open; size_t link_start;       /* the offset after the "[[" that opened the list */
+    ExLinkSuggestion link_items[8]; size_t link_n, link_sel;
     float sp_x, sp_y, sp_w, sp_rowh;   /* the popup as last drawn, for clicks */
     size_t sp_first, sp_rows;
     ExSpell *spell;               /* not owned */
@@ -797,6 +801,41 @@ static void backspace_or_delete(ExEditor *e, ExRenderer *r, int forward, int wor
     free(rg);
 }
 
+/* ---- link suggestions ---- */
+
+void ex_editor_set_link_suggest(ExEditor *e, ExLinkSuggestFn fn, void *user) { e->link_fn = fn; e->link_user = user; e->link_open = 0; }
+int ex_editor_link_suggest_open(const ExEditor *e) { return e->link_fn && e->link_open; }
+
+static void link_refresh(ExEditor *e) {
+    ExSel p;
+    char q[256];
+    size_t n;
+    if (!e->link_fn || !e->link_open) return;
+    p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
+    if (ex_doc_sel_count(e->doc) != 1 || p.anchor != p.head || p.head < e->link_start || p.head - e->link_start >= sizeof q) { e->link_open = 0; return; }
+    n = ex_buffer_read(buf(e), e->link_start, q, p.head - e->link_start);
+    q[n] = 0;
+    if (strpbrk(q, "]|\r\n")) { e->link_open = 0; return; }
+    e->link_n = e->link_fn(e->link_user, q, e->link_items, 8);
+    if (e->link_sel >= e->link_n) e->link_sel = 0;
+}
+
+static void link_accept(ExEditor *e, ExRenderer *r) {
+    ExSel p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
+    ExChange c;
+    ExSel after;
+    char ahead[2] = {0, 0}, text[260];
+    size_t k;
+    if (e->link_sel >= e->link_n) { e->link_open = 0; return; }
+    k = ex_buffer_read(buf(e), p.head, ahead, 2);
+    snprintf(text, sizeof text, "%s%s", e->link_items[e->link_sel].insert, (k == 2 && ahead[0] == ']' && ahead[1] == ']') ? "" : "]]");
+    c.offset = e->link_start; c.remove_len = p.head - e->link_start; c.text = text; c.text_len = strlen(text);
+    after.anchor = after.head = e->link_start + strlen(e->link_items[e->link_sel].insert) + 2;
+    e->link_open = 0;
+    ex_doc_apply(e->doc, &c, 1, 0, &after, 1);
+    ensure_visible(e, r);
+}
+
 /* ---- slash menu ---- */
 
 void ex_editor_set_slash(ExEditor *e, ExSlashMenu *menu) { if (e->slash == menu) return; e->slash = menu; e->slash_open = 0; }
@@ -837,6 +876,14 @@ void ex_editor_text_input(ExEditor *e, const char *text, size_t len) {
     e->composition[0] = 0;
     ex_doc_replace_selections(e->doc, text, len, 1);
     e->last_vertical = 0;
+    if (e->link_fn) {
+        ExSel p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
+        char before;
+        if (!e->link_open && len == 1 && text[0] == '[' && ex_doc_sel_count(e->doc) == 1 && p.head >= 2 && ex_buffer_read(buf(e), p.head - 2, &before, 1) == 1 && before == '[') {
+            e->link_open = 1; e->link_start = p.head; e->link_sel = 0; e->link_n = 0;
+        }
+        link_refresh(e);
+    }
     if (e->slash) {
         ExSel p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
         if (!e->slash_open && len == 1 && text[0] == '/' && ex_doc_sel_count(e->doc) == 1 && p.head >= 1) {   /* at the start of a line or after a blank */
@@ -1058,6 +1105,12 @@ void ex_editor_key(ExEditor *e, ExRenderer *r, ExKey key, int mods) {
     ExEditAction act;
     int extend;
     if (!e->font) return;
+    if (e->link_fn && e->link_open) {
+        if (key == EX_KEY_UP && e->link_n) { e->link_sel = (e->link_sel + e->link_n - 1) % e->link_n; return; }
+        if (key == EX_KEY_DOWN && e->link_n) { e->link_sel = (e->link_sel + 1) % e->link_n; return; }
+        if ((key == EX_KEY_ENTER || key == EX_KEY_TAB) && e->link_n) { link_accept(e, r); return; }
+        if (key == EX_KEY_ESCAPE) { e->link_open = 0; return; }
+    }
     if (e->slash && e->slash_open) {
         if (key == EX_KEY_UP || key == EX_KEY_DOWN) { ex_slash_move(e->slash, key == EX_KEY_UP ? -1 : 1); return; }
         if (key == EX_KEY_ENTER || key == EX_KEY_TAB) { slash_accept(e, r); return; }
@@ -1070,6 +1123,7 @@ void ex_editor_key(ExEditor *e, ExRenderer *r, ExKey key, int mods) {
 #endif
     ex_editor_perform(e, r, act, extend);
     slash_refresh(e);
+    link_refresh(e);
 }
 
 /* ---- mouse ---- */
@@ -1134,6 +1188,14 @@ void ex_editor_rect_select(ExEditor *e, ExRenderer *r, float ax, float ay, float
 void ex_editor_mouse(ExEditor *e, ExRenderer *r, ExMouse kind, float x, float y, int mods, int clicks) {
     size_t off;
     if (!e->font) return;
+    if (e->link_fn && e->link_open) {
+        if (kind == EX_MOUSE_DOWN && e->link_n && x >= e->sp_x && x < e->sp_x + e->sp_w && y >= e->sp_y && e->sp_rowh > 0 && y < e->sp_y + e->sp_rowh * (float)e->link_n) {
+            e->link_sel = (size_t)((y - e->sp_y) / e->sp_rowh);
+            link_accept(e, r);
+            return;
+        }
+        if (kind == EX_MOUSE_DOWN) e->link_open = 0;
+    }
     if (e->slash && e->slash_open) {
         if (kind == EX_MOUSE_DOWN && x >= e->sp_x && x < e->sp_x + e->sp_w && y >= e->sp_y && e->sp_rowh > 0 && y < e->sp_y + e->sp_rowh * (float)e->sp_rows) {
             size_t row = e->sp_first + (size_t)((y - e->sp_y) / e->sp_rowh);
@@ -1288,6 +1350,39 @@ const struct ExMd *ex_editor_tokens(ExEditor *e) {
     if (e->mode == EX_EDITOR_PLAIN) return NULL;
     ensure_md(e);
     return e->md;
+}
+
+typedef struct LinkProbe { size_t off, start; int have; size_t ts, te, hs, he, bs, be; int ht, hh, hb; } LinkProbe;
+static int link_probe(const ExMdSpan *sp, void *user) {
+    LinkProbe *lp = user;
+    if (!lp->have && (sp->kind == EX_MD_WIKILINK || sp->kind == EX_MD_EMBED || sp->kind == EX_MD_LINK || sp->kind == EX_MD_IMAGE) && lp->off >= sp->start && lp->off < sp->end) { lp->have = 1; lp->start = sp->start; }
+    else if (lp->have && sp->parent_start == lp->start) {
+        if ((sp->kind == EX_MD_LINK_TARGET || sp->kind == EX_MD_LINK_DEST) && !lp->ht) { lp->ht = 1; lp->ts = sp->start; lp->te = sp->end; }
+        else if (sp->kind == EX_MD_LINK_HEADING) { lp->hh = 1; lp->hs = sp->start; lp->he = sp->end; }
+        else if (sp->kind == EX_MD_LINK_BLOCK) { lp->hb = 1; lp->bs = sp->start; lp->be = sp->end; }
+    }
+    return 0;
+}
+
+int ex_editor_link_at(ExEditor *e, ExRenderer *r, float x, float y, char *target, size_t tcap, char *heading, size_t hcap, char *block, size_t bcap) {
+    LinkProbe lp;
+    size_t len;
+    memset(&lp, 0, sizeof lp);
+    if (!e->font || e->mode == EX_EDITOR_PLAIN || x < e->vx || y < e->vy || x >= e->vx + e->vw || y >= e->vy + e->vh) return 0;
+    ensure_md(e);
+    lp.off = point_to_offset(e, r, x, y);
+    len = ex_buffer_size(buf(e));
+    ex_md_visit(e->md, lp.off > 0 ? lp.off - 1 : 0, lp.off + 1 < len ? lp.off + 1 : len, link_probe, &lp);
+    if (!lp.have || !lp.ht) return 0;
+    {
+        size_t n = lp.te - lp.ts, k;
+        if (n >= tcap) n = tcap - 1;
+        k = ex_buffer_read(buf(e), lp.ts, target, n); target[k] = 0;
+        heading[0] = 0; block[0] = 0;
+        if (lp.hh) { n = lp.he - lp.hs; if (n >= hcap) n = hcap - 1; k = ex_buffer_read(buf(e), lp.hs, heading, n); heading[k] = 0; }
+        if (lp.hb) { n = lp.be - lp.bs; if (n >= bcap) n = bcap - 1; k = ex_buffer_read(buf(e), lp.bs, block, n); block[k] = 0; }
+    }
+    return target[0] != 0 && !strstr(target, "://");
 }
 
 static size_t misspelled_in_line(ExEditor *e, size_t st, size_t en, size_t out_s[], size_t out_e[], size_t max);
@@ -1582,6 +1677,27 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
         free(txt);
     }
     ex_set_clip(r, (int)e->vx, (int)e->vy, (int)e->vw, (int)e->vh);
+    if (e->link_fn && e->link_open) {                                   /* the link suggestions under the caret */
+        size_t count = e->link_n, k;
+        float rowh = (float)lh, w = (float)ex_px(r, 360) * (e->size / 16.0f), h = rowh * (float)(count ? count : 1) + (float)ex_px(r, 8), cx, cy, py, pxl;
+        ExColor bg = ex_theme_color(t, EX_COLOR_SURFACE), border = ex_theme_color(t, EX_COLOR_BORDER);
+        ex_editor_caret_rect(e, r, &cx, &cy, NULL, NULL);
+        pxl = cx;
+        if (pxl + w > e->vx + e->vw) pxl = e->vx + e->vw - w;
+        if (pxl < e->vx) pxl = e->vx;
+        py = cy + (float)lh + 2.0f;
+        if (py + h > e->vy + e->vh && cy - h - 2.0f >= e->vy) py = cy - h - 2.0f;
+        e->sp_x = pxl; e->sp_y = py + (float)ex_px(r, 4); e->sp_w = w; e->sp_rowh = rowh;
+        ex_fill_round_rect(r, pxl, py, w, h, (float)ex_px(r, 6), border);
+        ex_fill_round_rect(r, pxl + 1, py + 1, w - 2, h - 2, (float)ex_px(r, 5), bg);
+        if (!count) ex_text_draw(r, e->font, e->size, pxl + (float)ex_px(r, 8), py + (float)ex_px(r, 4) + (rowh - (float)fm.line_height) / 2.0f, "No matching notes", 17, ex_theme_color(t, EX_COLOR_TEXT_FAINT));
+        for (k = 0; k < count; k++) {
+            float ry = py + (float)ex_px(r, 4) + rowh * (float)k, dw = e->link_items[k].detail[0] ? ex_text_measure(r, e->font, e->size * 0.85f, e->link_items[k].detail, strlen(e->link_items[k].detail)) : 0;
+            if (k == e->link_sel) ex_fill_rect(r, pxl + 2, ry, w - 4, rowh, ex_theme_color(t, EX_COLOR_SELECTION));
+            ex_text_draw(r, e->font, e->size, pxl + (float)ex_px(r, 8), ry + (rowh - (float)fm.line_height) / 2.0f, e->link_items[k].label, strlen(e->link_items[k].label), ex_theme_color(t, EX_COLOR_TEXT));
+            if (dw > 0) ex_text_draw(r, e->font, e->size * 0.85f, pxl + w - dw - (float)ex_px(r, 8), ry + (rowh - (float)fm.line_height * 0.85f) / 2.0f, e->link_items[k].detail, strlen(e->link_items[k].detail), ex_theme_color(t, EX_COLOR_TEXT_MUTED));
+        }
+    }
     if (e->slash && e->slash_open) {                                    /* the slash menu under the caret */
         size_t count = ex_slash_count(e->slash), rows = count ? (count < 8 ? count : 8) : 1, sel = ex_slash_selected(e->slash), first = 0, k;
         float rowh = (float)lh, w = (float)ex_px(r, 300) * (e->size / 16.0f), h = rowh * (float)rows + (float)ex_px(r, 8), cx, cy, py, pxl;

@@ -101,6 +101,7 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 | `attachment_subfolder` | string | empty | 0.1.0 |
 | `link_format` | enum(shortest\|relative\|absolute) | `shortest` | 0.1.0 |
 | `auto_update_links` | bool | `true` | 0.1.0 |
+| `link_update` | enum(ask\|automatic\|off) | `ask` | 0.1.0 (4c) |
 | `use_wikilinks` | bool | `true` | 0.1.0 |
 | `show_all_file_types` | bool | `false` | 0.1.0 |
 | `confirm_delete` | bool | `true` | 0.1.0 |
@@ -282,7 +283,7 @@ Every command in the command registry, read from the nine hotkeys screenshots (`
 
 The code's table of commands (`ex_command_table`) is generated from this table at build time (`tools/gen_tables.c`), so a command exists in the code only if it is listed here. A command is *declared* by this table and *bound* when the code that runs it exists; an unbound command, a command whose feature is switched off in `[features]`, and a command of a stub feature are not available (they are shown disabled, never hidden from the hotkeys screen). A command's feature is its area with hyphens turned into underscores (`daily-notes.` belongs to `daily_notes`), except `graph-view.` (`graph`) and `unique-note-creator.` (`unique_note`); `app.`, `editor.`, `table.` and `format-converter.` commands have no feature switch.
 
-205 commands (203 read from the screenshots and two added for sub-slice 3e, *Spelling: Add word to dictionary* and *Spelling: Replace with the next suggestion*, because Exhaust has no context menu yet to pick a suggestion from). Left out on purpose: *Configure mobile Quick Action* (mobile is a non-goal), *Open sandbox vault* and *Show release notes* (Obsidian-specific), and *Copy Obsidian URL for current file*, which is renamed *Copy URL for current file*. Commands for stubbed features (Sync) are present and disabled; *Download attachments for current file* needs the network and is *(optional)*. *TODO-verify*: the screenshots are cropped at page edges, so a command may be missing at a boundary between two pages; the macOS defaults are not shown; and the shortcuts shown may be one person's settings rather than defaults.
+207 commands (203 read from the screenshots, two added for sub-slice 3e and two for sub-slice 4c (*Random note: Open random note* and *Footnotes: Show footnotes*, which the Core plugins screenshots list as features but give no command for), *Spelling: Add word to dictionary* and *Spelling: Replace with the next suggestion*, because Exhaust has no context menu yet to pick a suggestion from). Left out on purpose: *Configure mobile Quick Action* (mobile is a non-goal), *Open sandbox vault* and *Show release notes* (Obsidian-specific), and *Copy Obsidian URL for current file*, which is renamed *Copy URL for current file*. Commands for stubbed features (Sync) are present and disabled; *Download attachments for current file* needs the network and is *(optional)*. *TODO-verify*: the screenshots are cropped at page edges, so a command may be missing at a boundary between two pages; the macOS defaults are not shown; and the shortcuts shown may be one person's settings rather than defaults.
 
 | Id | Name | Default | Editor |
 | --- | --- | --- | --- |
@@ -402,6 +403,8 @@ The code's table of commands (`ex_command_table`) is generated from this table a
 | `outgoing-links.show-outgoing-links` | Outgoing links: Show outgoing links |  |  |
 | `outline.open-outline-of-the-current-file` | Outline: Open outline of the current file |  |  |
 | `outline.show-outline` | Outline: Show outline |  |  |
+| `random-note.open-random-note` | Random note: Open random note |  |  |
+| `footnotes.show-footnotes` | Footnotes: Show footnotes |  |  |
 | `properties-view.show-all-properties` | Properties view: Show all properties |  |  |
 | `properties-view.show-file-properties` | Properties view: Show file properties |  |  |
 | `quick-switcher.open-quick-switcher` | Quick switcher: Open quick switcher | `Ctrl+O` |  |
@@ -1097,6 +1100,14 @@ Editing is text surgery: changing, adding, removing, renaming or retyping a prop
 **Query blocks.** A fenced code block (backticks or tildes) whose info string is `query` holds a search; its lines are joined with spaces. Reading mode and live preview show, where the block is, the list of results of that search: for each note a list item `- [[Folder/Note|Note]] (n)` with n matches, and unless collapsed the lines of the first five matches (`max_matches`) as quotes with the match marked `==like this==`, `and k more` for the rest; "more context" adds a line before and after each match. A search that cannot be read shows `*Query error: ...*`, no result `*No results.*`. The options (collapse, more context, copy) belong to the displayed list and are not stored in the note.
 
 **Bookmarks** are in `.exhaust/bookmarks.ini` and are written at once after every change (by a worker thread in the application). `[bookmarks]` has `next_id` (ids are never reused). Each bookmark is `[bookmark.<id>]` with `type` (`note`, `heading`, `block`, `search`, `graph`, `group`), `title`, `parent` (the id of the group it is in; absent for the top), and by type `path` (a path from the vault), `heading`, `block` (the id without `^`), `query` (the search text, or the graph settings written as `key=value` pairs separated by `;`). The order of the sections is the order of display; the bookmarks of a group are the sections whose `parent` is its id. Renaming or moving a note or folder updates `path` of its bookmarks. Unknown sections and keys are kept.
+
+## Panels and dialogs
+
+*Since 0.1.0 (sub-slice 4c).* The panel shown on each side is kept in the session file as `[layout] open_panels`: `left:files`, `left:search`, `left:bookmarks`, `right:backlinks`, `right:outgoing`, `right:tags`, `right:properties`, `right:outline`, `right:footnotes` (one for each side). A panel whose feature switch (`[features]`: `files`, `search`, `bookmarks`, `backlinks`, `outgoing_links`, `tags_view`, `properties_view`, `outline`, `footnotes`) is off has no tab on the strip. The quick switcher uses `[quick_switcher] show_existing_only` (no "Create" row, Enter creates nothing) and `show_attachments` (other files than notes are listed); the command palette lists every command of the table, pinned ones (`[command_palette] pinned`, command ids separated by commas, in that order) first when the query is empty and above the others when it is not, and commands that cannot run now in the muted color. The page preview (`[page_preview]`) shows the section under a heading, the block of a `^id`, or the start of the note, after the pointer rests for 450 ms; the `ctrl_required_*` switches say where Ctrl must be held (`links_panels`: Backlinks and Outgoing links, `bookmarks`, `reading_view`, `editing_view`). `[backlinks] show_at_bottom` shows the linked mentions under the open note.
+
+**Renaming** (`app.rename-file`, `F2`; `app.move-current-file-to-another-folder`). `[files] link_update` says what happens to the links that point at a renamed or moved note or folder: `ask` (a dialog says how many links in how many notes will change and offers *Update links*, *Don't update* and *Cancel*), `automatic` (they are updated without asking) or `off`. When the key is not set, `auto_update_links = false` means `off`, anything else `ask`. Links are rewritten after the move, from the index as it was before it (docs: "Index"); the change is made in the files, and notes that are open pick it up the way they pick up any outside change.
+
+**Shortcuts of the dialogs.** Up and Down move in the list of a dialog, Enter accepts, Escape closes; in the quick switcher Shift+Enter always creates the note named by the text; in the command palette Ctrl+Space pins or unpins the selected command. In a list: Up, Down, Home, End, Page Up, Page Down, Enter or Space activate, Left and Right close and open a row with an arrow.
 
 ## Vault folders that Exhaust owns
 

@@ -54,11 +54,16 @@ int ex_index_clear(ExIndex *w);
 /* ---- reading ---- */
 long ex_index_file_count(ExIndex *r, int kind);              /* kind is an ExFileKind, or -1 for every file */
 int64_t ex_index_file_id(ExIndex *r, const char *rel);       /* 0 if unknown */
-char *ex_index_file_path(ExIndex *r, int64_t id);            /* malloc'ed, NULL if unknown */
+char *ex_index_file_path(ExIndex *r, int64_t id);
+/* The files below a folder (paths from the vault, the folder itself excluded), sorted. Free each string and the array. */
+int ex_index_files_under(ExIndex *r, const char *folder, char ***paths, size_t *n);            /* malloc'ed, NULL if unknown */
 /* Candidate notes for a text: the ids of the notes whose text contains every three-character piece of needle (so, all
  * notes that contain it, and maybe a few that do not). A needle under three characters cannot use the index: every
  * note is returned and *scanned is set to 1. The caller reads the candidates to be sure. Case is ignored. */
 int ex_index_candidates(ExIndex *r, const char *needle, size_t needle_len, int64_t **ids, size_t *n, int *scanned);
+/* The text of a note as the editor holds it (no byte-order mark, LF line ends for CRLF files), malloc'ed; NULL if it cannot be
+ * read or is not UTF-8. Counted by ex_index_note_reads. */
+char *ex_index_read_note(const char *vault_root, const char *rel, size_t *len);
 /* How many note files the index code has read since the program started (the tests look at it). */
 long ex_index_note_reads(void);
 /* The size of the search part of the index (the trigram tables) in bytes, and the size of the notes' text. */

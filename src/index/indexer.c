@@ -392,6 +392,22 @@ char *ex_index_file_path(ExIndex *r, int64_t id) {
     return p;
 }
 
+int ex_index_files_under(ExIndex *r, const char *folder, char ***paths, size_t *n) {
+    sqlite3_stmt *st = ex_db_prepare(r, "SELECT path FROM files WHERE substr(path, 1, length(?1) + 1) = ?1 || '/' ORDER BY path");
+    char **v = NULL;
+    size_t cnt = 0, cap = 0;
+    *paths = NULL; *n = 0;
+    if (!st) return -1;
+    sqlite3_bind_text(st, 1, folder, -1, SQLITE_STATIC);
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        if (cnt == cap) { size_t nc = cap ? cap * 2 : 32; char **nv = realloc(v, nc * sizeof *nv); if (!nv) break; v = nv; cap = nc; }
+        v[cnt++] = ex_strdup((const char *)sqlite3_column_text(st, 0));
+    }
+    sqlite3_finalize(st);
+    *paths = v; *n = cnt;
+    return 0;
+}
+
 long long ex_index_text_index_bytes(ExIndex *r) {
     return scalar_i64(r, "SELECT coalesce(sum(pgsize), 0) FROM dbstat WHERE name LIKE 'fts\\_%' ESCAPE '\\'");
 }

@@ -526,6 +526,13 @@ static const Op *hit(const ExReadingView *v, float x, float y) {
     return NULL;
 }
 
+int ex_readingview_internal_link_at(ExReadingView *v, float x, float y, char *target, size_t cap) {
+    const Op *o = hit(v, x, y);
+    if (!o || o->link < 0 || v->links[o->link].kind != EX_RSK_LINK_INTERNAL) return 0;
+    snprintf(target, cap, "%s", v->links[o->link].target);
+    return 1;
+}
+
 int ex_readingview_mouse(ExReadingView *v, ExMouse kind, float x, float y) {
     const Op *o = hit(v, x, y);
     if (kind == EX_MOUSE_DOWN) {

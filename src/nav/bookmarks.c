@@ -182,7 +182,13 @@ int ex_bookmarks_add(ExBookmarks *b, const ExBookmark *what, int parent) {
     m->parent = parent;
     m->path = dup_or_null(what->path); m->heading = dup_or_null(what->heading); m->block = dup_or_null(what->block); m->query = dup_or_null(what->query);
     if (what->title && what->title[0]) m->title = ex_strdup(what->title);
-    else m->title = ex_strdup(what->heading ? what->heading : what->query ? what->query : what->path ? what->path : "Bookmark");
+    else if (!what->heading && !what->query && what->path) {                  /* a note: its name without ".md" */
+        const char *sl = strrchr(what->path, '/'), *base = sl ? sl + 1 : what->path;
+        size_t bn = strlen(base);
+        if (bn > 3 && !strcmp(base + bn - 3, ".md")) bn -= 3;
+        m->title = malloc(bn + 1);
+        if (m->title) { memcpy(m->title, base, bn); m->title[bn] = 0; }
+    } else m->title = ex_strdup(what->heading ? what->heading : what->query ? what->query : what->path ? what->path : "Bookmark");
     persist(b);
     return m->id;
 }

@@ -15,9 +15,9 @@
 extern "C" {
 #endif
 
-typedef enum ExWidgetType { EX_WIDGET_BOX, EX_WIDGET_LABEL, EX_WIDGET_BUTTON, EX_WIDGET_EDITOR, EX_WIDGET_TREE, EX_WIDGET_READING, EX_WIDGET_TYPE_COUNT } ExWidgetType;
+typedef enum ExWidgetType { EX_WIDGET_BOX, EX_WIDGET_LABEL, EX_WIDGET_BUTTON, EX_WIDGET_EDITOR, EX_WIDGET_TREE, EX_WIDGET_READING, EX_WIDGET_LIST, EX_WIDGET_TYPE_COUNT } ExWidgetType;
 
-typedef enum ExRole { EX_ROLE_WINDOW, EX_ROLE_GROUP, EX_ROLE_LABEL, EX_ROLE_BUTTON, EX_ROLE_TEXT_INPUT, EX_ROLE_TREE } ExRole;
+typedef enum ExRole { EX_ROLE_WINDOW, EX_ROLE_GROUP, EX_ROLE_LABEL, EX_ROLE_BUTTON, EX_ROLE_TEXT_INPUT, EX_ROLE_TREE, EX_ROLE_LIST } ExRole;
 
 typedef enum ExSizing { EX_SIZING_FIT, EX_SIZING_GROW, EX_SIZING_FIXED, EX_SIZING_PERCENT } ExSizing;
 
@@ -40,6 +40,7 @@ struct ExWidget {
     ExAxis width, height;
     float pad_x, pad_y, gap;      /* in units of the theme's spacing token */
     int clip;                     /* clip children to this widget */
+    int align_x, align_y;         /* where the children sit in the free room: 0 start, 1 center, 2 end */
     int hidden;                   /* not laid out, drawn, focused or exposed to screen readers */
 
     /* look: theme token ids, -1 for none */
@@ -61,6 +62,7 @@ struct ExWidget {
     void *on_click_user;
     ExEditor *editor;             /* EX_WIDGET_EDITOR */
     struct ExReadingView *reading;   /* EX_WIDGET_READING */
+    struct ExListData *list;      /* EX_WIDGET_LIST (owned) */
     ExVault *vault;               /* EX_WIDGET_TREE: the vault whose rows it shows (not owned) */
     size_t tree_selected;         /* selected row */
     float tree_scroll;            /* pixels */
@@ -109,6 +111,7 @@ ExWidget *ex_widget_editor(ExUi *ui, ExDoc *doc, const char *name);
 ExWidget *ex_widget_reading(ExUi *ui, const char *text, size_t len, const char *name);
 void ex_reading_set_text(ExWidget *w, const char *text, size_t len);
 void ex_reading_set_link_handler(ExWidget *w, void (*fn)(ExRSpanKind kind, const char *target, void *user), void *user);
+int ex_reading_internal_link_at(ExWidget *w, float x, float y, char *target, size_t cap);
 void ex_reading_scroll(ExWidget *w, float dy);
 float ex_reading_scroll_y(const ExWidget *w);
 void ex_reading_set_scroll(ExWidget *w, float y);
@@ -123,6 +126,51 @@ const ExNode *ex_tree_selected(ExWidget *tree);
  * collapse all, sort), the tree, and the vault button at the bottom. */
 ExWidget *ex_explorer_sidebar(ExUi *ui, ExVault *vault, void (*on_open)(ExWidget *w, const char *rel, void *user), void *user,
                               ExWidget **tree_out);
+
+/* ---- lists (panels, dialogs): rows of text, one selected, scrolling, keyboard and mouse ---- */
+enum { EX_GLYPH_NONE, EX_GLYPH_CHEVRON_CLOSED, EX_GLYPH_CHEVRON_OPEN, EX_GLYPH_BULLET };
+typedef struct ExListRow {
+    const char *text;             /* the row's text; the strings of a row are copied */
+    const char *detail;           /* muted text at the right (a count, a shortcut), or NULL */
+    const char *action;           /* a small button at the right ("Link"), or NULL */
+    const char *key;              /* a string for the application (a path), or NULL */
+    int indent;                   /* levels of indent */
+    int glyph;                    /* EX_GLYPH_* before the text */
+    int muted;                    /* drawn in the muted color */
+    int bold;
+    int64_t id;                   /* a number for the application */
+    size_t aux1, aux2;            /* two more numbers (offsets) */
+} ExListRow;
+typedef struct ExListHandlers {
+    void (*activate)(ExWidget *w, size_t row, void *user);          /* Enter, Space, a double click (or one click when single_click is set) */
+    void (*action)(ExWidget *w, size_t row, void *user);            /* the action button of a row was pressed */
+    void (*toggle)(ExWidget *w, size_t row, void *user);            /* a chevron was clicked, or Left or Right was pressed on a row with one */
+    void (*move)(ExWidget *w, size_t from, size_t to, void *user);  /* a row was dragged onto another (only if drag is set) */
+    void (*hover)(ExWidget *w, long row, float x, float y, void *user); /* the pointer is over a row (-1: none) */
+    void *user;
+    int single_click;             /* activate on a single click */
+    int drag;                     /* rows can be dragged to another place */
+} ExListHandlers;
+ExWidget *ex_widget_list(ExUi *ui, const char *name);
+void ex_list_clear(ExWidget *w);
+size_t ex_list_add(ExWidget *w, const ExListRow *row);          /* returns its index */
+size_t ex_list_count(const ExWidget *w);
+const ExListRow *ex_list_row(const ExWidget *w, size_t i);
+size_t ex_list_selected(const ExWidget *w);
+void ex_list_select(ExWidget *w, size_t i);
+void ex_list_set_handlers(ExWidget *w, const ExListHandlers *h);
+void ex_list_set_empty_text(ExWidget *w, const char *text);     /* shown when there are no rows */
+void ex_list_scroll(ExWidget *w, float dy);
+float ex_list_scroll_y(const ExWidget *w);
+void ex_list_set_scroll_y(ExWidget *w, float y);
+float ex_list_row_height(const ExWidget *w);
+long ex_list_row_at(const ExWidget *w, float x, float y);       /* -1 if none */
+float ex_ui_base_size(const ExUi *ui);
+/* Used by ui.c. */
+void ex_list_draw(ExUi *ui, ExWidget *w);
+void ex_list_key(ExUi *ui, ExWidget *w, ExKey key);
+void ex_list_mouse(ExUi *ui, ExWidget *w, ExMouse kind, float x, float y, int clicks);
+
 void ex_widget_insert_before(ExWidget *parent, ExWidget *child, ExWidget *before);
 void ex_widget_remove(ExWidget *parent, ExWidget *child);   /* unlinks it; the caller frees it or adds it elsewhere */
 /* The New note button creates no file: it asks the application (which starts a note that is

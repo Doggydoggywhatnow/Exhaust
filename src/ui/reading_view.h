@@ -22,6 +22,8 @@ void ex_readingview_set_scroll(ExReadingView *v, float y);
 void ex_readingview_draw(ExReadingView *v, ExRenderer *r, const ExTheme *t, float base_size);
 /* Mouse: returns 1 if the press is on something clickable (it is then captured until the release, which follows the link or toggles the callout). */
 int ex_readingview_mouse(ExReadingView *v, ExMouse kind, float x, float y);
+/* The internal link under a window position (its target as in the note: Note#Heading), or 0. */
+int ex_readingview_internal_link_at(ExReadingView *v, float x, float y, char *target, size_t cap);
 void ex_readingview_key(ExReadingView *v, ExKey key);
 char *ex_readingview_plain_text(const ExReadingView *v);
 float ex_readingview_content_height(const ExReadingView *v);

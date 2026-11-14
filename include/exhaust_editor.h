@@ -104,6 +104,17 @@ struct ExSlashMenu;
 void ex_editor_set_slash(ExEditor *e, struct ExSlashMenu *menu);
 int ex_editor_slash_open(const ExEditor *e);
 
+/* Link suggestions (sub-slice 4c): typing "[[" opens a list of notes under the caret; what is typed after it narrows the list
+ * (the application's function decides how: names, aliases, "Note#" for headings, "Note#^" for blocks). Up and Down move, Enter
+ * or Tab or a click inserts the item and closes the brackets, Escape, "]" or "|" or a line break closes the list. NULL: off. */
+typedef struct ExLinkSuggestion { char label[160]; char insert[200]; char detail[64]; } ExLinkSuggestion;
+typedef size_t (*ExLinkSuggestFn)(void *user, const char *query, ExLinkSuggestion *out, size_t max);
+void ex_editor_set_link_suggest(ExEditor *e, ExLinkSuggestFn fn, void *user);
+int ex_editor_link_suggest_open(const ExEditor *e);
+/* The target of the wikilink or Markdown link at a window position, for the page preview: path part, heading and block (each may
+ * be empty). Returns 1 if there is a link there. */
+int ex_editor_link_at(ExEditor *e, ExRenderer *r, float x, float y, char *target, size_t tcap, char *heading, size_t hcap, char *block, size_t bcap);
+
 /* Spell check: words the checker does not know get a wavy line under them in source mode and live preview (not in code,
  * math, links' addresses, tags, front matter, HTML or the word the caret is in). NULL turns it off; the checker is not owned.
  * Call ex_editor_spell_changed after words were added to it. */

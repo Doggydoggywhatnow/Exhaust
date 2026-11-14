@@ -11,6 +11,7 @@ static ExA11yRole role_of(const ExWidget *w) {
     case EX_ROLE_BUTTON: return EX_A11Y_BUTTON;
     case EX_ROLE_TEXT_INPUT: return EX_A11Y_TEXT_INPUT;
     case EX_ROLE_TREE: return EX_A11Y_TREE;
+    case EX_ROLE_LIST: return EX_A11Y_LIST;
     default: return EX_A11Y_GROUP;
     }
 }
@@ -43,6 +44,14 @@ static int sync_widget(const ExUi *ui, const ExWidget *w, uint64_t parent, ExA11
             uint64_t id = 0x100000000ull + (uint64_t)w->id * 65536u + i;
             if (n && ex_a11y_set_node(t, id, w->id, EX_A11Y_TREE_ITEM, n->name) == 0)
                 ex_a11y_set_actions(t, id, EX_A11Y_ACTION_CLICK);
+        }
+    }
+    if (w->type == EX_WIDGET_LIST) {            /* the rows are list items below the list */
+        size_t i, rows = ex_list_count(w);
+        for (i = 0; i < rows && i < 65535; i++) {
+            const ExListRow *row = ex_list_row(w, i);
+            uint64_t id = 0x200000000ull + (uint64_t)w->id * 65536u + i;
+            if (row && ex_a11y_set_node(t, id, w->id, EX_A11Y_LIST_ITEM, row->text ? row->text : "") == 0) ex_a11y_set_actions(t, id, EX_A11Y_ACTION_CLICK);
         }
     }
     (void)ui;

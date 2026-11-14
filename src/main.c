@@ -22,6 +22,8 @@
 #include "exhaust_slash.h"
 #include "exhaust_spell.h"
 #include "exhaust_ui.h"
+#include "exhaust_index.h"
+#include "exhaust_panels.h"
 #include "exhaust_vault.h"
 #include "exhaust_vaultmgr.h"
 #include "exhaust_vaultscreen.h"
@@ -86,6 +88,8 @@ typedef struct App {
     ExFeatures *features;
     ExCommands *commands;
     ExWidget *left_content;
+    ExPanels *panels;
+    char *sel_path; size_t sel_offset;   /* put the caret here once the note is showing */
     float zoom_now;
     TabNote *tabnotes; size_t ntabnotes, captabnotes;
     ExId focus_tab;            /* the tab whose editor should get the focus when it exists */
@@ -94,6 +98,7 @@ typedef struct App {
     float zoom;
 } App;
 
+static char *dup_text(const char *s) { size_t n = strlen(s); char *p = malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
 static void sync_ui(App *a);
 
 static void relayout_and_draw(App *a) {
@@ -103,6 +108,11 @@ static void relayout_and_draw(App *a) {
     ex_ui_layout(a->ui, a->root, (float)w, (float)h);
     ex_renderer_clear(a->r, ex_theme_color(&a->theme, EX_COLOR_BACKGROUND));
     ex_ui_draw(a->ui, a->root, a->blink_on);
+    if (a->panels && ex_panels_overlay(a->panels)) {                  /* a dialog or the page preview, over the window */
+        ExWidget *ov = ex_panels_overlay(a->panels);
+        ex_ui_layout(a->ui, ov, (float)w, (float)h);
+        ex_ui_draw(a->ui, ov, a->blink_on);
+    }
     ex_renderer_present(a->r);
 }
 
@@ -279,12 +289,14 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
         size_t tl = 0;
         char *txt = ex_buffer_text(ex_doc_buffer(ex_note_doc(n)), &tl);
         ExWidget *rv = txt ? ex_widget_reading(a->ui, txt, tl, t->path) : NULL;
-        free(txt);
         if (rv) {
             ex_reading_set_link_handler(rv, on_reading_link, a);
+            if (a->panels) ex_panels_expand_queries(a->panels, t->path, txt, tl);
             if (!note_for_tab(a, t->id)) remember_tab_note(a, t->id, n);
+            free(txt);
             return rv;
         }
+        free(txt);
     }
     ed = ex_widget_editor(a->ui, ex_note_doc(n), t->path);
     if (!ed) return NULL;
@@ -723,6 +735,11 @@ static int shortcut_matches(const char *keys, const SDL_KeyboardEvent *k) {
         p = plus + 1;
     }
     last = p;
+    if (last[0] == 'F' && last[1] >= '1' && last[1] <= '9' && strlen(last) <= 3) {            /* F1 to F12 */
+        int n = atoi(last + 1);
+        if (n < 1 || n > 12) return 0;
+        return (int)k->key == (int)(SDLK_F1 + (n - 1)) && ((m & SDL_KMOD_CTRL) != 0) == ctrl && ((m & SDL_KMOD_SHIFT) != 0) == shift && ((m & SDL_KMOD_ALT) != 0) == alt;
+    }
     if (strlen(last) != 1) return 0;
 #ifdef __APPLE__
     if (((m & SDL_KMOD_GUI) != 0) != ctrl) return 0;
@@ -767,10 +784,15 @@ static void sync_ui(App *a) {
         size_t i;
         for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
             ExWidget *w = ex_panes_content(a->panes, ex_ws_tab_at(a->ws, i));
-            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); ex_editor_set_spell(w->editor, spell_on ? a->spell : NULL); }
+            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); ex_editor_set_spell(w->editor, spell_on ? a->spell : NULL); if (a->panels) ex_editor_set_link_suggest(w->editor, ex_panels_suggest_links, a->panels); }
         }
     }
     a->note = t ? note_for_tab(a, t) : NULL;
+    if (a->sel_path && a->note && a->editor && !strcmp(ex_note_path(a->note), a->sel_path)) {      /* a link or a search result opened this note at a place */
+        ex_editor_select(a->editor->editor, a->r, a->sel_offset, a->sel_offset);
+        ex_ui_set_focus(a->ui, a->editor);
+        free(a->sel_path); a->sel_path = NULL;
+    } else if (a->sel_path && a->note && !a->editor && !strcmp(ex_note_path(a->note), a->sel_path)) { free(a->sel_path); a->sel_path = NULL; }
     update_wordcount(a);
     if (a->findbar && ex_findbar_is_open(a->findbar)) { if (a->editor) ex_findbar_set_target(a->findbar, a->editor); ex_findbar_update(a->findbar); }
     if (a->note != a->banner_note && !a->diff_doc) banner_for_note(a, a->note);
@@ -799,12 +821,14 @@ static void handle_note_events(App *a) {
     while (ex_notes_poll_event(a->notes, &ev)) {
         switch (ev.kind) {
         case EX_NOTE_EVENT_SAVED:
+            if (a->panels) ex_panels_file_changed(a->panels, ev.rel);
             if (ev.note == a->note && a->banner_kind == BANNER_ERROR) show_banner(a, BANNER_NONE, "", NULL, NULL, NULL);
             break;
         case EX_NOTE_EVENT_SAVE_FAILED:
             if (ev.note == a->note) show_banner(a, BANNER_ERROR, ev.message, NULL, NULL, NULL); /* stays until a save works */
             break;
         case EX_NOTE_EVENT_RELOADED:
+            if (a->panels) ex_panels_file_changed(a->panels, ev.rel);
             if (ev.note == a->note) set_status(a, "This note was changed outside Exhaust; the new text is shown (Undo goes back).");
             break;
         case EX_NOTE_EVENT_CONFLICT:
@@ -812,9 +836,178 @@ static void handle_note_events(App *a) {
             break;
         case EX_NOTE_EVENT_TREE_CHANGED:
             ex_vault_rescan(a->vault);
+            if (a->panels) ex_panels_tree_changed(a->panels);
             break;
         }
     }
+}
+
+
+/* ---- what the panels ask of the application ---- */
+
+static const char *host_active_path(void *u) {
+    App *a = u;
+    ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+    ExNote *n = t ? note_for_tab(a, t) : NULL;
+    return n ? ex_note_path(n) : NULL;
+}
+
+static char *host_active_text(void *u, size_t *len) {
+    App *a = u;
+    ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+    ExNote *n = t ? note_for_tab(a, t) : NULL;
+    return n ? ex_buffer_text(ex_doc_buffer(ex_note_doc(n)), len) : NULL;
+}
+
+static ExNote *open_note_object(App *a, const char *path) {
+    size_t i;
+    for (i = 0; i < a->ntabnotes; i++) if (!strcmp(ex_note_path(a->tabnotes[i].note), path)) return a->tabnotes[i].note;
+    return NULL;
+}
+
+static char *host_read_text(void *u, const char *path, size_t *len) {
+    App *a = u;
+    ExNote *n = open_note_object(a, path);
+    if (n) return ex_buffer_text(ex_doc_buffer(ex_note_doc(n)), len);
+    return ex_index_read_note(ex_vault_path(a->vault), path, len);
+}
+
+static int host_replace_text(void *u, const char *path, const char *text, size_t len) {
+    App *a = u;
+    ExNote *n = open_note_object(a, path);
+    ExDoc *d;
+    size_t old_len = 0, pre = 0, suf = 0;
+    char *old;
+    ExChange c;
+    if (!n) return -1;
+    d = ex_note_doc(n);
+    old = ex_buffer_text(ex_doc_buffer(d), &old_len);
+    if (!old) return -1;
+    while (pre < old_len && pre < len && old[pre] == text[pre]) pre++;
+    while (suf < old_len - pre && suf < len - pre && old[old_len - 1 - suf] == text[len - 1 - suf]) suf++;
+    c.offset = pre; c.remove_len = old_len - pre - suf; c.text = text + pre; c.text_len = len - pre - suf;
+    free(old);
+    if (c.remove_len == 0 && c.text_len == 0) return 0;
+    ex_doc_seal(d);
+    return ex_doc_apply(d, &c, 1, 0, NULL, 0) == 0 ? 0 : -1;       /* one undo step */
+}
+
+static void host_select_range(void *u, size_t from, size_t to) {
+    App *a = u;
+    if (a->editor && a->editor->editor) { ex_editor_select(a->editor->editor, a->r, from, to); ex_ui_set_focus(a->ui, a->editor); }
+}
+
+static unsigned long host_active_version(void *u) {
+    App *a = u;
+    ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+    ExNote *n = t ? note_for_tab(a, t) : NULL;
+    return n ? ex_doc_version(ex_note_doc(n)) : 0;
+}
+
+static size_t host_caret_offset(void *u) {
+    App *a = u;
+    ExDoc *d;
+    if (!a->editor || !a->editor->editor) return (size_t)-1;
+    d = ex_editor_doc(a->editor->editor);
+    return ex_doc_sel(d, ex_doc_primary(d)).head;
+}
+
+static void host_query_results(void *u, const char *path, const char *expanded) {
+    App *a = u;
+    size_t i;
+    for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
+        const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
+        ExWidget *w;
+        if (!t || strcmp(t->path, path) || !is_reading(t->mode)) continue;
+        w = ex_panes_content(a->panes, ex_ws_tab_at(a->ws, i));
+        if (w && w->type == EX_WIDGET_READING) ex_reading_set_text(w, expanded, strlen(expanded));
+    }
+}
+
+static void host_message(void *u, const char *text) { set_status(u, text); }
+static void host_flush(void *u) { App *a = u; if (a->notes) ex_notes_flush(a->notes); }
+
+static void host_open_note(void *u, const char *path, size_t offset, int new_tab) {
+    App *a = u;
+    ExPathInfo info;
+    char abs[1400];
+    (void)new_tab;
+    if (!a->vault) return;
+    snprintf(abs, sizeof abs, "%s/%s", ex_vault_path(a->vault), path);
+    if (ex_platform_path_info(abs, &info) != 0 && !open_note_object(a, path)) {            /* a note that does not exist yet: made now, written when typed in */
+        char parent[600] = "", name[300];
+        const char *slash = strrchr(path, '/'), *base = slash ? slash + 1 : path;
+        size_t n = strlen(base);
+        ExNote *nn;
+        if (slash) snprintf(parent, sizeof parent, "%.*s", (int)(slash - path), path);
+        snprintf(name, sizeof name, "%s", base);
+        n = strlen(name);
+        if (n > 3 && !strcmp(name + n - 3, ".md")) name[n - 3] = 0;
+        nn = a->notes ? ex_notes_new(a->notes, parent, name) : NULL;
+        if (nn) open_path(a, 0, ex_note_path(nn));
+        return;
+    }
+    if (ex_file_kind(path) != EX_KIND_MARKDOWN && ex_file_kind(path) != EX_KIND_BASE && ex_file_kind(path) != EX_KIND_CANVAS) { on_open_file(NULL, path, a); return; }
+    open_path(a, 0, path);
+    free(a->sel_path);
+    a->sel_path = offset != (size_t)-1 ? dup_text(path) : NULL;
+    a->sel_offset = offset;
+}
+
+/* Moves or renames a note or folder. Tabs that show it are closed first (the note is saved where it was), then opened again
+ * under the new path. */
+static int host_move_file(void *u, const char *from, const char *to) {
+    App *a = u;
+    char *out = NULL;
+    ExVaultResult rc = EX_VAULT_OK;
+    size_t i, nt = ex_ws_tab_count(a->ws), fl = strlen(from), k = 0;
+    struct { ExId group; char path[512], mode[16]; int active; } moved[64];
+    char to_parent[512], from_parent[512], to_name[300];
+    const char *ts = strrchr(to, '/'), *fs = strrchr(from, '/');
+    snprintf(to_parent, sizeof to_parent, "%.*s", ts ? (int)(ts - to) : 0, to);
+    snprintf(from_parent, sizeof from_parent, "%.*s", fs ? (int)(fs - from) : 0, from);
+    snprintf(to_name, sizeof to_name, "%s", ts ? ts + 1 : to);
+    for (i = 0; i < nt && k < 64; i++) {
+        const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
+        if (!t || (strcmp(t->path, from) && !(!strncmp(t->path, from, fl) && t->path[fl] == '/'))) continue;
+        moved[k].group = ex_ws_node_parent(a->ws, ex_ws_tab_at(a->ws, i)) ? ex_ws_node_parent(a->ws, ex_ws_tab_at(a->ws, i)) : 0;
+        snprintf(moved[k].path, sizeof moved[k].path, "%s%s", to, t->path + fl);
+        snprintf(moved[k].mode, sizeof moved[k].mode, "%s", t->mode);
+        moved[k].active = ex_ws_group_active(a->ws, moved[k].group) == ex_ws_tab_at(a->ws, i);
+        k++;
+    }
+    for (i = nt; i > 0; i--) {
+        const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i - 1));
+        if (t && (!strcmp(t->path, from) || (!strncmp(t->path, from, fl) && t->path[fl] == '/'))) ex_ws_close_tab(a->ws, ex_ws_tab_at(a->ws, i - 1));
+    }
+    ex_panes_update(a->panes);                                     /* the notes of those tabs are saved and closed now */
+    if (a->notes) ex_notes_flush(a->notes);
+    if (to_parent[0]) {
+        char abs[1200];
+        snprintf(abs, sizeof abs, "%s/%s", ex_vault_path(a->vault), to_parent);
+        ex_platform_make_dirs(abs);
+        ex_vault_rescan(a->vault);
+    }
+    if (strcmp(from_parent, to_parent)) {
+        const char *base = fs ? fs + 1 : from;
+        if (strcmp(base, to_name)) rc = ex_vault_rename(a->vault, from, to_name, &out);
+        if (rc == EX_VAULT_OK) {
+            char *src = out ? out : dup_text(from);
+            rc = ex_vault_move(a->vault, src, to_parent, NULL);
+            if (src != out) free(src);
+        }
+    } else rc = ex_vault_rename(a->vault, from, to_name, NULL);
+    free(out);
+    ex_vault_rescan(a->vault);
+    for (i = 0; i < k; i++) {
+        ExId t = ex_ws_new_tab(a->ws, moved[i].group, rc == EX_VAULT_OK ? moved[i].path : "", "note");
+        if (t && moved[i].mode[0]) ex_ws_set_tab_mode(a->ws, t, moved[i].mode);
+        if (t && moved[i].active) ex_ws_activate(a->ws, t);
+    }
+    if (rc != EX_VAULT_OK && k) {                                  /* it did not move: the tabs come back where they were */
+        for (i = 0; i < k; i++) { size_t pl = strlen(moved[i].path), tl = strlen(to); if (pl >= tl) { char back[600]; snprintf(back, sizeof back, "%s%s", from, moved[i].path + tl); open_path(a, moved[i].group, back); } }
+    }
+    return rc == EX_VAULT_OK ? 0 : -1;
 }
 
 static ExWidget *ribbon_button(App *a, const char *text, const char *name, ExClickFn fn) {
@@ -1118,6 +1311,23 @@ int main(int argc, char **argv) {
     app.left_content = left_content;
     if (app.vault && left_content) ex_explorer_set_vault_handler(left_content, on_vault_button, &app);
     on_files_feature("files", ex_features_enabled(app.features, "files"), &app);
+    if (app.vault) {
+        ExPanelsInit pi;
+        memset(&pi, 0, sizeof pi);
+        pi.ui = app.ui; pi.vault_root = ex_vault_path(app.vault); pi.vault_id = ex_vault_id(app.vault);
+        pi.settings = app.settings; pi.features = app.features; pi.commands = app.commands; pi.ws = app.ws; pi.files = left_content;
+        pi.host.user = &app;
+        pi.host.open_note = host_open_note; pi.host.active_path = host_active_path; pi.host.active_text = host_active_text; pi.host.read_text = host_read_text;
+        pi.host.replace_text = host_replace_text; pi.host.select_range = host_select_range; pi.host.move_file = host_move_file; pi.host.message = host_message;
+        pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
+        pi.wake = wake_ui;
+        app.panels = ex_panels_create(&pi);
+        if (app.panels) {
+            ex_panels_register(app.panels);
+            left_content = ex_panels_left(app.panels);
+            left_content->width = ex_size_grow(); left_content->height = ex_size_grow(); left_content->bg_token = EX_COLOR_BACKGROUND_ALT;
+        }
+    }
     app.left_sb = ex_sidebar_create(app.ui, app.ws, EX_SIDE_LEFT, left_content, "Left sidebar");
     ex_widget_add(row, app.left_sb);
 
@@ -1142,10 +1352,11 @@ int main(int argc, char **argv) {
     app.findbar = ex_findbar_create(app.ui);
     if (app.findbar) ex_widget_add(col, ex_findbar_widget(app.findbar));
     ex_widget_add(col, ex_panes_root(app.panes));
+    if (app.panels) ex_widget_add(col, ex_panels_bottom(app.panels));
     ex_widget_add(row, col);
 
     {
-        ExWidget *right_content = info_label(&app, "Backlinks, outline and tags arrive in later sub-slices.");
+        ExWidget *right_content = app.panels ? ex_panels_right(app.panels) : info_label(&app, "Open a vault to see backlinks, the outline and tags.");
         if (right_content) { right_content->bg_token = EX_COLOR_BACKGROUND_ALT; right_content->width = ex_size_grow(); right_content->height = ex_size_grow(); }
         app.right_sb = ex_sidebar_create(app.ui, app.ws, EX_SIDE_RIGHT, right_content, "Right sidebar");
         ex_widget_add(row, app.right_sb);
@@ -1208,7 +1419,7 @@ int main(int argc, char **argv) {
             ExMessage m;
             while (ex_queue_pop(results, &m))
                 if (m.type == MSG_FONTS_READY) ex_renderer_set_font_db(app.r, (ExFontDb *)m.payload);
-        } else if (e.type == SDL_EVENT_KEY_DOWN && run_shortcut(&app, &e.key)) {
+        } else if (e.type == SDL_EVENT_KEY_DOWN && !(app.panels && ex_panels_modal(app.panels)) && run_shortcut(&app, &e.key)) {
             app.blink_on = 1;
         } else if (ex_text_event_decode(&e, &te)) {
             app.blink_on = 1;
@@ -1240,24 +1451,31 @@ int main(int argc, char **argv) {
                 float y = e.type == SDL_EVENT_MOUSE_MOTION ? e.motion.y : e.button.y;
                 float density = SDL_GetWindowPixelDensity(ex_renderer_window(app.r));
                 x *= density; y *= density; /* window coordinates to output pixels */
+                ExWidget *input_root = app.panels && ex_panels_modal(app.panels) ? ex_panels_overlay(app.panels) : app.root;
                 if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
                     Uint64 now = SDL_GetTicks();
                     clicks = now - last_click < 400 ? clicks + 1 : 1;
                     last_click = now;
-                    ex_ui_mouse(app.ui, app.root, EX_MOUSE_DOWN, x, y, ex_mods_from_sdl(), clicks);
+                    if (app.panels) ex_panels_pointer(app.panels, app.root, -1, -1, 0);       /* a click puts the page preview away */
+                    if (input_root != app.root && ex_ui_widget_at(input_root, x, y) == input_root) { ex_panels_close_dialog(app.panels); break; }   /* outside the dialog */
+                    ex_ui_mouse(app.ui, input_root, EX_MOUSE_DOWN, x, y, ex_mods_from_sdl(), clicks);
                 } else if (e.type == SDL_EVENT_MOUSE_BUTTON_UP) {
-                    ex_ui_mouse(app.ui, app.root, EX_MOUSE_UP, x, y, ex_mods_from_sdl(), clicks);
+                    ex_ui_mouse(app.ui, input_root, EX_MOUSE_UP, x, y, ex_mods_from_sdl(), clicks);
                 } else if (e.motion.state & SDL_BUTTON_LMASK) {
-                    ex_ui_mouse(app.ui, app.root, EX_MOUSE_DRAG, x, y, ex_mods_from_sdl(), clicks);
+                    ex_ui_mouse(app.ui, input_root, EX_MOUSE_DRAG, x, y, ex_mods_from_sdl(), clicks);
+                } else if (app.panels) {
+                    ex_panels_pointer(app.panels, app.root, x, y, (ex_mods_from_sdl() & EX_MOD_PRIMARY) != 0);
                 }
                 break;
             }
             case SDL_EVENT_MOUSE_WHEEL: {
                 float density = SDL_GetWindowPixelDensity(ex_renderer_window(app.r));
-                ExWidget *under = ex_ui_widget_at(app.root, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
-                while (under && under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING) under = under->parent;   /* the editor or reading view under the pointer, not only the active one */
-                if (!under) under = app.editor;
-                if (under && under->type == EX_WIDGET_READING) ex_reading_scroll(under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
+                ExWidget *wheel_root = app.panels && ex_panels_modal(app.panels) ? ex_panels_overlay(app.panels) : app.root;
+                ExWidget *under = ex_ui_widget_at(wheel_root, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
+                while (under && under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
+                if (!under && wheel_root == app.root) under = app.editor;
+                if (under && under->type == EX_WIDGET_LIST) ex_list_scroll(under, -e.wheel.y * 3.0f * ex_list_row_height(under));
+                else if (under && under->type == EX_WIDGET_READING) ex_reading_scroll(under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 else if (under && under->editor) ex_editor_scroll(under->editor, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 break;
             }
@@ -1283,6 +1501,7 @@ int main(int argc, char **argv) {
             capture_tab_state(&app);
             if (app.session) ex_session_tick(app.session, app.ws, (int64_t)SDL_GetTicks());
         }
+        if (app.panels) ex_panels_update(app.panels);
         relayout_and_draw(&app);
         if (app.editor && app.editor->editor) {
             float cx, cy, cw, ch;
@@ -1310,6 +1529,12 @@ int main(int argc, char **argv) {
     ex_slash_free(app.slash);
     ex_spell_free(app.spell);
     ex_panes_free(app.panes);                                          /* contents are detached and closed; their notes are closed too */
+    if (app.panels) {
+        ex_panels_free(app.panels);
+        ex_widget_free(app.left_content);                              /* the explorer: the panels only held it */
+        app.left_content = NULL;
+    }
+    free(app.sel_path);
     ex_notes_destroy(app.notes);
     ex_widget_free(app.root);
     free(app.tabnotes);

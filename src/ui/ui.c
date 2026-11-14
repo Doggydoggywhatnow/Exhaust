@@ -175,6 +175,8 @@ ExWidget *ex_widget_reading(ExUi *ui, const char *text, size_t len, const char *
 }
 void ex_reading_set_text(ExWidget *w, const char *text, size_t len) { if (w->reading) ex_readingview_set_text(w->reading, text, len); }
 void ex_reading_set_link_handler(ExWidget *w, void (*fn)(ExRSpanKind kind, const char *target, void *user), void *user) { if (w->reading) ex_readingview_set_link_handler(w->reading, fn, user); }
+int ex_reading_internal_link_at(ExWidget *w, float x, float y, char *target, size_t cap) { return w->reading ? ex_readingview_internal_link_at(w->reading, x, y, target, cap) : 0; }
+
 void ex_reading_scroll(ExWidget *w, float dy) { if (w->reading) ex_readingview_scroll(w->reading, dy); }
 float ex_reading_scroll_y(const ExWidget *w) { return w->reading ? ex_readingview_scroll_y(w->reading) : 0; }
 void ex_reading_set_scroll(ExWidget *w, float y) { if (w->reading) ex_readingview_set_scroll(w->reading, y); }
@@ -187,6 +189,8 @@ void ex_widget_add(ExWidget *parent, ExWidget *child) {
 }
 
 void ex_widget_set_text(ExWidget *w, const char *text) { free(w->text); w->text = dup_str(text); }
+
+float ex_ui_base_size(const ExUi *ui) { return ui->base_size; }
 
 void ex_widget_free(ExWidget *w) {
     while (w) {
@@ -433,6 +437,8 @@ static void build(ExUi *ui, ExWidget *w) {
         d.border.width.left = d.border.width.right = d.border.width.top = d.border.width.bottom = bw;
     }
     if (w->clip) { d.clip.horizontal = true; d.clip.vertical = true; }
+    d.layout.childAlignment.x = w->align_x == 1 ? CLAY_ALIGN_X_CENTER : w->align_x == 2 ? CLAY_ALIGN_X_RIGHT : CLAY_ALIGN_X_LEFT;
+    d.layout.childAlignment.y = w->align_y == 1 ? CLAY_ALIGN_Y_CENTER : w->align_y == 2 ? CLAY_ALIGN_Y_BOTTOM : CLAY_ALIGN_Y_TOP;
     d.userData = w;
     if (w->type == EX_WIDGET_EDITOR) d.custom.customData = w;
 
@@ -533,6 +539,7 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
     }
     if (w->type == EX_WIDGET_READING && w->reading) ex_readingview_draw(w->reading, r, t, ui->base_size);
     if (w->type == EX_WIDGET_TREE) tree_draw(ui, w);
+    if (w->type == EX_WIDGET_LIST) ex_list_draw(ui, w);
     for (c = w->first_child; c; c = c->next) draw_widget(ui, c, blink_on);
     if (w->clip) ex_set_clip(r, 0, 0, -1, -1);
     if (w->focusable && ui->focus == w) { /* the visible focus ring, drawn last so nothing covers it */
@@ -608,6 +615,7 @@ void ex_ui_mouse(ExUi *ui, ExWidget *root, ExMouse kind, float x, float y, int m
         if (target == p && p->on_click) p->on_click(p, p->on_click_user);
     }
     if (target && target->type == EX_WIDGET_TREE) tree_mouse(ui, target, kind, x, y, clicks);
+    if (target && target->type == EX_WIDGET_LIST) ex_list_mouse(ui, target, kind, x, y, clicks);
     if (ui->focus && ui->focus->type == EX_WIDGET_EDITOR && ui->focus->editor)
         if (kind == EX_MOUSE_DRAG || kind == EX_MOUSE_UP || (kind == EX_MOUSE_DOWN && target == ui->focus))
             ex_editor_mouse(ui->focus->editor, ui->r, kind, x, y, mods, clicks);
@@ -650,6 +658,7 @@ void ex_ui_key(ExUi *ui, ExKey key, int mods) {
         return;
     }
     if (f && f->type == EX_WIDGET_TREE) { tree_key(ui, f, key); return; }
+    if (f && f->type == EX_WIDGET_LIST) { ex_list_key(ui, f, key); return; }
     if (f && f->type == EX_WIDGET_READING && f->reading) { ex_readingview_key(f->reading, key); return; }
     if (in_editor) {
         /* Escape in an editor first collapses several cursors or a selection; with a single
