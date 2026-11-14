@@ -499,7 +499,7 @@ static float sidebar_limit(const SidebarState *st) {
     if (ex_ws_sidebar_visible(st->ws, o)) { other = (float)ex_ws_sidebar_width(st->ws, o); keep = 12.0f; }
     else keep = 240.0f;
     room = (float)ww / (scale > 0 ? scale : 1.0f) - ribbon - other - keep;
-    return room < 120.0f ? 120.0f : room;
+    return room < (float)EX_SIDEBAR_MIN_WIDTH ? (float)EX_SIDEBAR_MIN_WIDTH : room;
 }
 
 int ex_sidebar_fill(ExWidget *sb) {

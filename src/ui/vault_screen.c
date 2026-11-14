@@ -420,7 +420,10 @@ ExWidget *ex_vaultscreen_root(ExVaultScreen *s) { return s->root; }
 
 void ex_vaultscreen_free(ExVaultScreen *s) {
     if (!s) return;
-    if (s->root && !s->root->parent) ex_widget_free(s->root);
+    if (s->root && !s->root->parent) {
+        ex_ui_release(s->ui, s->root);                       /* the focus, the pressed widget and the like must not point into the freed tree */
+        ex_widget_free(s->root);
+    }
     ex_doc_free(s->name_doc);
     ex_doc_free(s->rename_doc);
     free(s->version);

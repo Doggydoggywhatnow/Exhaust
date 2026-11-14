@@ -167,7 +167,7 @@ static void test_sidebars(void) {
     CHECK(ex_ws_sidebar_visible(ws, EX_SIDE_LEFT) && ex_ws_sidebar_visible(ws, EX_SIDE_RIGHT));
     CHECK(ex_ws_sidebar_width(ws, EX_SIDE_LEFT) == 260 && ex_ws_sidebar_width(ws, EX_SIDE_RIGHT) == 300);
     ex_ws_set_sidebar(ws, EX_SIDE_LEFT, 0, 10);
-    CHECK(!ex_ws_sidebar_visible(ws, EX_SIDE_LEFT) && ex_ws_sidebar_width(ws, EX_SIDE_LEFT) == 120);
+    CHECK(!ex_ws_sidebar_visible(ws, EX_SIDE_LEFT) && ex_ws_sidebar_width(ws, EX_SIDE_LEFT) == EX_SIDEBAR_MIN_WIDTH);
     CHECK(ex_ws_open_panel(ws, EX_SIDE_RIGHT, "outline") == 0 && ex_ws_open_panel(ws, EX_SIDE_RIGHT, "outline") == 0);
     CHECK(ex_ws_panel_count(ws, EX_SIDE_RIGHT) == 1);
     CHECK(ex_ws_open_panel(ws, EX_SIDE_LEFT, "files") == 0 && ex_ws_close_panel(ws, EX_SIDE_RIGHT, "outline") == 0);

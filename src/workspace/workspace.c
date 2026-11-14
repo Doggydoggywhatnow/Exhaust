@@ -663,7 +663,7 @@ int ex_ws_close_window(ExWorkspace *ws, ExId wid) {
 int ex_ws_sidebar_visible(const ExWorkspace *ws, ExSide s) { return ws->side[s].visible; }
 int ex_ws_sidebar_width(const ExWorkspace *ws, ExSide s) { return ws->side[s].width; }
 void ex_ws_set_sidebar(ExWorkspace *ws, ExSide s, int visible, int width) {
-    if (width < 120) width = 120;
+    if (width < EX_SIDEBAR_MIN_WIDTH) width = EX_SIDEBAR_MIN_WIDTH;
     if (width > 4000) width = 4000;       /* the window decides how wide it can really be (ex_sidebar_divider_create) */
     ws->side[s].visible = visible != 0;
     ws->side[s].width = width;
@@ -1057,7 +1057,7 @@ int ex_ws_deserialize(ExWorkspace *ws, const char *text, size_t len) {
     ws->side[EX_SIDE_LEFT].width = (int)ex_ini_get_int(ini, "layout", "left_width", 260);
     ws->side[EX_SIDE_RIGHT].width = (int)ex_ini_get_int(ini, "layout", "right_width", 300);
     for (k = 0; k < 2; k++) {
-        if (ws->side[k].width < 120) ws->side[k].width = 120;
+        if (ws->side[k].width < EX_SIDEBAR_MIN_WIDTH) ws->side[k].width = EX_SIDEBAR_MIN_WIDTH;
         if (ws->side[k].width > 1200) ws->side[k].width = 1200;
     }
     panels = ex_ini_get(ini, "layout", "open_panels");

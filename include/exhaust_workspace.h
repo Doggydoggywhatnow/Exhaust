@@ -104,6 +104,9 @@ ExId ex_ws_find_tab(const ExWorkspace *ws, const char *path);
 
 /* ---- sidebars ---- */
 int ex_ws_sidebar_visible(const ExWorkspace *ws, ExSide side);
+/* A shown sidebar is never narrower than this (pixels at 100%): the strip of view buttons of the right sidebar is 186 px wide, and
+ * narrower sidebars cut buttons off (found by the long_names test; it was 120). A sidebar dragged in below 60 px hides instead. */
+#define EX_SIDEBAR_MIN_WIDTH 200
 int ex_ws_sidebar_width(const ExWorkspace *ws, ExSide side);   /* pixels at 100% zoom; defaults 260 and 300 */
 void ex_ws_set_sidebar(ExWorkspace *ws, ExSide side, int visible, int width);
 size_t ex_ws_panel_count(const ExWorkspace *ws, ExSide side);

@@ -55,7 +55,7 @@ void ex_panes_tab_title(const ExTab *tab, char *out, size_t cap);
 
 /* A sidebar: a box with the width and visibility the workspace holds for that side, around
  * `content`, with a grab area on its inner edge for resizing (the new width goes into the
- * workspace as it is dragged; a sidebar is never narrower than 120 px, and never wider than the window leaves room for).
+ * workspace as it is dragged; a shown sidebar is never narrower than EX_SIDEBAR_MIN_WIDTH, and never wider than the window leaves room for).
  * Call ex_sidebar_sync before layout whenever the workspace may have changed. */
 ExWidget *ex_sidebar_create(ExUi *ui, ExWorkspace *ws, ExSide side, ExWidget *content, const char *name);
 /* The strip to put between the sidebar and the text (right of the left sidebar, left of the right one): dragging it resizes the

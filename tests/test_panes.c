@@ -237,10 +237,10 @@ int main(void) {
     CHECK(ex_ws_sidebar_width(ws, EX_SIDE_LEFT) >= 348 && ex_ws_sidebar_width(ws, EX_SIDE_LEFT) <= 352 && fabsf(g_left->w - (float)ex_ws_sidebar_width(ws, EX_SIDE_LEFT)) < 2);
     drag(ui, win, g_right->x + 1, 300, g_right->x + 200, 300);         /* wider on the right means narrower: dragging right shrinks it */
     frame(ui, panes, win);
-    CHECK(ex_ws_sidebar_visible(ws, EX_SIDE_RIGHT) && ex_ws_sidebar_width(ws, EX_SIDE_RIGHT) == 120);    /* never narrower than 120 while it is shown */
+    CHECK(ex_ws_sidebar_visible(ws, EX_SIDE_RIGHT) && ex_ws_sidebar_width(ws, EX_SIDE_RIGHT) == EX_SIDEBAR_MIN_WIDTH);    /* never narrower than the minimum while it is shown */
     drag(ui, win, g_right->x + 1, 300, g_right->x + 600, 300);          /* dragged right out of the window: the sidebar hides and keeps its width */
     frame(ui, panes, win);
-    CHECK(!ex_ws_sidebar_visible(ws, EX_SIDE_RIGHT) && g_right->hidden && !g_redge->hidden && ex_ws_sidebar_width(ws, EX_SIDE_RIGHT) == 120);   /* its width is kept */
+    CHECK(!ex_ws_sidebar_visible(ws, EX_SIDE_RIGHT) && g_right->hidden && !g_redge->hidden && ex_ws_sidebar_width(ws, EX_SIDE_RIGHT) == EX_SIDEBAR_MIN_WIDTH);   /* its width is kept */
     CHECK(fabsf(root->w - (1000 - 350 - g_redge->w)) < 3);               /* the main text view takes the space, minus the handle at the edge */
     drag(ui, win, g_redge->x + 2, 300, 700, 300);                         /* the handle pulled left to x = 700 of 1000: the sidebar is back, 300 px wide */
     frame(ui, panes, win);

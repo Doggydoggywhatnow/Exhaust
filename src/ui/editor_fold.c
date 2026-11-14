@@ -80,7 +80,7 @@ int ex_folds_compute(ExFolds *f, const ExMd *md, const ExBuffer *b, int headings
         }
     }
     free(c.c);
-    qsort(f->r, f->n, sizeof *f->r, cmp_range);
+    if (f->n > 1) qsort(f->r, f->n, sizeof *f->r, cmp_range);       /* qsort must not get a null pointer, even for no elements */
     stack = malloc((f->n ? f->n : 1) * sizeof *stack);
     if (!stack) return -1;
     for (i = 0; i < f->n; i++) {                                 /* depth: how many regions enclose this header line */
