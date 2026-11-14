@@ -67,7 +67,7 @@ typedef struct App {
     ExWidget *rb_switcher, *rb_graph, *rb_canvas, *rb_palette, *rb_mode, *rb_left, *rb_right, *rb_theme;   /* the ribbon */
     char title_for[512];           /* the path the title shows */
     int title_was_focused;
-    int main_collapsed, main_prev_width; ExSide main_collapsed_side;   /* app.toggle-main-view: the note view is a handle, and what to give back */
+    int main_collapsed, main_prev_width; ExSide main_collapsed_side;   /* app.toggle-main-text-view: the main text view is a handle, and what to give back */
     Uint64 title_warn_until;       /* the bubble under the title that names the characters a file name cannot have */
     ExSlashMenu *slash;
     ExSpell *spell;
@@ -562,7 +562,7 @@ static void on_toggle_right(ExWidget *w, void *user) { (void)w; ex_commands_run(
 
 static void cmd_toggle_left(void *u) { toggle_side(u, EX_SIDE_LEFT); }
 static void cmd_toggle_right(void *u) { toggle_side(u, EX_SIDE_RIGHT); }
-/* Collapse the note view to its handle by widening a sidebar over it (the right one when it is shown, else the left), and give the width back. */
+/* Collapse the main text view to its handle by widening a sidebar over it (the right one when it is shown, else the left), and give the width back. */
 static void cmd_toggle_main_view(void *u) {
     App *a = u;
     if (a->main_collapsed) {
@@ -828,7 +828,7 @@ static void register_features_and_commands(App *a) {
     a->commands = ex_commands_create(a->features);
     ex_commands_bind(a->commands, "app.toggle-left-sidebar", cmd_toggle_left, NULL, a);
     ex_commands_bind(a->commands, "app.toggle-right-sidebar", cmd_toggle_right, NULL, a);
-    ex_commands_bind(a->commands, "app.toggle-main-view", cmd_toggle_main_view, NULL, a);
+    ex_commands_bind(a->commands, "app.toggle-main-text-view", cmd_toggle_main_view, NULL, a);
     ex_commands_bind(a->commands, "app.change-theme", cmd_change_theme, NULL, a);
     ex_commands_bind(a->commands, "app.change-vault", cmd_change_vault, NULL, a);
     ex_commands_bind(a->commands, "app.toggle-live-preview-source-mode", cmd_toggle_mode, has_editor, a);
@@ -1053,7 +1053,7 @@ static void sync_ui(App *a) {
     ExWidget *c;
     ex_sidebar_sync(a->left_sb);
     ex_sidebar_sync(a->right_sb);
-    {   /* the note view squeezed to less than a character's width is hidden; the two divider strips next to it are its handle (GitHub issue 2) */
+    {   /* the main text view squeezed to less than a character's width is hidden; the two divider strips next to it are its handle (GitHub issue 2) */
         ExWidget *note = ex_panes_root(a->panes) ? ex_panes_root(a->panes)->parent : NULL;
         if (note) {
             int ww, wh;

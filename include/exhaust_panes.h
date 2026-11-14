@@ -66,7 +66,7 @@ ExWidget *ex_sidebar_divider_create(ExWidget *sidebar);
  * handle out shows it again. */
 ExWidget *ex_sidebar_edge_create(ExWidget *sidebar);
 void ex_sidebar_sync(ExWidget *sidebar);
-/* Widens the sidebar as far as the window allows, so the note view between the sidebars is reduced to its handle. Returns the width
+/* Widens the sidebar as far as the window allows, so the main text view between the sidebars is reduced to its handle. Returns the width
  * it had (pixels at 100%), to give back with ex_ws_set_sidebar. */
 int ex_sidebar_fill(ExWidget *sidebar);
 

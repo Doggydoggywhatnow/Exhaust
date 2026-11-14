@@ -487,8 +487,8 @@ void ex_panes_free(ExPanes *p) {
 typedef struct SidebarState { ExUi *ui; ExWorkspace *ws; ExSide side; int dragging, keep_width; float origin; ExWidget *sidebar, *divider, *line, *edge; } SidebarState;
 
 /* The widest the sidebar can be, in pixels at 100%: the window minus the ribbon and the other sidebar. When the other sidebar is
- * shown, the note view between them may shrink all the way to its two divider strips (its text wraps down to one character a
- * row, then only the handle is left; GitHub issue 2). When the other sidebar is hidden, the note view keeps 240 px. */
+ * shown, the main text view between them may shrink all the way to its two divider strips (its text wraps down to one character a
+ * row, then only the handle is left; GitHub issue 2). When the other sidebar is hidden, the main text view keeps 240 px. */
 static float sidebar_limit(const SidebarState *st) {
     ExRenderer *r = ex_ui_renderer(st->ui);
     int ww, wh;

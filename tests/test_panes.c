@@ -241,11 +241,11 @@ int main(void) {
     drag(ui, win, g_right->x + 1, 300, g_right->x + 600, 300);          /* dragged right out of the window: the sidebar hides and keeps its width */
     frame(ui, panes, win);
     CHECK(!ex_ws_sidebar_visible(ws, EX_SIDE_RIGHT) && g_right->hidden && !g_redge->hidden && ex_ws_sidebar_width(ws, EX_SIDE_RIGHT) == 120);   /* its width is kept */
-    CHECK(fabsf(root->w - (1000 - 350 - g_redge->w)) < 3);               /* the note view takes the space, minus the handle at the edge */
+    CHECK(fabsf(root->w - (1000 - 350 - g_redge->w)) < 3);               /* the main text view takes the space, minus the handle at the edge */
     drag(ui, win, g_redge->x + 2, 300, 700, 300);                         /* the handle pulled left to x = 700 of 1000: the sidebar is back, 300 px wide */
     frame(ui, panes, win);
     CHECK(ex_ws_sidebar_visible(ws, EX_SIDE_RIGHT) && !g_right->hidden && g_redge->hidden && ex_ws_sidebar_width(ws, EX_SIDE_RIGHT) >= 296 && ex_ws_sidebar_width(ws, EX_SIDE_RIGHT) <= 304);
-    {   /* the note view shrinks with the window and the sidebars, down to nothing; its content follows it (it used to stop at its tab strip's width) */
+    {   /* the main text view shrinks with the window and the sidebars, down to nothing; its content follows it (it used to stop at its tab strip's width) */
         ExWidget *content;
         ex_ws_set_sidebar(ws, EX_SIDE_LEFT, 1, 470);
         ex_ws_set_sidebar(ws, EX_SIDE_RIGHT, 1, 470);
