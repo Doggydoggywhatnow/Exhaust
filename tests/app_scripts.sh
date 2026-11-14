@@ -159,7 +159,7 @@ up 20 300
 wait 400
 shot SHOT2
 quit' ""
-sed -i "s|SHOT1|$work/sb1.ppm|; s|SHOT2|$work/sb2.ppm|" "$work/sidebars.script"
+sed "s|SHOT1|$work/sb1.ppm|; s|SHOT2|$work/sb2.ppm|" "$work/sidebars.script" > "$work/sidebars.script.tmp" && mv "$work/sidebars.script.tmp" "$work/sidebars.script"      # no sed -i: the macOS sed wants a suffix after it
 run sidebars "$(cat "$work/sidebars.script")" ""
 widths=$(python3 - "$work/sb1.ppm" "$work/sb2.ppm" <<'PY'
 import sys
