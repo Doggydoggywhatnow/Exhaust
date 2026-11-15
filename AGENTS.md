@@ -54,7 +54,7 @@ Exhaust's first promise is that it is fast and never in the way. The user hand-t
 - Keep CI (`.github/workflows/ci.yml`) green on all three OSes. When you add a dependency, update the workflow in the same slice.
 
 ## Quality gates (CI)
-- **Size budget:** the core install is at most 25 MB (`tools/check_size.sh`).
+- **Size budget:** the core install is at most 25 MB (`tools/check_size.sh`), checked in CI on every push and, with the sizes written down, between numbered slices (after 5f, 6e-v, 7i and 8c; see the top of `docs/0.1.0.md`).
 - **ASan and UBSan** job.
 - **libFuzzer targets** for the Markdown tokenizer, frontmatter, HTML subset, canvas JSON, base expressions and importers. Add each when its module is written.
 - **Hardening flags:** `-fstack-protector-strong -D_FORTIFY_SOURCE=2` where supported.
@@ -100,7 +100,7 @@ Add tests with the code. Required at minimum: the text buffer and undo tree, the
 - **Docs you must keep true in the same commit:** `docs/PROGRESS.md` (row, commit, honest gaps), `docs/ISSUES.md`, the README (build status and any deviation), `docs/formats.md` before code that adds a name, `tests/test_registry.c` when the command count changes, `third_party/VERSIONS.md` and the README table when you vendor something.
 
 ## Building the slices that are left (5a to 9d)
-`docs/0.1.0.md` is the spec of each sub-slice and its "Done when"; `docs/PROGRESS.md` says what is done. 28 of 65 are done (everything to 4d). Below is what exists to build on, what is not vendored yet, and the traps. **Ask the user before you start a slice.** One sub-slice at a time, tests with the code, CI green on three systems before the next, and a progress row with honest gaps.
+`docs/0.1.0.md` is the spec of each sub-slice and its "Done when"; `docs/PROGRESS.md` says what is done. 28 of 66 are done (everything to 4d). Below is what exists to build on, what is not vendored yet, and the traps. **Ask the user before you start a slice.** One sub-slice at a time, tests with the code, CI green on three systems before the next, and a progress row with honest gaps.
 
 **Patterns to follow (all exist):**
 - *A new view in a tab:* a tab has `t->view` (a string; `make_content` in `src/main.c` returns the widget; the graph and canvas return a placeholder label today). The ribbon has disabled entries for graph and canvas (`rb_graph`, `rb_canvas`, `EX_ICON_GRAPH`, `EX_ICON_CANVAS`): enable them when the view exists. Feature switches are in `[features]` of `docs/formats.md`; commands are rows of the Commands table there (the code table is generated from it; `graph-view.open-graph-view`, `graph-view.open-local-graph` and `graph-view.start-graph-timelapse-animation` already exist), bound in `main.c` with `ex_commands_bind`. Update the command count in `tests/test_registry.c` if you add one.
@@ -128,7 +128,7 @@ Add tests with the code. Required at minimum: the text buffer and undo tree, the
 
 **8 Lua, stubs.** Vim mode is not in 0.1.0 (a disabled stub in 8c; making `vim_mode` a stub means changing four tests that use it as a sample bool). Lua 5.4 (MIT) sandboxed (`os`, `io`, `package`, `debug`, `load` unavailable), a time limit and a memory cap, permissions per `docs/formats.md`. Stubs are present, disabled and labelled, and make no network request.
 
-**9 Packaging and release.** Windows zip, Linux AppImage, macOS dmg: each is a CI job with a smoke test; file association and URI registration are in `src/platform/`. The add-on package builds PDFium and libmpv from pinned, checksummed upstream releases. Final checks: warm start, memory, size. The maintainer checklist (screen reader, IME, real hardware) is in `0.1.0.md`. Slices added after the first plan for what was easy to forget: 5f (table editing and an audit of the unbound editor commands), 7g (real pop-out windows), 7h (the AccessKit OS adapters: AT-SPI, UI Automation, NSAccessibility); the Windows and macOS file watchers (they poll now) are in 9a and 9c.
+**9 Packaging and release.** Windows zip, Linux AppImage, macOS dmg: each is a CI job with a smoke test; file association and URI registration are in `src/platform/`. The add-on package builds PDFium and libmpv from pinned, checksummed upstream releases. Final checks: warm start, memory, size. The maintainer checklist (screen reader, IME, real hardware) is in `0.1.0.md`. Slices added after the first plan for what was easy to forget: 5f (table editing and an audit of the unbound editor commands), 7g (real pop-out windows), 7h (the AccessKit OS adapters: AT-SPI, UI Automation, NSAccessibility); 7i (the native Windows and macOS file watchers; they poll now).
 
 **Dependencies not yet vendored:** yyjson, stb_image, a WebP and an AVIF decoder, nanosvg, lib-Peep, dr_mp3, stb_vorbis, miniz, Lua, STIX Two Math, and the headers of libmpv and PDFium. Network from the cloud session: `git clone` of GitHub repositories works; release tarballs and `api.github.com` do not (SQLite came from a crates.io crate for that reason). Record each pinned commit in `third_party/VERSIONS.md`.
 

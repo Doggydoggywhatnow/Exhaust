@@ -8,7 +8,7 @@ Read this first when resuming. It tracks the sub-slices of [`0.1.0.md`](0.1.0.md
 
 ## Where things stand (2026-11-15, agent v.04)
 
-- **28 of 65 rows are done** (the plan had 59 sub-slices; 4c, 4d, 5d, 5e, 5f, 7g and 7h were added and 8a moved out of 0.1.0). Everything through 4d is built, plus the hand-test fixes after it. **Slices 5 to 9 are not started. The user asked on 2026-11-15 whether it is time for 5a and was told yes, but has not said "go": ask before you start it.** About 33,000 lines of C in `src/`; **98 ctest tests** (97 in a build with `-DEXHAUST_A11Y=OFF`, which skips the Rust bridge and its link test); 208 commands in the registry.
+- **28 of 66 rows are done** (the plan had 59 sub-slices; 4c, 4d, 5d, 5e, 5f, 7g, 7h and 7i were added and 8a moved out of 0.1.0). Everything through 4d is built, plus the hand-test fixes after it. **Slices 5 to 9 are not started. The user asked on 2026-11-15 whether it is time for 5a and was told yes, but has not said "go": ask before you start it.** About 33,000 lines of C in `src/`; **98 ctest tests** (97 in a build with `-DEXHAUST_A11Y=OFF`, which skips the Rust bridge and its link test); 208 commands in the registry.
 - **CI is green on Linux, Windows and macOS** on the last commit of this session, `681d47c` (run 43674295658), and on each commit before it from `68ba87d` on (runs 43673261706, 43673867591, 43674126495). Run-level results were read; the individual jobs were not.
 - **Open issues:** 26 (a partly scrolled-out title: check by hand), 29 (typing in a title and then switching to reading mode may lose the rename: untested) and 30 (check other scrolling widgets for the wheel gap the explorer had). **Fixed, waiting for the user's hand test:** 9, 11, 16, 23, 25, 27, 28. The user has confirmed by hand: 1 to 8, 10, 12 to 15, 17 (with 20), 19, 20, 21, 22. Issues 18 and 24 are CI fixes, confirmed by CI.
 - Read [`HANDOFF-agent-v.04.md`](HANDOFF-agent-v.04.md) first (what I built, how the title now works, what the diagnosis of issue 9 taught me, advice for 5a), then [`HANDOFF-agent-v.03.md`](HANDOFF-agent-v.03.md) (tools and the user) and [`HANDOFF-agent-v.02.md`](HANDOFF-agent-v.02.md) (how slices 4a to 4d fit together; still correct). `AGENTS.md` has the efficiency rules and a guide to the slices that are left.
@@ -53,7 +53,8 @@ Read this first when resuming. It tracks the sub-slices of [`0.1.0.md`](0.1.0.md
 | 5c | Local graph, animation and keyboard route | not started | | |
 | 5d | Pane header, navigation history and pane menu | not started | | Added 2026-11-15 after looking at the screenshots: no earlier slice had the header strip, back and forward, or the pane menu. |
 | 5e | Views in the right sidebar | not started | | Added 2026-11-15: a note (editable) or the graph pinned to the right sidebar, as in the screenshots; was only a backlog line before. |
-| 5f | Table editing and the unbound editor commands | not started | | Added 2026-11-15: the 15 `table.*` commands and `editor.insert-table` had no slice; first task is an audit of every declared, unbound command. |
+| 5f | Table editing | not started | | Added 2026-11-15: the 15 `table.*` commands and `editor.insert-table` had no slice. The other unbound editor commands stay unavailable in the palette until their slices bind them (owner's decision to leave them). |
+| | **SIZE CHECK before slice 6** (Release install under 25 MB; sizes written here and in the README table) | | | |
 | 6a | Canvas | not started | | |
 | 6b-i | Expression engine | not started | | |
 | 6b-ii | Base core | not started | | |
@@ -71,6 +72,7 @@ Read this first when resuming. It tracks the sub-slices of [`0.1.0.md`](0.1.0.md
 | 6e-iii | Slides | not started | | |
 | 6e-iv | Format converter and PDF export | not started | | |
 | 6e-v | Importers and stubs | not started | | |
+| | **SIZE CHECK before slice 7** | | | |
 | 7a | Settings framework and Options pages | not started | | |
 | 7b | Built-in feature pages | not started | | |
 | 7c | Hotkeys | not started | | |
@@ -79,9 +81,12 @@ Read this first when resuming. It tracks the sub-slices of [`0.1.0.md`](0.1.0.md
 | 7f | Status bar, ribbon, high contrast and zoom | not started | | |
 | 7g | Pop-out windows | not started | | Added 2026-11-15: 2c built only the model. |
 | 7h | Screen-reader adapters | not started | | Added 2026-11-15: AT-SPI, UI Automation and NSAccessibility were assigned to no slice. |
+| 7i | Native file watchers for Windows and macOS | not started | | Added 2026-11-15; moved out of 9a and 9c. |
+| | **SIZE CHECK before slice 8** | | | |
 | 8a | Vim mode | moved to a later release | | Decided 2026-11-15: not part of 0.1.0; a disabled, labelled stub in 8c. |
 | 8b | Lua runtime and plugin permissions | not started | | |
 | 8c | Labeled stubs | not started | | |
+| | **SIZE CHECK before slice 9** | | | |
 | 9a | Windows zip | not started | | |
 | 9b | Linux AppImage | not started | | |
 | 9c | macOS dmg | not started | | |
@@ -143,7 +148,7 @@ Ideas that are not yet part of a sub-slice. Each links to its issue; decide the 
 
 ## Open items carried forward
 
-- **Decisions waiting for the owner (2026-11-15):** a preferred application per file type ("Open with") as well as libmpv and PDFium for embeds and the viewer; whether to defer code signing and notarization past 0.1.0 (written as deferred in `0.1.0.md`, Release).
+- **Decided by the owner (2026-11-15):** no preferred application per file type; instead embeds of images, audio and video (6c-v); code signing and notarization are not in 0.1.0; Vim mode is a stub; the other unbound editor commands are left alone for now; the owner checks the add-on package by hand from a CI artifact.
 - **Reading view is a snapshot** (3c gap): 5e makes it refresh when another pane edits the note.
 
 Collected from the "Honest gaps" and TODO-verify text of the rows above. Nothing here is new; it is a checklist so a fresh session need not reread every row.
