@@ -815,7 +815,7 @@ void ex_ui_mouse(ExUi *ui, ExWidget *root, ExMouse kind, float x, float y, int m
         ExWidget *p = ui->pressed;
         p->pressed = 0;
         ui->pressed = NULL;
-        if (target == p && p->on_click) p->on_click(p, p->on_click_user);
+        if (target == p && p->on_click) { p->on_click(p, p->on_click_user); target = NULL; }     /* the click may have freed the button (a popup entry closes its popup): it is not touched again */
     }
     if (target && target->type == EX_WIDGET_TREE) tree_mouse(ui, target, kind, x, y, clicks);
     if (target && target->type == EX_WIDGET_LIST) ex_list_mouse(ui, target, kind, x, y, clicks);

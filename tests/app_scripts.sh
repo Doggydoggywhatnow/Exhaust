@@ -213,11 +213,11 @@ run menu_right 'wait 1000
 move 777 50
 down 777 50
 up 777 50
-wait 400
+wait 1000
 move 790 80
 down 790 80
 up 790 80
-wait 800
+wait 2000
 quit' Home.md
 msession=$(find "$work" -name session.ini -newer "$work/menu_right.script" | head -1)
 groups=$(grep -c '^\[group\.' "$msession" 2>/dev/null)
@@ -237,11 +237,11 @@ run menu_close 'wait 1000
 move 777 50
 down 777 50
 up 777 50
-wait 400
+wait 1000
 move 790 248
 down 790 248
 up 790 248
-wait 800
+wait 2000
 quit' Home.md
 csession=$(find "$work" -name session.ini -newer "$work/menu_close.script" | head -1)
 if [ -n "$csession" ] && ! grep -q "path = Home.md" "$csession"; then echo "ok: Close in the pane menu closed the tab"; else echo "FAILED: the pane menu's Close"; fail=1; fi
