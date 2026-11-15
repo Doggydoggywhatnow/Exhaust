@@ -14,7 +14,7 @@ struct ExSettingsView {
     ExSettings *settings;
     ExSettingsHost host;
     ExWidget *root, *nav_col, *search_f, *scroll, *col;
-    ExWidget *page_btn[16];
+    ExWidget *page_btn[32], *nav_list;
     ExDoc *search_doc;
     unsigned long search_ver;
     char page[32];                   /* the page shown (also while a search shows rows of every page) */
@@ -158,7 +158,10 @@ static void apply_shown(RowCtl *c) {
 static void on_toggle(ExWidget *w, void *u) {
     RowCtl *c = u;
     (void)w;
-    if (ex_settings_set_bool(c->sv->settings, c->row->section, c->row->key, !ex_settings_get_bool(c->sv->settings, c->row->section, c->row->key)) == 0) wrote(c->sv, c->row);
+    int now = !ex_settings_get_bool(c->sv->settings, c->row->section, c->row->key), rc;
+    if (!strcmp(c->row->section, "features") && c->sv->host.set_feature) rc = c->sv->host.set_feature(c->sv->host.user, c->row->key, now);   /* the feature registry turns the feature on or off and writes the key */
+    else rc = ex_settings_set_bool(c->sv->settings, c->row->section, c->row->key, now);
+    if (rc == 0) wrote(c->sv, c->row);
     apply_shown(c);
 }
 
@@ -377,7 +380,7 @@ static const char *page_name_of(const char *id) {
 
 static void select_nav(ExSettingsView *sv) {
     size_t i;
-    for (i = 0; i < ex_settings_page_count() && i < 16; i++)
+    for (i = 0; i < ex_settings_page_count() && i < 32; i++)
         if (sv->page_btn[i]) sv->page_btn[i]->selected = sv->query[0] == 0 && !strcmp(ex_settings_page_id(i), sv->page);
 }
 
@@ -457,7 +460,7 @@ void ex_settingsview_tick(ExSettingsView *sv) {
         int compact = sv->root->w > 0 && unit > 0 && sv->root->w < 64.0f * unit;
         if (compact != sv->compact) {
             sv->compact = compact;
-            sv->nav_col->width = ex_size_token(EX_SIZE_SPACING, compact ? 22.0f : 24.0f);
+            sv->nav_col->width = ex_size_token(EX_SIZE_SPACING, compact ? 25.0f : 27.0f);
             sv->col->pad_x = compact ? 1.5f : 3.0f;
             rebuild(sv);
             focus = ex_ui_focus(sv->ui);
@@ -500,7 +503,7 @@ static void tick_cb(ExWidget *w, void *u) { (void)w; ex_settingsview_tick(u); }
 static void on_page(ExWidget *w, void *u) {
     ExSettingsView *sv = u;
     size_t i;
-    for (i = 0; i < ex_settings_page_count() && i < 16; i++) if (sv->page_btn[i] == w) { ex_settingsview_show(sv, ex_settings_page_id(i)); return; }
+    for (i = 0; i < ex_settings_page_count() && i < 32; i++) if (sv->page_btn[i] == w) { ex_settingsview_show(sv, ex_settings_page_id(i)); return; }
 }
 
 static void free_view(void *p) {
@@ -515,9 +518,8 @@ ExWidget *ex_settingsview_widget(ExSettingsView *sv) { return sv ? sv->root : NU
 
 ExSettingsView *ex_settingsview_create(ExUi *ui, ExSettings *settings, const ExSettingsHost *host) {
     ExSettingsView *sv = calloc(1, sizeof *sv);
-    ExWidget *group_label, *search_label;
+    ExWidget *search_label;
     size_t i;
-    static const int icons[6] = { EX_ICON_GEAR, EX_ICON_PALETTE, EX_ICON_MODE, EX_ICON_PROPERTIES, EX_ICON_FILES, EX_ICON_CLIPBOARD };
     if (!sv) return NULL;
     sv->ui = ui; sv->settings = settings;
     if (host) sv->host = *host;
@@ -527,24 +529,39 @@ ExSettingsView *ex_settingsview_create(ExUi *ui, ExSettings *settings, const ExS
     sv->scroll = ex_widget_scrollbox(ui, "Settings page");
     sv->col = ex_widget_box(ui, 1, "Settings content");
     search_label = ex_widget_label(ui, "Search");
-    group_label = ex_widget_label(ui, "Options");
     sv->search_f = sv->search_doc ? ex_widget_editor(ui, sv->search_doc, "Search settings") : NULL;
-    if (!sv->root || !sv->nav_col || !sv->scroll || !sv->col || !search_label || !group_label || !sv->search_f) { free_view(sv); return NULL; }
+    if (!sv->root || !sv->nav_col || !sv->scroll || !sv->col || !search_label || !sv->search_f) { free_view(sv); return NULL; }
     sv->root->width = ex_size_percent(1.0f); sv->root->height = ex_size_percent(1.0f);   /* not grow: a child of the clipped pane that grows takes the size of its content (Clay) */
     sv->root->bg_token = EX_COLOR_BACKGROUND;
-    sv->nav_col->width = ex_size_token(EX_SIZE_SPACING, 24.0f); sv->nav_col->height = ex_size_grow(); sv->nav_col->bg_token = EX_COLOR_SURFACE;
+    sv->nav_col->width = ex_size_token(EX_SIZE_SPACING, 27.0f); sv->nav_col->height = ex_size_grow(); sv->nav_col->bg_token = EX_COLOR_SURFACE;
     sv->nav_col->pad_x = 1.0f; sv->nav_col->pad_y = 1.0f; sv->nav_col->gap = 0.25f;
     search_label->text_token = EX_COLOR_TEXT_MUTED; search_label->text_scale = 0.85f;
     sv->search_f->bg_token = EX_COLOR_BACKGROUND; sv->search_f->border_token = EX_COLOR_BORDER; sv->search_f->radius_token = EX_SIZE_RADIUS;
     sv->search_f->height = ex_size_token(EX_SIZE_TAB_HEIGHT, 1.0f); sv->search_f->width = ex_size_grow(); sv->search_f->no_wheel = 1;
-    group_label->bold = 1; group_label->text_token = EX_COLOR_TEXT_MUTED; group_label->pad_y = 0.5f;
-    ex_widget_add(sv->nav_col, search_label); ex_widget_add(sv->nav_col, sv->search_f); ex_widget_add(sv->nav_col, group_label);
-    for (i = 0; i < ex_settings_page_count() && i < 16; i++) {
-        ExWidget *b = ex_widget_button(ui, ex_settings_page_name(i), on_page, sv);
-        if (!b) continue;
-        b->menu_item = 1; b->width = ex_size_grow(); b->bg_token = EX_COLOR_SURFACE; b->border_token = -1; b->icon = i < 6 ? icons[i] : 0;
-        sv->page_btn[i] = b;
-        ex_widget_add(sv->nav_col, b);
+    ex_widget_add(sv->nav_col, search_label); ex_widget_add(sv->nav_col, sv->search_f);
+    {   /* the list of pages scrolls when the window is short */
+        ExWidget *nav_scroll = ex_widget_scrollbox(ui, "Settings page list");
+        sv->nav_list = ex_widget_box(ui, 1, "Settings pages list");
+        if (!nav_scroll || !sv->nav_list) { free_view(sv); return NULL; }
+        nav_scroll->width = ex_size_grow(); nav_scroll->height = ex_size_grow();
+        sv->nav_list->width = ex_size_grow(); sv->nav_list->gap = 0.25f;
+        ex_widget_add(nav_scroll, sv->nav_list);
+        ex_widget_add(sv->nav_col, nav_scroll);
+        for (i = 0; i < ex_settings_page_count() && i < 32; i++) {
+            ExWidget *b;
+            if (i == 0 || strcmp(ex_settings_page_group(i), ex_settings_page_group(i - 1))) {
+                ExWidget *gl = ex_widget_label(ui, ex_settings_page_group(i));
+                if (gl) { gl->bold = 1; gl->text_token = EX_COLOR_TEXT_MUTED; gl->pad_y = 0.5f; ex_widget_add(sv->nav_list, gl); }
+            }
+            b = ex_widget_button(ui, ex_settings_page_name(i), on_page, sv);
+            if (!b) continue;
+            b->menu_item = 1; b->width = ex_size_grow(); b->bg_token = EX_COLOR_SURFACE; b->border_token = -1;
+            b->icon = !strcmp(ex_settings_page_id(i), "general") ? EX_ICON_GEAR : !strcmp(ex_settings_page_id(i), "appearance") ? EX_ICON_PALETTE : !strcmp(ex_settings_page_id(i), "interface") ? EX_ICON_MODE :
+                      !strcmp(ex_settings_page_id(i), "editor") ? EX_ICON_PROPERTIES : !strcmp(ex_settings_page_id(i), "files") ? EX_ICON_FILES : !strcmp(ex_settings_page_id(i), "keychain") ? EX_ICON_CLIPBOARD :
+                      !strcmp(ex_settings_page_id(i), "features") ? EX_ICON_OUTLINE : 0;
+            sv->page_btn[i] = b;
+            ex_widget_add(sv->nav_list, b);
+        }
     }
     sv->scroll->width = ex_size_grow(); sv->scroll->height = ex_size_grow();
     sv->col->width = ex_size_grow(); sv->col->pad_x = 3.0f; sv->col->pad_y = 2.0f; sv->col->gap = 1.0f;

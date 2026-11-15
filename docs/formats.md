@@ -4,7 +4,7 @@ This file is the source of truth for every name that `AGENTS.md` freezes after r
 
 Each item has a name, a type, a default and the version it first appeared in ("since"). Defaults for settings follow the states shown in `screenshots/settings/` where a screenshot shows one; values marked *TODO-verify* could not be confirmed from the screenshots or the Obsidian Help pages and must be decided before the key is implemented.
 
-*TODO-verify* items are assigned: the Canvas, Note composer and Quick switcher values to 7b; the command-list boundaries and the macOS defaults to 7c. The slash-command list is done (see Slash commands), ahead of 3d.
+*TODO-verify* items are assigned: the command-list boundaries and the macOS defaults to 7c. The slash-command list is done (see Slash commands), ahead of 3d.
 
 Types: `bool`, `int`, `percent`, `string`, `path` (relative to the vault), `color` (`#rrggbb` or `#rrggbbaa`), `list` (comma separated), `enum(a|b|c)`.
 
@@ -162,9 +162,9 @@ One switch per built-in feature, `true` or `false`. Defaults follow the Core plu
 | Name | Type | Default | Since |
 | --- | --- | --- | --- |
 | `new_file_location` | enum(vault\|folder\|same_folder\|subfolder) | `vault` | 0.1.0 |
-| `wheel` | enum(pan\|zoom) | `pan` (*TODO-verify*: full value set) | 0.1.0 |
-| `ctrl_drag` | enum(menu\|...) | `menu` (*TODO-verify*: other values) | 0.1.0 |
-| `show_card_names` | enum(always\|...) | `always` (*TODO-verify*: other values) | 0.1.0 |
+| `wheel` | enum(pan\|zoom) | `pan` | 0.1.0. Decided in 7b: the mouse wheel pans the canvas, or zooms it (those two). |
+| `ctrl_drag` | enum(menu\|select) | `menu` | 0.1.0. Decided in 7b: dragging with Ctrl held shows a menu of what to create where it ends, or draws a box that selects the cards inside it. |
+| `show_card_names` | enum(always\|selected\|never) | `always` | 0.1.0. Decided in 7b: the name bar above a card of a note or file is shown always, only on the selected card, or never. |
 | `snap_to_grid` | bool | `true` | 0.1.0 |
 | `snap_to_objects` | bool | `true` | 0.1.0 |
 | `zoom_hide_threshold` | percent | `100` | 0.1.0 |
@@ -194,7 +194,7 @@ One switch per built-in feature, `true` or `false`. Defaults follow the Core plu
 
 | Name | Type | Default | Since |
 | --- | --- | --- | --- |
-| `text_after_extract` | enum(link\|...) | `link` (*TODO-verify*: other values) | 0.1.0 |
+| `text_after_extract` | enum(link\|embed\|none) | `link` | 0.1.0. Decided in 7b: what replaces text moved into a new note: a link to it, an embed of it, or nothing. |
 | `template` | path | empty | 0.1.0 |
 | `confirm_merge` | bool | `true` | 0.1.0 |
 
@@ -217,7 +217,7 @@ One `ctrl_required_<place>` key per place, all `bool`.
 
 ### [quick_switcher]
 
-*TODO-verify*: the screenshot is cropped and may omit other options on this page.
+Decided in 7b: the page has these two options and no others.
 
 | Name | Type | Default | Since |
 | --- | --- | --- | --- |
@@ -829,6 +829,7 @@ Event names for `exhaust.events.on`: `vault-open`, `file-open`, `file-save`, `fi
 - *Controls.* `bool` is an On/Off switch; an `enum` is a button showing the choice that opens a menu of the choices; an `int` or `percent` is a slider with its value shown; `string`, `path`, `list` and `color` are one-line text fields. A change is written at once (write-through, as always) and the program applies it without a restart wherever it already reads the key each frame; a text field is written when you press Enter or leave the field, and a value the key refuses (a color that is not `#rrggbb`) is put back.
 - *Search.* Typing in the search box shows the rows of every page whose name or explanation contains the words (case-insensitive, every word must match), each under the name of its page; the box emptied shows the page again.
 - *Not on a page.* Nothing in these sections is left off; `config_folder` and `allow_uri_callbacks` carry a note that they take effect when the vault is opened again.
+- *Core plugins (7b).* The list *Core plugins* is a page of the *Options* group: one switch for every key of `[features]` (a stub feature, Sync and Publish, has a disabled switch that says it is not in this version), in groups. Below it, in the group *Core plugins* of the page list, one page for each feature that has options of its own: Backlinks (`[backlinks]`), Canvas (`[canvas]`), Command palette (`[command_palette]`), Daily notes (`[daily_notes]`), File recovery (`[file_recovery]`), Note composer (`[note_composer]`), Page preview (`[page_preview]`), Quick switcher (`[quick_switcher]`), Templates (`[templates]`), Unique note creator (`[unique_note]`) and Sync (a stub page). A switch of the list goes through the feature registry, so the feature's menus, panels and commands follow it at once. The test `feature_pages` walks these sections of the table.
 - *Names.* Each control's accessible name is its row's name followed by its state (`Spell check: on`).
 
 ## Table editing

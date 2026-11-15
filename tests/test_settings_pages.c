@@ -1,4 +1,6 @@
-/* settings_pages (sub-slice 7a): the settings screen. A test walks the generated table of keys for the sections the Options pages show and
+/* settings_pages (sub-slice 7a) and feature_pages (7b): the settings screen. The program takes one argument, `options` (the pages of the Options
+ * group of 7a, the default) or `features` (the Core plugins list and the pages of the features, 7b); each walks the generated table of keys for its
+ * sections. A test walks the generated table of keys for the sections the Options pages show and
  * checks that every key has a row on its page; then drives the real controls of every row (a click on a switch, a choice from the menu,
  * the keys of a slider, typing into a text field) and checks that the key reads and writes through ExSettings and the change reaches the
  * file; the search finds rows; the page scrolls; a narrow pane puts the controls under the names.
@@ -17,7 +19,7 @@
 static int failures;
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "%s:%d: check failed: %s\n", __FILE__, __LINE__, #c); failures++; } } while (0)
 
-#define DIR "settings_pages_test"
+static const char *DIR = "settings_pages_test";          /* the 7b run has its own folder: ctest may run both at once */
 
 static ExRenderer *R;
 static ExUi *UI;
@@ -49,7 +51,23 @@ static void click(ExWidget *w) {
     frame();
 }
 
-static int in_page_section(const char *s) { return !strcmp(s, "general") || !strcmp(s, "appearance") || !strcmp(s, "interface") || !strcmp(s, "editor") || !strcmp(s, "files"); }
+static int FEATURES;                                              /* 1: the 7b pages */
+static int in_page_section(const char *s) {
+    if (!FEATURES) return !strcmp(s, "general") || !strcmp(s, "appearance") || !strcmp(s, "interface") || !strcmp(s, "editor") || !strcmp(s, "files");
+    return !strcmp(s, "features") || !strcmp(s, "backlinks") || !strcmp(s, "canvas") || !strcmp(s, "command_palette") || !strcmp(s, "daily_notes") || !strcmp(s, "file_recovery") ||
+           !strcmp(s, "note_composer") || !strcmp(s, "page_preview") || !strcmp(s, "quick_switcher") || !strcmp(s, "templates") || !strcmp(s, "unique_note");
+}
+/* Is the page one this run covers? */
+static int page_in_run(const char *id) {
+    const char *group = NULL;
+    size_t i;
+    for (i = 0; i < ex_settings_page_count(); i++) if (!strcmp(ex_settings_page_id(i), id)) group = ex_settings_page_group(i);
+    if (!group) return 0;
+    if (!FEATURES) return !strcmp(group, "Options") && strcmp(id, "features") != 0;
+    return !strcmp(group, "Core plugins") || !strcmp(id, "features");
+}
+static int FEATURE_CALLS;
+static int host_set_feature(void *u, const char *key, int enabled) { (void)u; FEATURE_CALLS++; return ex_settings_set_bool(S, "features", key, enabled); }
 
 static size_t enum_count(const char *values) { size_t n = 0; const char *p = values; while (p && *p) { n++; p = strchr(p, '|'); if (p) p++; } return n; }
 
@@ -167,11 +185,13 @@ static void tables(void) {
     }
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     ExTheme theme;
     ExSettingsHost h;
     size_t i, p;
     char vcfg[256];
+    FEATURES = argc > 1 && !strcmp(argv[1], "features");
+    if (FEATURES) DIR = "feature_pages_test";
     ex_platform_remove_tree(DIR);
     snprintf(vcfg, sizeof vcfg, "%s/.exhaust", DIR);
     tables();
@@ -185,7 +205,7 @@ int main(void) {
     S = ex_settings_open(vcfg, NULL);
     CHECK(S != NULL);
     memset(&h, 0, sizeof h);
-    h.choose = host_choose; h.changed = host_changed;
+    h.choose = host_choose; h.changed = host_changed; h.set_feature = host_set_feature;
     SV = ex_settingsview_create(UI, S, &h);
     CHECK(SV != NULL);
     ROOT = ex_widget_box(UI, 1, "root");
@@ -197,6 +217,7 @@ int main(void) {
     for (p = 0; p < ex_settings_page_count(); p++) {
         const char *id = ex_settings_page_id(p);
         size_t shown = 0;
+        if (!page_in_run(id)) continue;
         CHECK(ex_settingsview_show(SV, id) == 0 && !strcmp(ex_settingsview_page(SV), id));
         frame();
         for (i = 0; i < ex_settings_row_count(); i++) if (!strcmp(ex_settings_row(i)->page, id)) shown++;
@@ -209,7 +230,27 @@ int main(void) {
     }
     CHECK(ex_settingsview_show(SV, "nonsense") == -1);
     CHECK(host_state.changed > 20 && host_state.last_key[0]);
-
+    if (FEATURES) {
+        /* the Core plugins list: every switch went through the feature registry's hook (a stub's is disabled and never calls it) */
+        size_t nf = 0, k;
+        for (k = 0; k < ex_settings_row_count(); k++) if (!strcmp(ex_settings_row(k)->page, "features") && ex_settings_row(k)->kind == EX_ROW_TOGGLE) nf++;
+        printf("feature_pages: %d feature switches through the registry, %zu rows on the list\n", FEATURE_CALLS, nf);
+        CHECK(FEATURE_CALLS >= (int)(2 * (nf - 2)));              /* each non-stub switch was turned off and on again */
+        ex_settings_flush(S);
+        {
+            ExSettings *again = ex_settings_open(vcfg, NULL);
+            CHECK(again && ex_settings_is_set(again, "canvas", "zoom_hide_threshold"));
+            CHECK(again && !strcmp(ex_settings_get(again, "note_composer", "text_after_extract"), "link"));    /* the choice was put back */
+            ex_settings_close(again);
+        }
+        ex_settingsview_search(SV, "snap");
+        frame();
+        CHECK(ex_settingsview_control(SV, "canvas", "snap_to_grid") != NULL && ex_settingsview_control(SV, "canvas", "snap_to_objects") != NULL);
+        ex_settingsview_search(SV, "snapshot");
+        frame();
+        CHECK(ex_settingsview_control(SV, "file_recovery", "interval_minutes") != NULL);
+        ex_settingsview_search(SV, "");
+    } else {
     /* the changes reached the file: a new reader sees them */
     ex_settings_flush(S);
     {
@@ -294,6 +335,8 @@ int main(void) {
         CHECK(wide_dx > 700.0f);
         CHECK(narrow_dx < 500.0f);
         LW = 1400; frame(); ex_settingsview_tick(SV); frame();
+    }
+
     }
 
     ex_widget_free(ROOT);

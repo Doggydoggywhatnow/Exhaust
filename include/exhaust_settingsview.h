@@ -35,6 +35,7 @@ const ExSettingsRow *ex_settings_row_find(const char *section, const char *key);
 size_t ex_settings_page_count(void);
 const char *ex_settings_page_id(size_t i);
 const char *ex_settings_page_name(size_t i);
+const char *ex_settings_page_group(size_t i);        /* the heading of the part of the list the page is in: "Options" or "Core plugins" */
 
 typedef struct ExSettingsHost {
     void *user;
@@ -43,6 +44,8 @@ typedef struct ExSettingsHost {
     void (*choose)(void *user, const char *const *labels, size_t n, size_t current, float x, float y, void (*chosen)(void *arg, size_t index), void *arg);
     /* A setting was written (section and key): the application applies it if it does not read the key each frame. May be NULL. */
     void (*changed)(void *user, const char *section, const char *key);
+    /* A feature switch of the Core plugins page: the application turns the feature on or off (menus, panels and commands follow) and writes the key. May be NULL: the key is written directly. Returns 0, or -1 if refused. */
+    int (*set_feature)(void *user, const char *key, int enabled);
 } ExSettingsHost;
 
 typedef struct ExSettingsView ExSettingsView;

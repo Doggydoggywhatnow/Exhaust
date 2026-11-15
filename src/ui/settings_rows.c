@@ -95,11 +95,93 @@ static const ExSettingsRow rows[] = {
 
     /* ---- Keychain ---- */
     { "keychain", "Keychain", NULL, NULL, EX_ROW_INFO, "Saved secrets", "Exhaust keeps no passwords or tokens. Plugins that need one will ask you to store it here. Not in this version.", 0, 0, 0, "Add a secret" },
+
+    /* ---- Core plugins: the list of switches (one for every key of [features]) ---- */
+    T("features", "Panels", "features", "files", "File explorer", "The list of the vault's folders and notes."),
+    T("features", "Panels", "features", "search", "Search", "Find text in every note."),
+    T("features", "Panels", "features", "bookmarks", "Bookmarks", "Keep notes, searches and headings you come back to."),
+    T("features", "Panels", "features", "backlinks", "Backlinks", "Show the notes that link to the open note."),
+    T("features", "Panels", "features", "outgoing_links", "Outgoing links", "Show the links in the open note."),
+    T("features", "Panels", "features", "tags_view", "Tags view", "List every tag with how often it is used."),
+    T("features", "Panels", "features", "properties_view", "Properties view", "List every property name in the vault."),
+    T("features", "Panels", "features", "outline", "Outline", "The headings of the open note, to jump between."),
+    T("features", "Panels", "features", "footnotes", "Footnotes view", "List the footnotes of the open note."),
+    T("features", "Views", "features", "graph", "Graph view", "See the notes and the links between them as a graph."),
+    T("features", "Views", "features", "canvas", "Canvas", "An endless board of cards, notes and arrows."),
+    T("features", "Views", "features", "bases", "Bases", "Tables, lists and cards built from the properties of your notes."),
+    T("features", "Views", "features", "slides", "Slides", "Present a note as slides."),
+    T("features", "Writing", "features", "slash_commands", "Slash commands", "Type / to pick an editing command from a menu."),
+    T("features", "Writing", "features", "templates", "Templates", "Insert the text of a template note."),
+    T("features", "Writing", "features", "daily_notes", "Daily notes", "Open today's note, made from a template."),
+    T("features", "Writing", "features", "unique_note", "Unique note creator", "Make a note whose name is the time it was made."),
+    T("features", "Writing", "features", "note_composer", "Note composer", "Merge notes and move text into a new note."),
+    T("features", "Writing", "features", "random_note", "Random note", "Open a note at random."),
+    T("features", "Writing", "features", "word_count", "Word count", "Count the words and characters of the open note."),
+    T("features", "Writing", "features", "audio_recorder", "Audio recorder", "Record sound into a note."),
+    T("features", "Moving around", "features", "quick_switcher", "Quick switcher", "Jump to a note by typing part of its name."),
+    T("features", "Moving around", "features", "command_palette", "Command palette", "Run any command by typing its name."),
+    T("features", "Moving around", "features", "page_preview", "Page preview", "Show a note in a small window when you point at a link to it."),
+    T("features", "Moving around", "features", "workspaces", "Workspaces", "Save and restore whole layouts of panes."),
+    T("features", "Moving around", "features", "file_recovery", "File recovery", "Keep earlier versions of your notes so you can go back."),
+    T("features", "Not in this version", "features", "sync", "Sync", "Keep a vault the same on several devices. Not in this version."),
+    T("features", "Not in this version", "features", "publish", "Publish", "Put notes on the web. Not in this version."),
+
+    /* ---- the pages of the features that have options ---- */
+    T("backlinks", "Backlinks", "backlinks", "show_at_bottom", "Backlinks at the bottom of a note", "Show the backlinks under the text of a note, as well as in the panel."),
+
+    S("canvas", "New canvases", "canvas", "new_file_location", "Where new canvases go", "The folder a new canvas is created in.", "Vault folder|The folder below|Same folder as the open note|A subfolder of the open note's folder"),
+    S("canvas", "Moving around", "canvas", "wheel", "Mouse wheel", "What the wheel does over a canvas.", "Pan|Zoom"),
+    S("canvas", "Moving around", "canvas", "ctrl_drag", "Dragging with Ctrl", "What dragging with Ctrl held does.", "Show a menu|Select an area"),
+    S("canvas", "Cards", "canvas", "show_card_names", "Names of cards", "When the name bar above a note or file card shows.", "Always|Only on the selected card|Never"),
+    T("canvas", "Cards", "canvas", "snap_to_grid", "Snap to the grid", "Move and resize cards in steps of a grid."),
+    T("canvas", "Cards", "canvas", "snap_to_objects", "Snap to other cards", "Line cards up with the edges of the cards near them."),
+    N("canvas", "Cards", "canvas", "zoom_hide_threshold", "Hide the text of cards below this zoom", "Below this zoom, in percent, cards show only their outline, which keeps a large canvas fast.", 10, 400, 10),
+
+    X("command_palette", "Command palette", "command_palette", "pinned", "Pinned commands", "The ids of the commands that are always listed first, separated by commas."),
+
+    X("daily_notes", "Daily notes", "daily_notes", "date_format", "Date format", "How the date in a daily note's name is written, for example YYYY-MM-DD."),
+    X("daily_notes", "Daily notes", "daily_notes", "folder", "New daily notes go in", "A folder in the vault. Empty uses the top folder."),
+    X("daily_notes", "Daily notes", "daily_notes", "template", "Template", "The note whose text starts every daily note, as a path in the vault."),
+
+    N("file_recovery", "File recovery", "file_recovery", "interval_minutes", "Take a snapshot every", "How often to keep a copy of a note you are changing, in minutes.", 1, 60, 1),
+    N("file_recovery", "File recovery", "file_recovery", "history_days", "Keep snapshots for", "How long a snapshot is kept, in days.", 1, 90, 1),
+
+    S("note_composer", "Note composer", "note_composer", "text_after_extract", "Text moved to a new note is replaced by", "What stays in the old note where the text was.", "A link to the new note|An embed of the new note|Nothing"),
+    X("note_composer", "Note composer", "note_composer", "template", "Template", "The note whose text starts every note the composer makes, as a path in the vault."),
+    T("note_composer", "Note composer", "note_composer", "confirm_merge", "Ask before merging", "Show what will happen and ask before a note is merged into another."),
+
+    T("page_preview", "Hold Ctrl to preview", "page_preview", "ctrl_required_links_panels", "Backlinks and outgoing links", "Needs Ctrl held to show the preview."),
+    T("page_preview", "Hold Ctrl to preview", "page_preview", "ctrl_required_reading_view", "Reading view", "Needs Ctrl held to show the preview."),
+    T("page_preview", "Hold Ctrl to preview", "page_preview", "ctrl_required_editing_view", "Editing view", "Needs Ctrl held to show the preview."),
+    T("page_preview", "Hold Ctrl to preview", "page_preview", "ctrl_required_tab_header", "Title of a tab", "Needs Ctrl held to show the preview."),
+    T("page_preview", "Hold Ctrl to preview", "page_preview", "ctrl_required_files", "File explorer", "Needs Ctrl held to show the preview."),
+    T("page_preview", "Hold Ctrl to preview", "page_preview", "ctrl_required_properties_view", "Properties view", "Needs Ctrl held to show the preview."),
+    T("page_preview", "Hold Ctrl to preview", "page_preview", "ctrl_required_bookmarks", "Bookmarks", "Needs Ctrl held to show the preview."),
+    T("page_preview", "Hold Ctrl to preview", "page_preview", "ctrl_required_outline", "Outline", "Needs Ctrl held to show the preview."),
+    T("page_preview", "Hold Ctrl to preview", "page_preview", "ctrl_required_bases", "Bases", "Needs Ctrl held to show the preview."),
+    T("page_preview", "Hold Ctrl to preview", "page_preview", "ctrl_required_graph", "Graph view", "Needs Ctrl held to show the preview."),
+
+    T("quick_switcher", "Quick switcher", "quick_switcher", "show_existing_only", "Show only notes that exist", "Leave out the names that links point to but no note answers to."),
+    T("quick_switcher", "Quick switcher", "quick_switcher", "show_attachments", "Show attachments", "List images and other files as well as notes."),
+
+    { "sync", "Sync", NULL, NULL, EX_ROW_INFO, "Sync", "Keeping a vault the same on several devices is not in this version. Your notes stay in plain files that any sync program can copy.", 0, 0, 0, "Set up sync" },
+
+    X("templates", "Templates", "templates", "folder", "Template folder", "The folder that holds your template notes. Empty lists every note."),
+    X("templates", "Templates", "templates", "date_format", "Date format", "How {{date}} is written in a template, for example YYYY-MM-DD."),
+    X("templates", "Templates", "templates", "time_format", "Time format", "How {{time}} is written in a template, for example HH:mm."),
+
+    X("unique_note", "Unique note creator", "unique_note", "folder", "New unique notes go in", "A folder in the vault. Empty uses the top folder."),
+    X("unique_note", "Unique note creator", "unique_note", "template", "Template", "The note whose text starts every unique note, as a path in the vault."),
+    X("unique_note", "Unique note creator", "unique_note", "prefix_format", "Name format", "How the time in the note's name is written, for example YYYYMMDDHHmm."),
 };
 
-static const struct { const char *id, *name; } pages[] = {
-    { "general", "General" }, { "appearance", "Appearance" }, { "interface", "Interface" }, { "editor", "Editor" },
-    { "files", "Files and links" }, { "keychain", "Keychain" },
+static const struct { const char *id, *name, *group; } pages[] = {
+    { "general", "General", "Options" }, { "appearance", "Appearance", "Options" }, { "interface", "Interface", "Options" }, { "editor", "Editor", "Options" },
+    { "files", "Files and links", "Options" }, { "keychain", "Keychain", "Options" }, { "features", "Core plugins", "Options" },
+    { "backlinks", "Backlinks", "Core plugins" }, { "canvas", "Canvas", "Core plugins" }, { "command_palette", "Command palette", "Core plugins" },
+    { "daily_notes", "Daily notes", "Core plugins" }, { "file_recovery", "File recovery", "Core plugins" }, { "note_composer", "Note composer", "Core plugins" },
+    { "page_preview", "Page preview", "Core plugins" }, { "quick_switcher", "Quick switcher", "Core plugins" }, { "sync", "Sync", "Core plugins" },
+    { "templates", "Templates", "Core plugins" }, { "unique_note", "Unique note creator", "Core plugins" },
 };
 
 size_t ex_settings_row_count(void) { return sizeof rows / sizeof *rows; }
@@ -113,3 +195,4 @@ const ExSettingsRow *ex_settings_row_find(const char *section, const char *key) 
 size_t ex_settings_page_count(void) { return sizeof pages / sizeof *pages; }
 const char *ex_settings_page_id(size_t i) { return i < sizeof pages / sizeof *pages ? pages[i].id : NULL; }
 const char *ex_settings_page_name(size_t i) { return i < sizeof pages / sizeof *pages ? pages[i].name : NULL; }
+const char *ex_settings_page_group(size_t i) { return i < sizeof pages / sizeof *pages ? pages[i].group : NULL; }

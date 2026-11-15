@@ -534,6 +534,8 @@ static void settings_choose(void *u, const char *const *labels, size_t n, size_t
     ex_panels_popup(a->panels, x, y, items, n, settings_menu_chosen, a);
 }
 
+static int settings_set_feature(void *u, const char *key, int enabled) { return ex_features_set(((App *)u)->features, key, enabled); }
+
 static void apply_color_scheme(App *a);
 static void settings_changed(void *u, const char *section, const char *key) {
     App *a = u;
@@ -544,7 +546,7 @@ static ExWidget *make_settings(App *a) {
     ExSettingsHost h;
     ExSettingsView *sv;
     memset(&h, 0, sizeof h);
-    h.user = a; h.choose = settings_choose; h.changed = settings_changed; h.version = exhaust_version();
+    h.user = a; h.choose = settings_choose; h.changed = settings_changed; h.version = exhaust_version(); h.set_feature = settings_set_feature;
     sv = ex_settingsview_create(a->ui, a->settings, &h);
     return sv ? ex_settingsview_widget(sv) : info_label(a, "The settings cannot be shown.");
 }
