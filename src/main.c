@@ -18,6 +18,7 @@
 #include "exhaust_render.h"
 #include "exhaust_session.h"
 #include "exhaust_settings.h"
+#include "exhaust_settingsview.h"
 #include "exhaust_theme.h"
 #include "exhaust_findbar.h"
 #include "exhaust_slash.h"
@@ -69,7 +70,9 @@ typedef struct App {
     ExGraphModel *gm_local;        /* the local graph's (5c), while a local graph tab exists */
     ExGraphOptions gopts;          /* the graph's settings (5b): filters, groups, forces, display; kept in the session's [graph] section */
     char *graph_note;              /* the note last open in a tab: drawn in the focus color (the graph's own tab is not a note) */
-    ExWidget *rb_switcher, *rb_graph, *rb_canvas, *rb_palette, *rb_mode, *rb_left, *rb_right, *rb_theme;   /* the ribbon */
+    ExWidget *rb_switcher, *rb_graph, *rb_canvas, *rb_palette, *rb_mode, *rb_left, *rb_right, *rb_theme, *rb_settings;   /* the ribbon */
+    void (*sel_chosen)(void *, size_t);      /* the choice a settings select is waiting for (7a) */
+    void *sel_arg;
     int main_collapsed, main_prev_width; ExSide main_collapsed_side;   /* app.toggle-main-text-view: the main text view is a handle, and what to give back */
     Uint64 title_warn_until;       /* the bubble under the title that names the characters a file name cannot have */
     ExSlashMenu *slash;
@@ -509,6 +512,43 @@ static void on_reading_link(ExRSpanKind kind, const char *target, void *user) {
 
 static void make_title(App *a, ExWidget *ed, ExId tab);
 
+/* ---- the settings screen (sub-slice 7a) ---- */
+
+static void settings_menu_chosen(ExPanels *p, int id, void *arg) {
+    App *a = arg;
+    void (*fn)(void *, size_t) = a->sel_chosen;
+    void *fa = a->sel_arg;
+    (void)p;
+    a->sel_chosen = NULL; a->sel_arg = NULL;
+    if (fn && id >= 0) fn(fa, (size_t)id);
+}
+
+static void settings_choose(void *u, const char *const *labels, size_t n, size_t current, float x, float y, void (*chosen)(void *, size_t), void *arg) {
+    App *a = u;
+    ExMenuItem items[16];
+    size_t i;
+    (void)current;
+    if (!a->panels || n == 0 || n > 16) return;
+    for (i = 0; i < n; i++) { ExMenuItem it = {labels[i], 0, (int)i, 0, 0}; items[i] = it; }
+    a->sel_chosen = chosen; a->sel_arg = arg;
+    ex_panels_popup(a->panels, x, y, items, n, settings_menu_chosen, a);
+}
+
+static void apply_color_scheme(App *a);
+static void settings_changed(void *u, const char *section, const char *key) {
+    App *a = u;
+    if (!strcmp(section, "appearance") && !strcmp(key, "color_scheme")) apply_color_scheme(a);
+}
+
+static ExWidget *make_settings(App *a) {
+    ExSettingsHost h;
+    ExSettingsView *sv;
+    memset(&h, 0, sizeof h);
+    h.user = a; h.choose = settings_choose; h.changed = settings_changed; h.version = exhaust_version();
+    sv = ex_settingsview_create(a->ui, a->settings, &h);
+    return sv ? ex_settingsview_widget(sv) : info_label(a, "The settings cannot be shown.");
+}
+
 static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
     App *a = user;
     char msg[600];
@@ -516,6 +556,7 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
     ExNote *n;
     ExWidget *ed;
     (void)p;
+    if (strcmp(t->view, "settings") == 0) return make_settings(a);
     if (!a->vault) {
         ed = ex_widget_editor(a->ui, a->demo_doc, "Welcome");
         return ed;
@@ -648,6 +689,20 @@ static void on_toggle_theme(ExWidget *w, void *user) {
             if (global) { ex_settings_set(global, "appearance", "color_scheme", to_dark ? "dark" : "light"); ex_settings_close(global); }
             free(cfg);
         }
+    }
+}
+
+/* The base color scheme from the setting (dark, light or follow the system), applied to the running program. */
+static void apply_color_scheme(App *a) {
+    const char *scheme = ex_settings_get(a->settings, "appearance", "color_scheme");
+    int dark = !scheme || strcmp(scheme, "light") != 0;
+    ExTheme next;
+    if (scheme && strcmp(scheme, "system") == 0) dark = SDL_GetSystemTheme() != SDL_SYSTEM_THEME_LIGHT;
+    if (dark == (a->theme.is_dark != 0)) return;
+    if (ex_theme_init_builtin(&next, dark ? EX_THEME_DARK : EX_THEME_LIGHT) == 0) {
+        ex_theme_free(&a->theme);
+        a->theme = next;
+        ex_ui_set_theme(a->ui, &a->theme);
     }
 }
 
@@ -1185,6 +1240,21 @@ static void cmd_open_graph(void *u) {
     a->focus_tab = t;
 }
 
+/* app.open-settings (7a): the settings screen in a tab of the active group; an open one comes to the front. */
+static void cmd_open_settings(void *u) {
+    App *a = u;
+    size_t i;
+    ExId t = 0;
+    for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
+        const ExTab *tab = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
+        if (tab && tab->view && !strcmp(tab->view, "settings")) { t = tab->id; break; }
+    }
+    if (t) ex_ws_activate(a->ws, t);
+    else t = ex_ws_new_tab(a->ws, ex_ws_active_group(a->ws), "", "settings");
+    a->focus_tab = t;
+}
+static void on_ribbon_settings(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "app.open-settings"); }
+
 /* graph-view.open-local-graph: the local graph tab (the open note and the notes around it), in the active group; an open one comes to the front. */
 static void cmd_open_local_graph(void *u) {
     App *a = u;
@@ -1220,6 +1290,7 @@ static void register_features_and_commands(App *a) {
     ex_features_register(a->features, "word_count", "Word count", on_wordcount_feature, a);
     a->commands = ex_commands_create(a->features);
     ex_commands_bind(a->commands, "graph-view.open-graph-view", cmd_open_graph, NULL, a);
+    ex_commands_bind(a->commands, "app.open-settings", cmd_open_settings, NULL, a);
     ex_commands_bind(a->commands, "graph-view.open-local-graph", cmd_open_local_graph, has_notes, a);
     ex_commands_bind(a->commands, "graph-view.start-graph-timelapse-animation", cmd_graph_animation, has_graph, a);
     ex_commands_bind(a->commands, "app.toggle-left-sidebar", cmd_toggle_left, NULL, a);
@@ -2101,7 +2172,11 @@ int main(int argc, char **argv) {
         ex_settings_apply_vault(app.settings, app.vault);
         app.notes = ex_notes_create(app.vault, &nc);
         app.session = ex_session_create(app.vault, NULL, 300);
-        loaded = app.session ? ex_session_load(app.session, app.ws) : 0;
+        {   /* default_file (7a): `empty` and `note` start from a clean layout instead of the last session's tabs (the session is still saved when Exhaust closes) */
+            const char *df = ex_settings_get(app.settings, "files", "default_file");
+            int fresh = df && (!strcmp(df, "empty") || !strcmp(df, "note"));
+            loaded = app.session && !fresh ? ex_session_load(app.session, app.ws) : 0;
+        }
         (void)loaded;
         /* Pop-out windows cannot be opened as operating-system windows yet: their tabs come back to the main window
          * (as they would when such a window is closed), so no tab is ever out of reach. */
@@ -2155,10 +2230,12 @@ int main(int argc, char **argv) {
     app.rb_left = ribbon_icon(&app, EX_ICON_SIDEBAR_LEFT, "Show or hide the left sidebar", on_toggle_left, 0);
     app.rb_right = ribbon_icon(&app, EX_ICON_SIDEBAR_RIGHT, "Show or hide the right sidebar", on_toggle_right, 0);
     app.rb_theme = ribbon_icon(&app, EX_ICON_THEME, "Switch between light and dark", on_toggle_theme, 0);
+    app.rb_settings = ribbon_icon(&app, EX_ICON_GEAR, "Settings", on_ribbon_settings, 0);
     ex_widget_add(ribbon, app.rb_mode);
     ex_widget_add(ribbon, app.rb_left);
     ex_widget_add(ribbon, app.rb_right);
     ex_widget_add(ribbon, app.rb_theme);
+    ex_widget_add(ribbon, app.rb_settings);
     ex_widget_add(row, ribbon);
     {   /* a thin line between the ribbon and the file explorer */
         ExWidget *line = ex_widget_box(app.ui, 1, "Ribbon separator");
@@ -2289,6 +2366,12 @@ int main(int argc, char **argv) {
     ex_text_input_start(ex_renderer_window(app.r));
     script_start();
     if (getenv("EXHAUST_OPEN") && app.vault) open_path(&app, 0, getenv("EXHAUST_OPEN"));       /* a developer's aid: open this note at start */
+    else if (app.vault && !strcmp(ex_settings_get(app.settings, "files", "default_file"), "note")) {   /* default_file = note (7a): the chosen note, or the empty tab if it is not there */
+        const char *rel = ex_settings_get(app.settings, "files", "default_file_note");
+        char full[2048];
+        snprintf(full, sizeof full, "%s/%s", ex_vault_path(app.vault), rel ? rel : "");
+        if (rel && rel[0] && ex_platform_file_exists(full)) open_path(&app, 0, rel);
+    }
     relayout_and_draw(&app);
     while (running) {
         ExTextEvent te;
@@ -2374,10 +2457,11 @@ int main(int argc, char **argv) {
                 float density = SDL_GetWindowPixelDensity(ex_renderer_window(app.r));
                 ExWidget *wheel_root = app.panels && ex_panels_modal(app.panels) ? ex_panels_overlay(app.panels) : app.root;
                 ExWidget *under = ex_ui_widget_at(wheel_root, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
-                while (under && under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE && under->type != EX_WIDGET_GRAPH) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
+                while (under && !under->scrollable && (under->no_wheel || (under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE && under->type != EX_WIDGET_GRAPH))) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
                 if (under && under->parent && (under->parent->type == EX_WIDGET_EDITOR || under->parent->type == EX_WIDGET_READING)) under = under->parent;   /* over the title: the note scrolls */
                 if (!under && wheel_root == app.root) under = app.editor;
-                if (under && under->type == EX_WIDGET_GRAPH) ex_graphview_wheel(under, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);   /* zoom about the pointer */
+                if (under && under->scrollable) ex_ui_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));                       /* a scroll box: the settings screens (7a) */
+                else if (under && under->type == EX_WIDGET_GRAPH) ex_graphview_wheel(under, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);   /* zoom about the pointer */
                 else if (under && under->type == EX_WIDGET_TREE) ex_tree_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 else if (under && under->type == EX_WIDGET_LIST) ex_list_scroll(under, -e.wheel.y * 3.0f * ex_list_row_height(under));
                 else if (under && under->type == EX_WIDGET_READING) ex_reading_scroll(under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));

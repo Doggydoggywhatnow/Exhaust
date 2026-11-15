@@ -4,7 +4,7 @@ This file is the source of truth for every name that `AGENTS.md` freezes after r
 
 Each item has a name, a type, a default and the version it first appeared in ("since"). Defaults for settings follow the states shown in `screenshots/settings/` where a screenshot shows one; values marked *TODO-verify* could not be confirmed from the screenshots or the Obsidian Help pages and must be decided before the key is implemented.
 
-*TODO-verify* items are assigned: `default_file` to 7a; the Canvas, Note composer and Quick switcher values to 7b; the command-list boundaries and the macOS defaults to 7c. The slash-command list is done (see Slash commands), ahead of 3d.
+*TODO-verify* items are assigned: the Canvas, Note composer and Quick switcher values to 7b; the command-list boundaries and the macOS defaults to 7c. The slash-command list is done (see Slash commands), ahead of 3d.
 
 Types: `bool`, `int`, `percent`, `string`, `path` (relative to the vault), `color` (`#rrggbb` or `#rrggbbaa`), `list` (comma separated), `enum(a|b|c)`.
 
@@ -90,7 +90,8 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 
 | Name | Type | Default | Since |
 | --- | --- | --- | --- |
-| `default_file` | enum(last_opened\|...) | `last_opened` (*TODO-verify*: the other values) | 0.1.0 |
+| `default_file` | enum(last_opened\|empty\|note\|daily_note) | `last_opened` | 0.1.0. Decided in 7a: what is open when a vault is opened and nothing was asked for (an `EXHAUST_OPEN` or a note given on the command line wins): `last_opened` the tabs of the last session, `empty` one empty tab, `note` the note named by `default_file_note` (an empty tab if it does not exist), `daily_note` today's daily note (Daily notes is slice 6e-i, not built: until then it behaves as `last_opened`). |
+| `default_file_note` | path | empty | 0.1.0 (7a). The note `default_file = note` opens. |
 | `always_focus_new_tabs` | bool | `true` | 0.1.0 |
 | `sort_by` | enum(name\|modified\|created) | `name` | 0.1.0 |
 | `sort_descending` | bool | `false` | 0.1.0 |
@@ -819,6 +820,16 @@ Everything is in the `exhaust` table. A function that needs a permission fails w
 | `exhaust.http.get(url)` | `network` |
 
 Event names for `exhaust.events.on`: `vault-open`, `file-open`, `file-save`, `file-rename`, `editor-change`. Since: 0.1.0.
+
+## Settings screen
+
+*Since 0.1.0 (7a).* The command `app.open-settings` (`Ctrl+,`) opens the settings screen in a tab (view `settings`; at most one). On the left a search box and the list of pages (the *Options* group: General, Appearance, Interface, Editor, Files and links, Keychain; the pages of 7b to 7f are added to the list as they are built); on the right the page, in cards of rows: a name, a line of explanation under it and the control at the right. The page scrolls with the mouse wheel, `PageUp`/`PageDown`, and when the focus moves to a control that is out of view.
+
+- *Which keys.* One page for each section of the `settings.ini` tables above: General is `[general]`, Appearance `[appearance]`, Interface `[interface]`, Editor `[editor]`, Files and links `[files]`. Every key of those sections has a row on its page (a stub key has a disabled row that says it is not in this version); the test `settings_pages` walks the generated table of keys and fails for a key without a row.
+- *Controls.* `bool` is an On/Off switch; an `enum` is a button showing the choice that opens a menu of the choices; an `int` or `percent` is a slider with its value shown; `string`, `path`, `list` and `color` are one-line text fields. A change is written at once (write-through, as always) and the program applies it without a restart wherever it already reads the key each frame; a text field is written when you press Enter or leave the field, and a value the key refuses (a color that is not `#rrggbb`) is put back.
+- *Search.* Typing in the search box shows the rows of every page whose name or explanation contains the words (case-insensitive, every word must match), each under the name of its page; the box emptied shows the page again.
+- *Not on a page.* Nothing in these sections is left off; `config_folder` and `allow_uri_callbacks` carry a note that they take effect when the vault is opened again.
+- *Names.* Each control's accessible name is its row's name followed by its state (`Spell check: on`).
 
 ## Table editing
 

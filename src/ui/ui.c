@@ -23,6 +23,7 @@ struct ExUi {
     ExWidget *last_root;
     int clay_errors;
     int tab_leaves_editor;   /* Escape was pressed in an editor: the next Tab leaves it */
+    int clip_on, clip_x, clip_y, clip_w, clip_h;   /* the clip rectangle in force while drawing: nested clipped widgets draw inside the intersection (7a) */
 };
 
 /* ---- construction ---- */
@@ -585,6 +586,7 @@ static void build(ExUi *ui, ExWidget *w) {
         d.border.width.left = d.border.width.right = d.border.width.top = d.border.width.bottom = bw;
     }
     if (w->clip) { d.clip.horizontal = true; d.clip.vertical = true; }
+    if (w->scrollable) { d.clip.horizontal = false; d.clip.childOffset.y = -w->scroll_y; }   /* a scroll box (7a): clipped up and down only (children of a box clipped on an axis grow to their content on it), and its children are laid out moved up by the scroll */
     d.layout.childAlignment.x = w->align_x == 1 ? CLAY_ALIGN_X_CENTER : w->align_x == 2 ? CLAY_ALIGN_X_RIGHT : CLAY_ALIGN_X_LEFT;
     d.layout.childAlignment.y = w->align_y == 1 ? CLAY_ALIGN_Y_CENTER : w->align_y == 2 ? CLAY_ALIGN_Y_BOTTOM : CLAY_ALIGN_Y_TOP;
     d.userData = w;
@@ -602,7 +604,7 @@ static void build(ExUi *ui, ExWidget *w) {
         tc.userData = w;
         tc.fontId = (uint16_t)(w->font_token * 2 + (w->bold ? 1 : 0));
         tc.fontSize = (uint16_t)ex_px(ui->r, ui->base_size * w->text_scale);
-        tc.wrapMode = CLAY_TEXT_WRAP_NONE;
+        tc.wrapMode = w->wrap ? CLAY_TEXT_WRAP_WORDS : CLAY_TEXT_WRAP_NONE;
         tc.textColor = dummy_color();
         Clay__OpenTextElement(s, tc);
     }
@@ -672,12 +674,37 @@ void ex_ui_layout(ExUi *ui, ExWidget *root, float width, float height) {
 
 static const ExTheme *t_theme(const ExUi *ui) { return ui->theme; }
 
+typedef struct ClipState { int on, x, y, w, h; } ClipState;
+static void clip_apply(ExUi *ui) {
+    if (ui->clip_on) ex_set_clip(ui->r, ui->clip_x, ui->clip_y, ui->clip_w, ui->clip_h);
+    else ex_set_clip(ui->r, 0, 0, -1, -1);
+}
+/* A clipped widget draws inside the intersection of its own rectangle and the clip already in force, and gives that one back when it is done. */
+static void clip_push(ExUi *ui, ClipState *save, const ExWidget *w) {
+    int x0 = (int)w->x, y0 = (int)w->y, x1 = (int)ceilf(w->x + w->w), y1 = (int)ceilf(w->y + w->h);
+    save->on = ui->clip_on; save->x = ui->clip_x; save->y = ui->clip_y; save->w = ui->clip_w; save->h = ui->clip_h;
+    if (ui->clip_on) {
+        if (x0 < ui->clip_x) x0 = ui->clip_x;
+        if (y0 < ui->clip_y) y0 = ui->clip_y;
+        if (x1 > ui->clip_x + ui->clip_w) x1 = ui->clip_x + ui->clip_w;
+        if (y1 > ui->clip_y + ui->clip_h) y1 = ui->clip_y + ui->clip_h;
+    }
+    ui->clip_on = 1; ui->clip_x = x0; ui->clip_y = y0; ui->clip_w = x1 > x0 ? x1 - x0 : 0; ui->clip_h = y1 > y0 ? y1 - y0 : 0;
+    clip_apply(ui);
+}
+static void clip_pop(ExUi *ui, const ClipState *save) {
+    ui->clip_on = save->on; ui->clip_x = save->x; ui->clip_y = save->y; ui->clip_w = save->w; ui->clip_h = save->h;
+    clip_apply(ui);
+}
+
 static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
     const ExTheme *t = ui->theme;
+    ClipState saved_clip = {0};
     ExRenderer *r = ui->r;
     float rad = w->radius_token >= 0 ? token_px(ui, w->radius_token) * ex_renderer_scale(r) : 0.0f;
     ExWidget *c;
     if (w->hidden) return;
+    if (w->on_tick) w->on_tick(w, w->on_tick_user);
     if (w->bg_token >= 0) {
         int token = w->bg_token;
         if (w->type == EX_WIDGET_BUTTON) token = w->pressed ? EX_COLOR_ACCENT : (w->hover ? EX_COLOR_SURFACE_HOVER : w->bg_token);
@@ -689,12 +716,32 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
         if (w->focusable && ui->focus == w) bc = ex_theme_color(t, EX_COLOR_ACCENT);
         ex_stroke_round_rect(r, w->x, w->y, w->w, w->h, rad, (float)ex_px(r, token_px(ui, EX_SIZE_BORDER_WIDTH)), bc);
     }
-    if (w->clip) ex_set_clip(r, (int)w->x, (int)w->y, (int)ceilf(w->w), (int)ceilf(w->h));
+    if (w->clip) clip_push(ui, &saved_clip, w);
     if ((w->type == EX_WIDGET_LABEL || w->type == EX_WIDGET_BUTTON) && w->text && w->text_token >= 0) {
         ExFont *f = ex_ui_font(ui, w->font_token, w->bold);
         ExFontMetrics m;
         float size = ui->base_size * w->text_scale, tw = ex_text_measure(r, f, size, w->text, strlen(w->text)), x = w->x, y = w->y;
-        if (ex_text_metrics(r, f, size, &m) == 0) {
+        if (w->wrap && w->type == EX_WIDGET_LABEL && ex_text_metrics(r, f, size, &m) == 0) {      /* wrapped text: lines broken the way the layout counted them (each word with the space after it must fit) */
+            const char *p = w->text, *end = w->text + strlen(w->text), *ls = p;
+            float ly = w->y, lw = 0, space = ex_text_measure(r, f, size, " ", 1);
+            ExColor col = ex_theme_color(t, (ExColorToken)w->text_token);
+            while (p < end) {
+                const char *we = p;
+                float ww;
+                while (we < end && *we != ' ') we++;
+                ww = ex_text_measure(r, f, size, p, (size_t)(we - p)) + (we < end ? space : 0.0f);      /* as Clay measures: a word with the space after it, the last word without */
+                if (lw > 0 && lw + ww > w->w) {                           /* this word starts the next line */
+                    const char *le = p;
+                    while (le > ls && le[-1] == ' ') le--;
+                    ex_text_draw(r, f, size, w->x, ly, ls, (size_t)(le - ls), col);
+                    ly += (float)m.line_height;
+                    ls = p; lw = 0;
+                }
+                lw += ww;
+                p = we < end ? we + 1 : end;
+            }
+            if (ls < end) { const char *le = end; while (le > ls && le[-1] == ' ') le--; ex_text_draw(r, f, size, w->x, ly, ls, (size_t)(le - ls), col); }
+        } else if (ex_text_metrics(r, f, size, &m) == 0) {
             if (w->type == EX_WIDGET_BUTTON && w->menu_item) { x = w->x + (float)ex_px(r, 12) + (float)m.line_height + (float)ex_px(r, 12); y = w->y + (w->h - (float)m.line_height) / 2.0f; }
             else if (w->type == EX_WIDGET_BUTTON) { x = w->x + (w->w - tw) / 2.0f; y = w->y + (w->h - (float)m.line_height) / 2.0f; }
             ex_text_draw(r, f, size, x, y, w->text, strlen(w->text), ex_theme_color(t, (ExColorToken)w->text_token));
@@ -723,9 +770,9 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
     if (w->type == EX_WIDGET_TREE) tree_draw(ui, w);
     if (w->type == EX_WIDGET_LIST) ex_list_draw(ui, w);
     if (w->type == EX_WIDGET_GRAPH) ex_graphview_draw(ui, w);
-    if (w->clip && (w->type == EX_WIDGET_EDITOR || w->type == EX_WIDGET_READING) && w->first_child) ex_set_clip(r, (int)w->x, (int)w->y, (int)ceilf(w->w), (int)ceilf(w->h));   /* the editor drew with its own clip: the child (title) is clipped to the widget */
+    if (w->clip && (w->type == EX_WIDGET_EDITOR || w->type == EX_WIDGET_READING) && w->first_child) clip_apply(ui);   /* the editor drew with its own clip: the child (title) is clipped to the widget */
     for (c = w->first_child; c; c = c->next) draw_widget(ui, c, blink_on);
-    if (w->clip) ex_set_clip(r, 0, 0, -1, -1);
+    if (w->clip) clip_pop(ui, &saved_clip);
     if (w->focusable && ui->focus == w) { /* the visible focus ring, drawn last so nothing covers it */
         float t = 2.0f * (float)ex_px(r, token_px(ui, EX_SIZE_BORDER_WIDTH));
         ex_stroke_round_rect(r, w->x, w->y, w->w, w->h, rad, t, ex_theme_color(t_theme(ui), EX_COLOR_ACCENT));
@@ -745,6 +792,52 @@ ExWidget *ex_ui_widget_at(ExWidget *w, float x, float y) {
         if (hit) best = hit; /* later siblings are drawn on top */
     }
     return best;
+}
+
+ExWidget *ex_widget_scrollbox(ExUi *ui, const char *name) {
+    ExWidget *w = ex_widget_box(ui, 1, name);
+    if (!w) return NULL;
+    w->scrollable = 1; w->clip = 1;
+    return w;
+}
+
+ExWidget *ex_widget_find_name(ExWidget *w, const char *name) {
+    for (; w; w = w->next) {
+        ExWidget *hit;
+        if (w->name && !strcmp(w->name, name)) return w;
+        hit = ex_widget_find_name(w->first_child, name);
+        if (hit) return hit;
+    }
+    return NULL;
+}
+
+static float scroll_max(const ExWidget *box) {
+    float content = box->first_child ? box->first_child->h : 0.0f, m = content - box->h;
+    return m > 0 ? m : 0;
+}
+
+void ex_ui_scroll(ExUi *ui, ExWidget *box, float dy) {
+    float m;
+    (void)ui;
+    if (!box || !box->scrollable) return;
+    m = scroll_max(box);
+    box->scroll_y += dy;
+    if (box->scroll_y > m) box->scroll_y = m;
+    if (box->scroll_y < 0) box->scroll_y = 0;
+}
+
+void ex_ui_scroll_into_view(ExUi *ui, ExWidget *w) {
+    ExWidget *box = w ? w->parent : NULL;
+    while (box && !box->scrollable) box = box->parent;
+    if (!box || w->h <= 0) return;
+    if (w->y < box->y) ex_ui_scroll(ui, box, w->y - box->y - 8.0f);
+    else if (w->y + w->h > box->y + box->h) ex_ui_scroll(ui, box, w->y + w->h - (box->y + box->h) + 8.0f);
+}
+
+ExWidget *ex_ui_scrollable_at(ExWidget *root, float x, float y) {
+    ExWidget *w = ex_ui_widget_at(root, x, y);
+    while (w && !w->scrollable) w = w->parent;
+    return w;
 }
 
 ExWidget *ex_ui_focus(const ExUi *ui) { return ui->focus; }

@@ -40,6 +40,12 @@ struct ExWidget {
     ExAxis width, height;
     float pad_x, pad_y, gap;      /* in units of the theme's spacing token */
     int clip;                     /* clip children to this widget */
+    int scrollable;               /* a scroll box (7a): clips, and shows its children moved up by scroll_y; ex_ui_scroll changes it, the mouse wheel reaches it */
+    float scroll_y;               /* pixels, 0 to the content's height minus the box's */
+    int wrap;                     /* a label that wraps its text at words to its width (give it a grow width); the height follows the lines (7a) */
+    void (*on_tick)(ExWidget *w, void *user);   /* called once a frame, before the widget draws (the settings screen watches its search box and text fields with it) */
+    void *on_tick_user;
+    int no_wheel;                 /* the mouse wheel over this widget goes to the scroll box (or other widget) above it (a one-line text field) */
     int align_x, align_y;         /* where the children sit in the free room: 0 start, 1 center, 2 end */
     int hidden;                   /* not laid out, drawn, focused or exposed to screen readers */
 
@@ -227,6 +233,15 @@ void ex_explorer_set_new_note_handler(ExWidget *sidebar, void (*fn)(ExWidget *w,
 void ex_explorer_set_vault_handler(ExWidget *sidebar, void (*fn)(ExWidget *w, void *user), void *user);
 void ex_widget_add(ExWidget *parent, ExWidget *child);
 void ex_widget_set_text(ExWidget *w, const char *text);
+/* Scroll boxes (7a). A box with `scrollable` set clips its children and shows them moved up by scroll_y; its content is its first child (put
+ * one tall column in it). ex_ui_scroll changes the scroll by dy pixels and keeps it between 0 and the content's height minus the box's;
+ * ex_ui_scroll_into_view scrolls the nearest scroll box above a widget so the widget shows (after a layout); ex_ui_scrollable_at is the
+ * scroll box under a window position (the mouse wheel's target), or NULL. */
+ExWidget *ex_widget_scrollbox(ExUi *ui, const char *name);
+ExWidget *ex_widget_find_name(ExWidget *root, const char *name);     /* the first widget in the tree with this accessible name, or NULL */
+void ex_ui_scroll(ExUi *ui, ExWidget *box, float dy);
+void ex_ui_scroll_into_view(ExUi *ui, ExWidget *w);
+ExWidget *ex_ui_scrollable_at(ExWidget *root, float x, float y);
 void ex_widget_free(ExWidget *root); /* frees the tree; editors are freed with it, documents are not */
 
 /* Convenience for axis sizes. */

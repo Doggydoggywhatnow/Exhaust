@@ -41,7 +41,7 @@ void ex_panes_tab_title(const ExTab *tab, char *out, size_t cap) {
     const char *base = tab->path, *slash, *dot;
     size_t n;
     if (!base || !base[0]) {
-        snprintf(out, cap, "%s", strcmp(tab->view, "graph") == 0 ? "Graph" : strcmp(tab->view, "localgraph") == 0 ? "Local graph" : strcmp(tab->view, "canvas") == 0 ? "Canvas" : "New tab");
+        snprintf(out, cap, "%s", strcmp(tab->view, "graph") == 0 ? "Graph" : strcmp(tab->view, "localgraph") == 0 ? "Local graph" : strcmp(tab->view, "canvas") == 0 ? "Canvas" : strcmp(tab->view, "settings") == 0 ? "Settings" : "New tab");
         return;
     }
     slash = strrchr(base, '/');

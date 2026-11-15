@@ -343,4 +343,21 @@ EXHAUST_SCRIPT="$work/table_slash.script" $lim "$exe" "$vault" >"$work/table_sla
 unset EXHAUST_OPEN
 if grep -qF '|      |    X |' "$vault/Table.md" && grep -qF '| bb   | 22  |' "$vault/Table.md" && grep -q '^after$' "$vault/Table.md" && ! grep -q '/table' "$vault/Table.md"; then echo "ok: the slash menu's Table: Add row below added a row and the typing went into it"; else echo "FAILED: table command from the slash menu"; cat "$vault/Table.md"; fail=1; fi
 
+# the default note to open (7a, [files] default_file): a chosen note opens at start instead of the last session; `empty` starts with no note; a note that is not there gives the empty tab
+vault="$work/default_file"; rm -rf "$vault"; mkdir -p "$vault/.exhaust"
+printf '# Welcome\n' > "$vault/Home.md"; printf 'Alpha\n' > "$vault/Alpha.md"
+printf 'wait 600\nmove 21 604\ndown 21 604\nup 21 604\nwait 1500\nquit\n' > "$work/default_file.script"       # the click on the sidebar button changes the layout, so the session is saved
+unset EXHAUST_OPEN
+printf '[files]\ndefault_file = note\ndefault_file_note = Alpha.md\n' > "$vault/.exhaust/settings.ini"
+EXHAUST_SCRIPT="$work/default_file.script" $lim "$exe" "$vault" >"$work/default_file.log" 2>&1
+dsession=$(find "$work" -name session.ini -newer "$work/default_file.script" | head -1)
+if [ -n "$dsession" ] && grep -q "Alpha.md" "$dsession"; then echo "ok: default_file = note opens the chosen note at start"; else echo "FAILED: default_file = note"; fail=1; fi
+printf '[files]\ndefault_file = empty\n' > "$vault/.exhaust/settings.ini"
+export EXHAUST_OPEN=Home.md
+EXHAUST_SCRIPT="$work/default_file.script" $lim "$exe" "$vault" >"$work/default_file2.log" 2>&1
+unset EXHAUST_OPEN
+grep -q "Home.md" "$dsession" || { echo "FAILED: the earlier session did not hold Home.md (the check below means nothing)"; fail=1; }
+EXHAUST_SCRIPT="$work/default_file.script" $lim "$exe" "$vault" >"$work/default_file3.log" 2>&1
+if ! grep -q "Home.md" "$dsession" && ! grep -q "Alpha.md" "$dsession"; then echo "ok: default_file = empty starts without the last session's notes"; else echo "FAILED: default_file = empty"; fail=1; fi
+
 exit $fail

@@ -19,6 +19,8 @@
 #include "exhaust_graphpanel.h"
 #include "exhaust_panes.h"
 #include "exhaust_graphview.h"
+#include "exhaust_settings.h"
+#include "exhaust_settingsview.h"
 #include "exhaust_panels.h"
 #include "exhaust_vaultscreen.h"
 #include "exhaust_platform.h"
@@ -89,7 +91,7 @@ static void walk(const ExWidget *w, const ExWidget *root, const char *where) {
                 (w->x + w->w > w->parent->x + w->parent->w + 1.0f || w->x < w->parent->x - 1.0f))
                 problem(where, w, "is a button cut off by its parent");
         }
-        walk(w->first_child, root, where);
+        if (!w->scrollable) walk(w->first_child, root, where);       /* what a scroll box holds may be out of view on purpose (7a) */
     }
 }
 
@@ -470,6 +472,45 @@ int main(void) {
             ex_ui_release(g_ui, gbox);
             ex_widget_free(gbox);
             ex_graphmodel_free(gm);
+        }
+        {   /* the settings screen (7a): every page, long text in every field, and a pane as narrow as a sidebar */
+            ExSettings *ss = ex_settings_open("long_names_data/.exhaust", NULL);
+            ExSettingsView *sv = ss ? ex_settingsview_create(g_ui, ss, NULL) : NULL;
+            ExWidget *sbox = ex_widget_box(g_ui, 1, "settings box");
+            size_t pg;
+            CHECK(sv != NULL);
+            if (sv) {
+                sbox->width = ex_size_grow(); sbox->height = ex_size_grow();
+                ex_widget_add(sbox, ex_settingsview_widget(sv));
+                for (pg = 0; pg < ex_settings_page_count(); pg++) {
+                    char where[100];
+                    ex_settingsview_show(sv, ex_settings_page_id(pg));
+                    pump(20);
+                    snprintf(where, sizeof where, "settings page %s", ex_settings_page_id(pg));
+                    check_layout(r, sbox, where);
+                    {   /* typing in the search box rebuilds the page (it is meant to), which would free the other boxes under the test: it gets its own tests below */
+                        ExWidget *sf = ex_widget_find_name(ex_settingsview_widget(sv), "Search settings");
+                        if (sf) sf->hidden = 1;
+                        test_text_boxes(r, sbox, where, in);
+                        if (sf) sf->hidden = 0;
+                    }
+                    ex_ui_layout(g_ui, sbox, 200.0f, 400.0f);                          /* a narrow pane: nothing may push out of it */
+                    ex_ui_draw(g_ui, sbox, 1);
+                    ex_settingsview_tick(sv);
+                    ex_ui_layout(g_ui, sbox, 200.0f, 400.0f);
+                    ex_ui_draw(g_ui, sbox, 1);
+                    CHECK(ex_settingsview_widget(sv)->w <= 200.5f);
+                    ex_ui_layout(g_ui, sbox, (float)WIN_W, (float)WIN_H);
+                    ex_ui_draw(g_ui, sbox, 1);
+                    ex_settingsview_tick(sv);
+                }
+                ex_settingsview_search(sv, in[3].text);                                  /* 5000 letters in the search box */
+                ex_settingsview_search(sv, in[10].text);
+                ex_settingsview_search(sv, "");
+            }
+            ex_ui_release(g_ui, sbox);
+            ex_widget_free(sbox);
+            ex_settings_close(ss);
         }
         ex_findbar_free(fb);
         ex_widget_free(box);
