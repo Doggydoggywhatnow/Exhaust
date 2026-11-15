@@ -414,7 +414,10 @@ static void service_job(ExWorker *self, const ExMessage *m, void *user) {
     case QJ_EXPAND: do_expand(s, j, res); break;
     case QJ_GRAPH:
         res->graph = calloc(1, sizeof *res->graph);
-        if (res->graph && ex_graph_load(s->r, res->graph) == 0 && ex_graph_apply_options(s->r, s->root, &j->gopts, res->graph, NULL, res->summary, sizeof res->summary) == 0) res->ok = 1;
+        if (res->graph && ex_graph_load(s->r, res->graph) == 0 && ex_graph_apply_options(s->r, s->root, &j->gopts, res->graph, NULL, res->summary, sizeof res->summary) == 0) {
+            res->ok = 1;
+            if (j->i1 > 0 && ex_graph_local(res->graph, j->a ? j->a : "", j->i1) < 0) res->ok = 0;      /* a local graph: the neighbourhood of the open note */
+        }
         else { if (res->graph) { ex_graph_free(res->graph); free(res->graph); } res->graph = NULL; }
         break;
     default: break;

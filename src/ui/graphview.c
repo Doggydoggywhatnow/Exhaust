@@ -39,6 +39,8 @@ struct ExGraphModel {
     char *active_path;
     int animating;
     ExGraphOptions opts;                     /* the settings of the gear panel (5b) */
+    uint32_t *rank;                          /* each node's place in the order of creation, worked out when an animation first needs it (5c) */
+    int is_local;                            /* the model of a local graph tab */
 };
 
 ExGraphModel *ex_graphmodel_create(void) {
@@ -52,6 +54,7 @@ static void model_clear_graph(ExGraphModel *m) {
     m->layout = NULL;
     if (m->g) { ex_graph_free(m->g); free(m->g); m->g = NULL; }
     free(m->adj_off); free(m->adj); free(m->adj_dir); m->adj_off = m->adj = NULL; m->adj_dir = NULL;
+    free(m->rank); m->rank = NULL;
     free(m->cell_start); free(m->cell_items); m->cell_start = m->cell_items = NULL; m->cell_cap = 0;
     m->xy = NULL; m->have_xy = 0; m->gw = m->gh = 0;
 }
@@ -117,9 +120,25 @@ int ex_graphmodel_set_options(ExGraphModel *m, const ExGraphOptions *o) {
 }
 const ExGraphOptions *ex_graphmodel_options(const ExGraphModel *m) { return m ? &m->opts : NULL; }
 
+void ex_graphmodel_set_local(ExGraphModel *m, int local) { if (m) m->is_local = local != 0; }
+
+/* The same nodes (kind, path, group) in the same order and the same links: a graph read again after something that changed nothing in it. */
+static int graph_same(const ExGraph *a, const ExGraph *b, int *same_nodes) {
+    size_t i;
+    *same_nodes = 0;
+    if (!a || !b || a->n != b->n) return 0;
+    for (i = 0; i < a->n; i++) if (a->nodes[i].kind != b->nodes[i].kind || a->nodes[i].group != b->nodes[i].group || strcmp(a->nodes[i].path, b->nodes[i].path)) return 0;
+    *same_nodes = 1;
+    if (a->ne != b->ne) return 0;
+    for (i = 0; i < a->ne; i++) if (a->edges[i].from != b->edges[i].from || a->edges[i].to != b->edges[i].to) return 0;
+    return 1;
+}
+
 void ex_graphmodel_set_graph(ExGraphModel *m, ExGraph *g) {
     ExLayout *l;
+    int same_nodes;
     if (!m || !g) return;
+    if (m->g && m->layout && graph_same(m->g, g, &same_nodes)) { ex_graph_free(g); free(g); return; }   /* nothing changed (a note was saved): the picture stays as it is */
     l = ex_layout_create(g, m->g, m->have_xy ? m->xy : NULL, 1u);      /* warm: the old graph and where its nodes are */
     ex_layout_free(m->layout);
     m->layout = NULL;
@@ -129,6 +148,7 @@ void ex_graphmodel_set_graph(ExGraphModel *m, ExGraph *g) {
     m->layout = l;
     apply_params(m);
     m->xy = NULL; m->have_xy = 0; m->gen = 0;
+    free(m->rank); m->rank = NULL;
     build_adjacency(m);
     model_find_active(m);
     m->animating = 1;
@@ -195,6 +215,7 @@ int ex_graphmodel_update(ExGraphModel *m) {
 }
 
 int ex_graphmodel_animating(const ExGraphModel *m) { return m && m->animating; }
+float ex_graphmodel_temperature(const ExGraphModel *m) { ExLayoutStats st; if (!m || !m->layout) return 0.0f; ex_layout_stats(m->layout, &st); return st.alpha; }
 size_t ex_graphmodel_node_count(const ExGraphModel *m) { return m && m->g ? m->g->n : 0; }
 size_t ex_graphmodel_edge_count(const ExGraphModel *m) { return m && m->g ? m->g->ne : 0; }
 const ExGraph *ex_graphmodel_graph(const ExGraphModel *m) { return m ? m->g : NULL; }
@@ -221,7 +242,13 @@ typedef struct View {
     float press_x, press_y, press_cx, press_cy;
     ExGraphViewStats stats;
     void *extra; void (*free_extra)(void *); void (*tick)(void *, int64_t);   /* the gear panel's state (5b), freed with the view, and what it does once a frame */
+    int (*act)(void *, int);                 /* a key the panel handles (g: the gear; [ and ]: the local graph's depth): 1 if it did */
+    int anim_on;                             /* the animation (5c): nodes appear in the order they were created */
+    Uint64 anim_t0;
+    uint32_t anim_shown;                     /* the nodes with a rank below this are shown */
 } View;
+
+static int node_shown(const View *v, uint32_t i);
 
 static View *view_of(const ExWidget *w) { return w && w->type == EX_WIDGET_GRAPH ? (View *)w->owned : NULL; }
 
@@ -316,7 +343,9 @@ int ex_graphview_node_at(ExWidget *w, float x, float y) {
             size_t c = (size_t)cy * (size_t)m->gw + (size_t)cx, k;
             for (k = m->cell_start[c]; k < m->cell_start[c + 1]; k++) {
                 uint32_t i = m->cell_items[k];
-                float sx, sy, dx, dy, d, r = node_radius(v->ui, v, m->g->nodes[i].degree);
+                float sx, sy, dx, dy, d, r;
+                if (!node_shown(v, i)) continue;                                   /* an animation has not created it yet */
+                r = node_radius(v->ui, v, m->g->nodes[i].degree);
                 if (r < 5.0f) r = 5.0f;                                            /* a small dot is still easy to hit */
                 to_screen(v, w, m->xy[2 * i], m->xy[2 * i + 1], &sx, &sy);
                 dx = sx - x; dy = sy - y; d = dx * dx + dy * dy;
@@ -370,6 +399,72 @@ static void set_marks(View *v) {
     v->mark[v->hover] = 2;
 }
 
+/* ---- the animation (5c) ---- */
+
+#define ANIM_MS 10000
+static int s_anims;                                              /* views whose animation is running (UI thread only): the loop draws every frame while it is not 0 */
+
+typedef struct KeyIdx { int64_t key; uint32_t idx; } KeyIdx;
+static int cmp_keyidx(const void *a, const void *b) {
+    const KeyIdx *x = a, *y = b;
+    if (x->key != y->key) return x->key < y->key ? -1 : 1;
+    return x->idx < y->idx ? -1 : x->idx > y->idx;
+}
+
+/* Each node's place in the order of creation: a note by its file's ctime (unknown counts as the oldest), a name or file that is not a note
+ * with the first note that links to it. One sort, when an animation starts. */
+static void ensure_rank(ExGraphModel *m) {
+    const ExGraph *g = m->g;
+    KeyIdx *k;
+    size_t i;
+    if (m->rank || !g || g->n == 0) return;
+    k = malloc(g->n * sizeof *k);
+    m->rank = malloc(g->n * sizeof *m->rank);
+    if (!k || !m->rank) { free(k); free(m->rank); m->rank = NULL; return; }
+    for (i = 0; i < g->n; i++) { k[i].idx = (uint32_t)i; k[i].key = g->nodes[i].kind == EX_GRAPH_NOTE ? g->nodes[i].ctime : INT64_MAX; }
+    for (i = 0; i < g->ne; i++) {
+        uint32_t a = g->edges[i].from, b = g->edges[i].to;
+        if (g->nodes[a].kind == EX_GRAPH_NOTE && g->nodes[b].kind != EX_GRAPH_NOTE && g->nodes[a].ctime < k[b].key) k[b].key = g->nodes[a].ctime;
+    }
+    for (i = 0; i < g->n; i++) if (k[i].key == INT64_MAX) k[i].key = 0;
+    qsort(k, g->n, sizeof *k, cmp_keyidx);
+    for (i = 0; i < g->n; i++) m->rank[k[i].idx] = (uint32_t)i;
+    free(k);
+}
+
+static void anim_stop(View *v) { if (v->anim_on) { v->anim_on = 0; if (s_anims > 0) s_anims--; } }
+
+void ex_graphview_animate(ExWidget *w, int on) {
+    View *v = view_of(w);
+    if (!v) return;
+    if (!on) { anim_stop(v); return; }
+    if (!v->m->g || v->m->g->n == 0) return;
+    ensure_rank(v->m);
+    if (!v->m->rank) return;
+    if (!v->anim_on) s_anims++;
+    v->anim_on = 1; v->anim_t0 = SDL_GetTicks(); v->anim_shown = 0;
+}
+void ex_graphview_animation_toggle(ExWidget *w) { View *v = view_of(w); if (v) ex_graphview_animate(w, !v->anim_on); }
+int ex_graphview_animation_running(const ExWidget *w) { const View *v = view_of(w); return v && v->anim_on; }
+int ex_graphview_animations_running(void) { return s_anims; }
+void ex_graphview_animation_seek(ExWidget *w, float fraction) {
+    View *v = view_of(w);
+    if (!v || !v->anim_on) return;
+    v->anim_t0 = SDL_GetTicks() - (Uint64)(fraction * (float)ANIM_MS);
+}
+
+/* Moves the animation on to now; the number of nodes shown. Ends it when all are shown. */
+static void anim_step(View *v) {
+    const ExGraph *g = v->m->g;
+    float f;
+    if (!v->anim_on) return;
+    if (!g || !v->m->rank) { anim_stop(v); return; }
+    f = (float)(SDL_GetTicks() - v->anim_t0) / (float)ANIM_MS;
+    if (f >= 1.0f) { v->anim_shown = (uint32_t)g->n; anim_stop(v); return; }
+    v->anim_shown = (uint32_t)(f * (float)g->n);
+}
+static int node_shown(const View *v, uint32_t i) { return !v->anim_on || (v->m->rank && v->m->rank[i] < v->anim_shown); }
+
 /* The colour of a node: its group's, else the node's own. */
 static ExColor node_color(const ExTheme *t, const ExGraphOptions *o, const ExGraphNode *nd, ExColor c_node, ExColor c_unres) {
     static const int slot[6] = {EX_COLOR_ACCENT, EX_COLOR_SUCCESS, EX_COLOR_WARNING, EX_COLOR_ERROR, EX_COLOR_TAG, EX_COLOR_LINK};
@@ -388,13 +483,14 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
     size_t i, k, edges = 0, nodes = 0;
     if (!v) return;
     if (v->tick) v->tick(v->extra, (int64_t)SDL_GetTicks());
+    anim_step(v);
     m = v->m; t = ex_ui_theme(ui); r = ex_ui_renderer(ui); g = m->g;
     memset(&v->stats, 0, sizeof v->stats);
     v->stats.hover = v->hover; v->stats.selected = v->selected; v->stats.following = v->following;
     c_text = ex_theme_color(t, EX_COLOR_TEXT); c_muted = ex_theme_color(t, EX_COLOR_TEXT_MUTED);
     if (!g || !m->have_xy || g->n == 0) {                                          /* nothing to show: say why */
         ExFont *f = ex_ui_font(ui, EX_FONT_TOKEN_INTERFACE, 0);
-        const char *msg = !g ? "Reading the links of your notes..." : "There are no notes in this vault yet.";
+        const char *msg = !g ? "Reading the links of your notes..." : m->is_local ? "Open a note to see the notes around it." : "There are no notes in this vault yet.";
         float tw = ex_text_measure(r, f, ex_ui_base_size(ui), msg, strlen(msg));
         ExFontMetrics fm;
         if (ex_text_metrics(r, f, ex_ui_base_size(ui), &fm) == 0)
@@ -423,6 +519,7 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
         uint32_t a = g->edges[k].from, b = g->edges[k].to;
         float ax, ay, bx, by;
         if (v->hover >= 0 && ((int)a == v->hover || (int)b == v->hover)) continue;
+        if (v->anim_on && (!node_shown(v, a) || !node_shown(v, b))) continue;                 /* not created yet */
         ax = v->sxy[2 * a]; ay = v->sxy[2 * a + 1];
         bx = v->sxy[2 * b]; by = v->sxy[2 * b + 1];
         if (fabsf(ax - bx) < 1.0f && fabsf(ay - by) < 1.0f) continue;                  /* shorter than a pixel: nothing to see */
@@ -442,6 +539,7 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
         float sx, sy;
         ExColor col = node_color(t, &m->opts, nd, c_node, c_unres);
         if ((int)i2 == m->active) continue;                                        /* drawn last, in the focus color */
+        if (!node_shown(v, i2)) continue;
         if (v->hover >= 0 && v->mark && v->mark[i2]) continue;                     /* the hovered node and its neighbours, later */
         sx = v->sxy[2 * i2]; sy = v->sxy[2 * i2 + 1];
         ex_geom_circle(v->geom, sx, sy, radius_of(rk, nd->degree), with_alpha(col, fade));
@@ -454,6 +552,7 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
         for (i = o; i < e; i++) {
             uint32_t nb = m->adj[i];
             float nx, ny;
+            if (!node_shown(v, nb)) continue;
             nx = v->sxy[2 * nb]; ny = v->sxy[2 * nb + 1];
             ex_geom_line(v->geom, hx, hy, nx, ny, lw * 1.5f, c_focus);
             if (m->opts.arrows && m->adj_dir) {                                     /* the head at the end the link points to, at the rim of that circle */
@@ -467,6 +566,7 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
         for (i = o; i < e; i++) {
             uint32_t nb = m->adj[i];
             float nx, ny;
+            if (!node_shown(v, nb)) continue;
             nx = v->sxy[2 * nb]; ny = v->sxy[2 * nb + 1];
             ex_geom_circle(v->geom, nx, ny, node_radius(ui, v, g->nodes[nb].degree), node_color(t, &m->opts, &g->nodes[nb], c_node, c_unres));
             nodes++;
@@ -511,7 +611,7 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
                         float sx, sy;
                         uint32_t i2 = v->vis[k];
                         sx = v->sxy[2 * i2]; sy = v->sxy[2 * i2 + 1];
-                        if (sx >= w->x && sx < w->x + w->w && sy >= w->y && sy < w->y + w->h) { cand[nc].degree = g->nodes[i2].degree; cand[nc].idx = i2; nc++; }
+                        if (node_shown(v, i2) && sx >= w->x && sx < w->x + w->w && sy >= w->y && sy < w->y + w->h) { cand[nc].degree = g->nodes[i2].degree; cand[nc].idx = i2; nc++; }
                     }
                     qsort(cand, nc, sizeof *cand, cmp_cand);
                 }
@@ -620,12 +720,44 @@ static int mouse_hook(ExWidget *w, ExMouse kind, float x, float y, ExWidget *und
     return 1;
 }
 
+/* The node nearest in a direction (dx, dy: a unit step on the screen) from the selected node, or from the middle of the view when none is
+ * selected: a node that lies within about sixty degrees of that direction, the nearest first. */
+static int select_dir(View *v, const ExWidget *w, float dx, float dy) {
+    const ExGraph *g = v->m->g;
+    float ox, oy, best = 1e30f;
+    int from = v->selected, pick = -1;
+    size_t i;
+    if (!g || !v->m->have_xy || g->n == 0) return -1;
+    if (from >= 0) { ox = v->m->xy[2 * from]; oy = v->m->xy[2 * from + 1]; }
+    else { ox = v->cx; oy = v->cy; (void)w; }
+    for (i = 0; i < g->n; i++) {
+        float ex = v->m->xy[2 * i] - ox, ey = v->m->xy[2 * i + 1] - oy, d = sqrtf(ex * ex + ey * ey), c;
+        if ((int)i == from || !node_shown(v, (uint32_t)i)) continue;
+        if (d < 0.0001f) { if (from < 0) { pick = (int)i; best = 0.0f; } continue; }
+        c = (ex * dx + ey * dy) / d;
+        if (from >= 0 && c < 0.5f) continue;                      /* not in that direction */
+        if (from < 0) { if (d < best) { best = d; pick = (int)i; } continue; }     /* from the middle: simply the nearest */
+        if (d / c < best) { best = d / c; pick = (int)i; }
+    }
+    return pick;
+}
+
+static void select_node(View *v, int node) {
+    v->selected = node;
+    if (node >= 0 && v->m->have_xy) { v->cx = v->m->xy[2 * node]; v->cy = v->m->xy[2 * node + 1]; v->following = 0; }   /* bring it into the middle */
+}
+
 static int key_hook(ExWidget *w, ExKey key, int mods, void *user) {
     View *v = user;
     float step = 60.0f * ex_renderer_scale(ex_ui_renderer(v->ui)) / v->zoom;
     const ExGraph *g = v->m->g;
-    (void)mods;
     if (!g) return 0;
+    if ((mods & EX_MOD_SHIFT) && (key == EX_KEY_LEFT || key == EX_KEY_RIGHT || key == EX_KEY_UP || key == EX_KEY_DOWN)) {   /* spatial selection */
+        float dx = key == EX_KEY_LEFT ? -1.0f : key == EX_KEY_RIGHT ? 1.0f : 0.0f, dy = key == EX_KEY_UP ? -1.0f : key == EX_KEY_DOWN ? 1.0f : 0.0f;
+        int n = select_dir(v, w, dx, dy);
+        if (n >= 0) select_node(v, n);
+        return 1;
+    }
     switch (key) {
     case EX_KEY_LEFT: v->cx -= step; v->following = 0; return 1;
     case EX_KEY_RIGHT: v->cx += step; v->following = 0; return 1;
@@ -633,23 +765,43 @@ static int key_hook(ExWidget *w, ExKey key, int mods, void *user) {
     case EX_KEY_DOWN: v->cy += step; v->following = 0; return 1;
     case EX_KEY_PAGE_DOWN: case EX_KEY_PAGE_UP:
         if (g->n == 0) return 1;
-        if (v->selected < 0) v->selected = key == EX_KEY_PAGE_DOWN ? 0 : (int)g->n - 1;
-        else v->selected = key == EX_KEY_PAGE_DOWN ? (int)(((size_t)v->selected + 1) % g->n) : (int)(((size_t)v->selected + g->n - 1) % g->n);
-        if (v->m->have_xy) { v->cx = v->m->xy[2 * v->selected]; v->cy = v->m->xy[2 * v->selected + 1]; v->following = 0; }   /* bring it into the middle */
+        {
+            int dir = key == EX_KEY_PAGE_DOWN ? 1 : -1, cur = v->selected, tries;
+            for (tries = 0; tries < (int)g->n; tries++) {                 /* the next node that is shown */
+                cur = cur < 0 ? (dir > 0 ? 0 : (int)g->n - 1) : (int)(((size_t)cur + g->n + (size_t)(dir > 0 ? 1 : g->n - 1)) % g->n);
+                if (node_shown(v, (uint32_t)cur)) break;
+            }
+            select_node(v, cur);
+        }
         return 1;
-    case EX_KEY_ENTER: if (v->selected >= 0) { open_node(v, v->selected, 0); return 1; } return 0;
-    case EX_KEY_ESCAPE: if (v->selected >= 0) { v->selected = -1; return 1; } return 0;
+    case EX_KEY_ENTER: if (v->selected >= 0) { open_node(v, v->selected, (mods & EX_MOD_PRIMARY) ? 1 : 0); return 1; } return 0;
+    case EX_KEY_ESCAPE:
+        if (v->hover >= 0 && v->h.preview) { v->h.preview(v->h.user, NULL, 0, 0, 0); v->hover = -1; return 1; }
+        if (v->selected >= 0) { v->selected = -1; return 1; }
+        return 0;
     case EX_KEY_HOME: v->following = 1; return 1;
-    default: (void)w; return 0;
+    default: return 0;
     }
 }
 
 static int text_hook(ExWidget *w, const char *s, size_t len, void *user) {
     View *v = user;
+    float sx, sy;
     if (len != 1) return 0;
     if (s[0] == '+' || s[0] == '=') { zoom_about(v, w, 1.25f, w->x + w->w / 2.0f, w->y + w->h / 2.0f); return 1; }
     if (s[0] == '-') { zoom_about(v, w, 0.8f, w->x + w->w / 2.0f, w->y + w->h / 2.0f); return 1; }
     if (s[0] == '0') { v->following = 1; return 1; }
+    if (s[0] == 'a') { ex_graphview_animation_toggle(w); return 1; }
+    if ((s[0] == 'm' || s[0] == 'p') && v->selected >= 0 && v->m->g && ex_graphview_node_screen(w, v->selected, &sx, &sy)) {
+        const ExGraphNode *nd = &v->m->g->nodes[v->selected];
+        if (s[0] == 'm') { if (v->h.context) v->h.context(v->h.user, nd->path, nd->kind, sx, sy); }
+        else if (v->h.preview) {                                       /* the page preview of the selected node: the view acts as if the pointer were on it */
+            v->hover = v->selected;
+            v->h.preview(v->h.user, nd->path, nd->kind, sx, sy);
+        }
+        return 1;
+    }
+    if ((s[0] == 'g' || s[0] == '[' || s[0] == ']') && v->act) return v->act(v->extra, s[0]);
     return 0;
 }
 
@@ -674,11 +826,11 @@ ExWidget *ex_widget_graph(ExUi *ui, ExGraphModel *m, const char *name, const ExG
     return w;
 }
 
-void ex_graphview_set_extra(ExWidget *w, void *extra, void (*free_extra)(void *), void (*tick)(void *, int64_t)) {
+void ex_graphview_set_extra(ExWidget *w, void *extra, void (*free_extra)(void *), void (*tick)(void *, int64_t), int (*act)(void *, int)) {
     View *v = view_of(w);
     if (!v) { if (free_extra) free_extra(extra); return; }
     if (v->free_extra) v->free_extra(v->extra);
-    v->extra = extra; v->free_extra = free_extra; v->tick = tick;
+    v->extra = extra; v->free_extra = free_extra; v->tick = tick; v->act = act;
 }
 
 void ex_graphview_stats(const ExWidget *w, ExGraphViewStats *out) {

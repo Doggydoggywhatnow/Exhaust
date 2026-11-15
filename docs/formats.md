@@ -577,6 +577,8 @@ Rules:
 | `[tab.<id>]` `cursor_line`, `cursor_column` | int | `0` | 0.1.0; `cursor_line` counts from 0, `cursor_column` is the byte offset in that line (from 0); both are clamped to the text on restore and never land inside a character |
 | `[tab.<id>]` `scroll_y` | float (pixels at 100% zoom, one decimal) | `0` | 0.1.0 |
 | `[graph]` `open` | bool | the last state | 0.1.0; 5a: that a graph tab is open (as a tab with view `graph`); pan and zoom are not saved |
+| `[graph]` `local_depth` | int 1 to 5 | `1` | 0.1.0 (5c). How many links away from the open note the local graph reaches (a link either way counts). Used by tabs with view `localgraph`; the local graph also uses the filters, groups, forces and display options above. |
+| `[tab.<id>]` `view` = `localgraph` | string | | 0.1.0 (5c). The local graph tab (`graph-view.open-local-graph`): the open note and the notes within `local_depth` links of it, following whichever note is open in another tab. `path` is empty. |
 | `[graph]` `search` | string | empty | 0.1.0 (5b). Filter: a query in the search language of the README (terms, `path:`, `file:`, `tag:`, `[property:value]`); only the notes it finds stay in the graph, with the attachments and unresolved names they link to. At most 200 bytes. |
 | `[graph]` `show_orphans` | bool | `true` | 0.1.0 (5b). Off removes the nodes that no edge touches (after the other filters). |
 | `[graph]` `show_unresolved` | bool | `true` | 0.1.0 (5b). Off removes the nodes for names no note answers to. |
@@ -592,6 +594,8 @@ Rules:
 | `[graph]` `node_size` | float 0.3 to 3 | `1` | 0.1.0 (5b). A multiple of the circle's radius. |
 | `[graph]` `link_thickness` | float 0.3 to 4 | `1` | 0.1.0 (5b). A multiple of the line's width. |
 | `[search]` `text` | string | empty | 0.1.0 |
+
+**Graph view keys (5c).** With the graph focused (click it, or Tab): `Left Right Up Down` pan; `+` `-` zoom and `0` or `Home` fit; `Shift+Left/Right/Up/Down` select the nearest node in that direction (from the selected one, or the node nearest the middle); `Page Down` and `Page Up` select the next and previous node; `Enter` opens the selected node, `Ctrl+Enter` (`Cmd+Enter` on a Mac) in a new tab; `m` opens the node's menu at the node; `p` shows the page preview of the node (`Escape` closes it, and a second `Escape` clears the selection); `a` starts or stops the animation; `g` opens or closes the gear panel; `[` and `]` change the depth of a local graph; `Escape` clears the selection. The gear and the wand are buttons: `Tab` reaches them. The wand starts the animation: the notes appear in the order they were created (`files.ctime`; a note whose ctime is unknown counts as the oldest), a name or file that is not a note appears with the first note that links to it, over about ten seconds, and the animation ends when all are shown or when it is stopped.
 
 **Layout tree (added with sub-slice 2c, since 0.1.0).** The window's panes form a tree of *groups* (a strip of tabs with one active tab) and *splits* (a row or a column of groups and splits). Ids are positive integers, written in values as `g<id>` for a group and `s<id>` for a split.
 

@@ -118,6 +118,7 @@ static int add_node(Build *b, char *path_owned, int kind) {
     g->nodes[g->n].kind = kind;
     g->nodes[g->n].degree = 0;
     g->nodes[g->n].group = 0;
+    g->nodes[g->n].ctime = 0;
     return (int)g->n++;
 }
 
@@ -157,11 +158,12 @@ int ex_graph_load(ExIndex *r, ExGraph *out) {
     b.g = out;
 
     /* every Markdown note is a node, in path order */
-    st = ex_db_prepare(r, "SELECT id, path FROM files WHERE kind = 1 ORDER BY path");
+    st = ex_db_prepare(r, "SELECT id, path, ctime FROM files WHERE kind = 1 ORDER BY path");
     if (!st) goto done;
     while (sqlite3_step(st) == SQLITE_ROW) {
         char *p = ex_strdup((const char *)sqlite3_column_text(st, 1));
         int idx = p ? add_node(&b, p, EX_GRAPH_NOTE) : -1;
+        if (idx >= 0) out->nodes[idx].ctime = sqlite3_column_int64(st, 2);
         if (idx < 0 || imap_put(&by_id, sqlite3_column_int64(st, 0), (uint32_t)idx) != 0) { sqlite3_finalize(st); goto done; }
     }
     sqlite3_finalize(st);
@@ -285,9 +287,32 @@ static void add_msg(char *msg, size_t cap, const char *who, const char *query, c
     snprintf(msg + n, cap - n, "%s \"%.40s\" does not work: %s", who, query, err[0] ? err : "it cannot be read as a search");
 }
 
+/* Keeps the nodes with keep[i] set: removes the others and the edges that touch them, in the same order (so the edges stay sorted), and counts
+ * the degrees again. remap has n entries. */
+static int compact(ExGraph *g, const unsigned char *keep, uint32_t *remap) {
+    size_t i, w, n = g->n;
+    for (i = 0, w = 0; i < n; i++) {
+        if (keep[i]) { remap[i] = (uint32_t)w; g->nodes[w] = g->nodes[i]; w++; }
+        else { remap[i] = 0xffffffffu; free(g->nodes[i].path); }
+    }
+    {
+        size_t k = 0;
+        for (i = 0; i < g->ne; i++) {
+            uint32_t a = remap[g->edges[i].from], b = remap[g->edges[i].to];
+            if (a == 0xffffffffu || b == 0xffffffffu) continue;
+            g->edges[k].from = a; g->edges[k].to = b; k++;
+        }
+        g->ne = k;
+    }
+    g->n = w;
+    for (i = 0; i < w; i++) g->nodes[i].degree = 0;
+    for (i = 0; i < g->ne; i++) { g->nodes[g->edges[i].from].degree++; g->nodes[g->edges[i].to].degree++; }
+    return 0;
+}
+
 int ex_graph_apply_options(ExIndex *r, const char *root, const ExGraphOptions *o, ExGraph *g, unsigned *bad, char *msg, size_t msgcap) {
     char perr[200];
-    size_t i, w, n = g->n;
+    size_t i, n = g->n;
     unsigned char *keep;
     uint32_t *remap;
     int gi, rc = -1;
@@ -335,24 +360,45 @@ int ex_graph_apply_options(ExIndex *r, const char *root, const ExGraphOptions *o
         for (i = 0; i < n; i++) if (!deg[i]) keep[i] = 0;
         free(deg);
     }
-    for (i = 0, w = 0; i < n; i++) {                             /* compact: the order stays, so the edges stay sorted */
-        if (keep[i]) { remap[i] = (uint32_t)w; g->nodes[w] = g->nodes[i]; w++; }
-        else { remap[i] = 0xffffffffu; free(g->nodes[i].path); }
-    }
-    {
-        size_t k = 0;
-        for (i = 0; i < g->ne; i++) {
-            uint32_t a = remap[g->edges[i].from], b = remap[g->edges[i].to];
-            if (a == 0xffffffffu || b == 0xffffffffu) continue;
-            g->edges[k].from = a; g->edges[k].to = b; k++;
-        }
-        g->ne = k;
-    }
-    g->n = w;
-    for (i = 0; i < w; i++) g->nodes[i].degree = 0;
-    for (i = 0; i < g->ne; i++) { g->nodes[g->edges[i].from].degree++; g->nodes[g->edges[i].to].degree++; }
-    rc = 0;
+    rc = compact(g, keep, remap);
 done:
     free(keep); free(remap);
+    return rc;
+}
+
+/* ---- the local graph (5c) ---- */
+
+int ex_graph_local(ExGraph *g, const char *center, int depth) {
+    size_t i, n = g->n, head = 0, tail = 0;
+    uint32_t *off = NULL, *adj = NULL, *fill = NULL, *queue = NULL, *remap = NULL;
+    int *dist = NULL, c = -1, rc = -1;
+    unsigned char *keep = NULL;
+    for (i = 0; i < n; i++) if (g->nodes[i].kind == EX_GRAPH_NOTE && !strcmp(g->nodes[i].path, center)) { c = (int)i; break; }
+    off = calloc(n + 2, sizeof *off); adj = malloc((2 * g->ne + 1) * sizeof *adj); fill = calloc(n + 1, sizeof *fill);
+    queue = malloc((n + 1) * sizeof *queue); dist = malloc((n + 1) * sizeof *dist); keep = calloc(n + 1, 1); remap = malloc((n + 1) * sizeof *remap);
+    if (!off || !adj || !fill || !queue || !dist || !keep || !remap) goto done;
+    for (i = 0; i < g->ne; i++) { off[g->edges[i].from + 1]++; off[g->edges[i].to + 1]++; }
+    for (i = 0; i < n; i++) off[i + 1] += off[i];
+    for (i = 0; i < g->ne; i++) {
+        uint32_t a = g->edges[i].from, b = g->edges[i].to;
+        adj[off[a] + fill[a]++] = b;
+        adj[off[b] + fill[b]++] = a;
+    }
+    for (i = 0; i < n; i++) dist[i] = -1;
+    if (c >= 0) { dist[c] = 0; queue[tail++] = (uint32_t)c; keep[c] = 1; }
+    while (head < tail) {                                         /* breadth first, as far as depth */
+        uint32_t u = queue[head++];
+        size_t k;
+        if (dist[u] >= depth) continue;
+        for (k = off[u]; k < off[u + 1]; k++) {
+            uint32_t v = adj[k];
+            if (dist[v] >= 0) continue;
+            dist[v] = dist[u] + 1; keep[v] = 1; queue[tail++] = v;
+        }
+    }
+    rc = compact(g, keep, remap);
+    if (rc == 0 && c < 0) rc = 1;
+done:
+    free(off); free(adj); free(fill); free(queue); free(dist); free(keep); free(remap);
     return rc;
 }

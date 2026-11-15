@@ -342,7 +342,7 @@ ExLayout *ex_layout_create(const ExGraph *g, const ExGraph *prev_g, const float 
             else { l->x[i] = r * cosf(a); l->y[i] = r * sinf(a); }
         }
     }
-    l->alpha = kept > 0 ? 0.3f : 1.0f;
+    l->alpha = kept > 0 ? (kept == n ? 0.08f : 0.3f) : 1.0f;      /* every node kept its place (only links changed): a gentle nudge, so a save does not shake the picture (ISSUES 31) */
     SDL_SetAtomicInt(&l->alpha_milli, (int)(l->alpha * 1000000.0f));
     SDL_SetAtomicInt(&l->p_center, 0); SDL_SetAtomicInt(&l->p_charge, (int)(CHARGE * 1000.0f)); SDL_SetAtomicInt(&l->p_strength, 1000); SDL_SetAtomicInt(&l->p_distance, (int)(LINK_DISTANCE * 1000.0f));
 

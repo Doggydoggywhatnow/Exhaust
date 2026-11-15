@@ -66,6 +66,7 @@ typedef struct App {
     ExFindBar *findbar;
     ExWidget *title;               /* the inline title of the active tab (a child of its editor), or NULL */
     ExGraphModel *gm;              /* the graph's data and layout, while a graph tab exists */
+    ExGraphModel *gm_local;        /* the local graph's (5c), while a local graph tab exists */
     ExGraphOptions gopts;          /* the graph's settings (5b): filters, groups, forces, display; kept in the session's [graph] section */
     char *graph_note;              /* the note last open in a tab: drawn in the focus color (the graph's own tab is not a note) */
     ExWidget *rb_switcher, *rb_graph, *rb_canvas, *rb_palette, *rb_mode, *rb_left, *rb_right, *rb_theme;   /* the ribbon */
@@ -369,6 +370,17 @@ static ExGraphModel *ensure_gm(App *a) {
     return a->gm;
 }
 
+static ExGraphModel *ensure_gm_local(App *a) {
+    if (!a->gm_local) { a->gm_local = ex_graphmodel_create(); if (a->gm_local) { ex_graphmodel_set_local(a->gm_local, 1); ex_graphmodel_set_options(a->gm_local, &a->gopts); } }
+    return a->gm_local;
+}
+
+static void host_local_graph_data(void *u, ExGraph *g) {
+    App *a = u;
+    if (ensure_gm_local(a)) ex_graphmodel_set_graph(a->gm_local, g);
+    else { ex_graph_free(g); free(g); }
+}
+
 static void host_graph_data(void *u, ExGraph *g) {
     App *a = u;
     if (ensure_gm(a)) ex_graphmodel_set_graph(a->gm, g);
@@ -391,17 +403,37 @@ static void graph_changed(void *u, const ExGraphOptions *o, int filters) {
     App *a = u;
     a->gopts = *o;
     ex_graphopts_save(o, graph_set_key, a);
+    if (a->gm) ex_graphmodel_set_options(a->gm, o);                       /* both graphs share the settings */
+    if (a->gm_local) ex_graphmodel_set_options(a->gm_local, o);
     if (filters && a->panels) ex_panels_graph_options(a->panels, o);
+}
+
+/* The keyboard asks for the page preview of a node: the panels show it as they do for the pointer with Ctrl held, at the node's place. */
+static void graph_preview(void *u, const char *path, int kind, float x, float y) {
+    App *a = u;
+    (void)path; (void)kind;
+    if (a->panels && a->root) ex_panels_pointer(a->panels, a->root, x, y, path != NULL);
+}
+
+static ExWidget *make_local_graph(App *a) {
+    ExGraphHandlers h;
+    ExWidget *gw;
+    memset(&h, 0, sizeof h);
+    h.user = a; h.open = graph_open; h.context = graph_context; h.preview = graph_preview;
+    if (!ensure_gm_local(a)) return info_label(a, "The graph cannot be shown: out of memory.");
+    gw = ex_widget_graph(a->ui, a->gm_local, "Local graph", &h);
+    if (gw) ex_graphpanel_create(a->ui, gw, a->gm_local, 1, graph_changed, a);
+    return gw;
 }
 
 static ExWidget *make_graph(App *a) {
     ExGraphHandlers h;
     ExWidget *gw;
     memset(&h, 0, sizeof h);
-    h.user = a; h.open = graph_open; h.context = graph_context;
+    h.user = a; h.open = graph_open; h.context = graph_context; h.preview = graph_preview;
     if (!ensure_gm(a)) return info_label(a, "The graph cannot be shown: out of memory.");
     gw = ex_widget_graph(a->ui, a->gm, "Graph view", &h);
-    if (gw) ex_graphpanel_create(a->ui, gw, a->gm, graph_changed, a);
+    if (gw) ex_graphpanel_create(a->ui, gw, a->gm, 0, graph_changed, a);
     return gw;
 }
 
@@ -487,6 +519,7 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
         return ed;
     }
     if (strcmp(t->view, "graph") == 0) return make_graph(a);
+    if (strcmp(t->view, "localgraph") == 0) return make_local_graph(a);
     if (!t->path[0]) return info_label(a, "An empty tab. Open a note from the file explorer, or create one with New note.");
     if (!a->notes) return info_label(a, "Notes cannot be edited because the recovery journal could not be opened.");
     n = note_for_tab(a, t->id);                                                 /* switching between reading and editing keeps the note open */
@@ -904,6 +937,30 @@ static void cmd_open_graph(void *u) {
     a->focus_tab = t;
 }
 
+/* graph-view.open-local-graph: the local graph tab (the open note and the notes around it), in the active group; an open one comes to the front. */
+static void cmd_open_local_graph(void *u) {
+    App *a = u;
+    size_t i;
+    ExId t = 0;
+    for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
+        const ExTab *tab = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
+        if (tab && tab->view && !strcmp(tab->view, "localgraph")) { t = tab->id; break; }
+    }
+    if (t) ex_ws_activate(a->ws, t);
+    else t = ex_ws_new_tab(a->ws, ex_ws_active_group(a->ws), "", "localgraph");
+    a->focus_tab = t;
+}
+
+/* The graph widget of the active tab, if it shows a graph (global or local). */
+static ExWidget *active_graph(App *a) {
+    ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+    ExWidget *c = t && a->panes ? ex_panes_content(a->panes, t) : NULL;
+    return c && c->type == EX_WIDGET_GRAPH ? c : NULL;
+}
+static int has_graph(void *u) { return active_graph(u) != NULL; }
+/* graph-view.start-graph-timelapse-animation: the notes appear in the order they were created (the wand button does the same). */
+static void cmd_graph_animation(void *u) { ExWidget *g = active_graph(u); if (g) ex_graphview_animation_toggle(g); }
+
 static void on_ribbon_graph(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "graph-view.open-graph-view"); }
 
 static void register_features_and_commands(App *a) {
@@ -915,6 +972,8 @@ static void register_features_and_commands(App *a) {
     ex_features_register(a->features, "word_count", "Word count", on_wordcount_feature, a);
     a->commands = ex_commands_create(a->features);
     ex_commands_bind(a->commands, "graph-view.open-graph-view", cmd_open_graph, NULL, a);
+    ex_commands_bind(a->commands, "graph-view.open-local-graph", cmd_open_local_graph, has_notes, a);
+    ex_commands_bind(a->commands, "graph-view.start-graph-timelapse-animation", cmd_graph_animation, has_graph, a);
     ex_commands_bind(a->commands, "app.toggle-left-sidebar", cmd_toggle_left, NULL, a);
     ex_commands_bind(a->commands, "app.toggle-right-sidebar", cmd_toggle_right, NULL, a);
     ex_commands_bind(a->commands, "app.toggle-main-text-view", cmd_toggle_main_view, NULL, a);
@@ -1199,6 +1258,13 @@ static void sync_ui(App *a) {
             if (ap && (!a->graph_note || strcmp(ap, a->graph_note))) { free(a->graph_note); a->graph_note = dup_text(ap); }
         }
         if (a->gm) { ex_graphmodel_set_active(a->gm, a->graph_note); ex_graphmodel_update(a->gm); }
+    }
+    {                                                                                /* the local graph (5c): around the note last open in a tab */
+        size_t i, locals = 0;
+        for (i = 0; i < ex_ws_tab_count(a->ws); i++) { const ExTab *gt = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i)); if (gt && gt->view && !strcmp(gt->view, "localgraph")) locals++; }
+        if (a->panels) ex_panels_local_graph(a->panels, locals > 0, a->graph_note);
+        if (locals == 0 && a->gm_local) { ex_graphmodel_free(a->gm_local); a->gm_local = NULL; }
+        if (a->gm_local) { ex_graphmodel_set_active(a->gm_local, a->graph_note); ex_graphmodel_update(a->gm_local); }
     }
     g = ex_ws_active_group(a->ws);
     t = ex_ws_group_active(a->ws, g);
@@ -1847,7 +1913,7 @@ int main(int argc, char **argv) {
         pi.host.user = &app;
         pi.host.open_note = host_open_note; pi.host.active_path = host_active_path; pi.host.active_text = host_active_text; pi.host.read_text = host_read_text;
         pi.host.replace_text = host_replace_text; pi.host.select_range = host_select_range; pi.host.move_file = host_move_file; pi.host.file_op = host_file_op; pi.host.message = host_message;
-        pi.host.graph_data = host_graph_data; pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
+        pi.host.graph_data = host_graph_data; pi.host.local_graph_data = host_local_graph_data; pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
         pi.wake = wake_ui;
         app.panels = ex_panels_create(&pi);
         if (app.panels) {
@@ -1947,7 +2013,7 @@ int main(int argc, char **argv) {
         ExKey key;
         int mods;
         script_step(&app);
-        int animating = app.gm && ex_graphmodel_animating(app.gm);        /* the graph's layout is still moving the nodes: a frame every 16 ms */
+        int animating = (app.gm && ex_graphmodel_animating(app.gm)) || (app.gm_local && ex_graphmodel_animating(app.gm_local)) || ex_graphview_animations_running() > 0;        /* the graph's layout is still moving the nodes: a frame every 16 ms */
         int timed_out = !SDL_WaitEventTimeout(&e, animating ? 16 : 100); /* wakes ten times a second for autosave and the watcher */
         static int idle_ticks;
         if (g_signal) running = 0;
@@ -2089,6 +2155,7 @@ int main(int argc, char **argv) {
     ex_queue_destroy(results);
     stop_showing_diff(&app);
     ex_graphmodel_free(app.gm);
+    ex_graphmodel_free(app.gm_local);
     free(app.graph_note);
     ex_findbar_free(app.findbar);
     ex_slash_free(app.slash);

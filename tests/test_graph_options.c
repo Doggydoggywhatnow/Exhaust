@@ -455,7 +455,7 @@ static void keys_and_panel(void) {
     root->width = ex_size_grow(); root->height = ex_size_grow();
     gw = ex_widget_graph(ui, m, "Graph view", NULL);
     ex_widget_add(root, gw);
-    panel = ex_graphpanel_create(ui, gw, m, on_changed, NULL);
+    panel = ex_graphpanel_create(ui, gw, m, 0, on_changed, NULL);
     CHECK(panel != NULL);
     if (!panel) return;
     CHECK(!ex_graphpanel_is_open(panel) && ex_graphpanel_box(panel)->hidden);

@@ -70,6 +70,7 @@ static void small(void) {
     CHECK(g.n == 9);                                         /* 7 notes, the image, one unresolved name */
     CHECK(node_of(&g, "Missing Note", EX_GRAPH_UNRESOLVED) < 0);   /* C's link is the same name in another case: no second node */
     if (a < 0 || b < 0 || c < 0 || orphan < 0 || pic < 0 || missing < 0 || gdeep < 0 || gtop < 0 || h < 0) { ex_graph_free(&g); return; }
+    CHECK(g.nodes[a].ctime > 0 && g.nodes[orphan].ctime > 0 && g.nodes[pic].ctime == 0 && g.nodes[missing].ctime == 0);   /* a note has its file's creation time (5c), other nodes none */
     CHECK(has_edge(&g, a, b));                               /* [[B]] twice and [[b|bee]]: one edge */
     CHECK(has_edge(&g, b, a));                               /* direction is kept: B links back to A */
     CHECK(has_edge(&g, a, pic) && has_edge(&g, a, missing) && has_edge(&g, c, missing));

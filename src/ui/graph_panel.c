@@ -7,16 +7,17 @@
 #include "exhaust_graphpanel.h"
 
 #define NSEC 4
-#define NSLIDER 7
+#define NSLIDER 8
 
 enum { SEC_FILTERS, SEC_GROUPS, SEC_DISPLAY, SEC_FORCES };
 
 typedef struct SliderDef { const char *name; float min, max, step; } SliderDef;
 static const SliderDef sliders[NSLIDER] = {
     {"Text fade threshold", -3.0f, 3.0f, 0.1f}, {"Node size", 0.3f, 3.0f, 0.1f}, {"Link thickness", 0.3f, 4.0f, 0.1f},
-    {"Center force", 0.0f, 1.0f, 0.05f}, {"Repel force", 0.0f, 20.0f, 0.5f}, {"Link force", 0.0f, 1.0f, 0.05f}, {"Link distance", 10.0f, 200.0f, 5.0f}
+    {"Center force", 0.0f, 1.0f, 0.05f}, {"Repel force", 0.0f, 20.0f, 0.5f}, {"Link force", 0.0f, 1.0f, 0.05f}, {"Link distance", 10.0f, 200.0f, 5.0f},
+    {"Depth", 1.0f, 5.0f, 1.0f}
 };
-enum { S_FADE, S_NODE, S_LINK, S_CENTER, S_REPEL, S_LINKF, S_DIST };
+enum { S_FADE, S_NODE, S_LINK, S_CENTER, S_REPEL, S_LINKF, S_DIST, S_DEPTH };
 
 static const int slot_token[6] = {EX_COLOR_ACCENT, EX_COLOR_SUCCESS, EX_COLOR_WARNING, EX_COLOR_ERROR, EX_COLOR_TAG, EX_COLOR_LINK};
 static const char *slot_name[6] = {"accent", "green", "yellow", "red", "tag", "link"};
@@ -27,7 +28,8 @@ struct ExGraphPanel {
     ExGraphPanelChanged changed;
     void *user;
     ExGraphOptions o;                    /* what the controls show */
-    ExWidget *graph, *gear, *panel, *col;
+    ExWidget *graph, *gear, *wand, *panel, *col;
+    int local;
     ExWidget *head[NSEC], *body[NSEC];
     ExWidget *b_orphans, *b_unres, *b_attach, *b_arrows, *b_new_group;
     ExWidget *search_f, *group_row[EX_GRAPH_MAX_GROUPS], *group_f[EX_GRAPH_MAX_GROUPS], *group_c[EX_GRAPH_MAX_GROUPS];
@@ -114,7 +116,8 @@ static void show_all(ExGraphPanel *p) {
     ex_slider_set_value(p->slider[S_LINK], p->o.link_thickness); ex_slider_set_value(p->slider[S_CENTER], p->o.center);
     ex_slider_set_value(p->slider[S_REPEL], p->o.repel); ex_slider_set_value(p->slider[S_LINKF], p->o.link_strength);
     ex_slider_set_value(p->slider[S_DIST], p->o.link_distance);
-    for (i = 0; i < NSLIDER; i++) show_value(p, i, ex_slider_value(p->slider[i]));
+    if (p->slider[S_DEPTH]) ex_slider_set_value(p->slider[S_DEPTH], (float)p->o.local_depth);
+    for (i = 0; i < NSLIDER; i++) if (p->slider[i]) show_value(p, i, ex_slider_value(p->slider[i]));
     for (i = 0; i < EX_GRAPH_MAX_GROUPS; i++) show_group_color(p, i);
     if (ex_ui_focus(p->ui) != p->search_f) { set_field(p->search_doc, p->o.search); p->search_ver = ex_doc_version(p->search_doc); }
     for (i = 0; i < EX_GRAPH_MAX_GROUPS; i++) if (ex_ui_focus(p->ui) != p->group_f[i]) { set_field(p->group_doc[i], p->o.groups[i].query); p->group_ver[i] = ex_doc_version(p->group_doc[i]); }
@@ -125,6 +128,7 @@ static void show_all(ExGraphPanel *p) {
 /* ---- callbacks ---- */
 
 static void on_gear(ExWidget *w, void *u) { ExGraphPanel *p = u; (void)w; ex_graphpanel_open(p, !p->open); }
+static void on_wand(ExWidget *w, void *u) { ExGraphPanel *p = u; (void)w; ex_graphview_animation_toggle(p->graph); }
 /* One section is open at a time, so the panel is never taller than its longest section (a small pane still shows it whole). */
 static void on_head(ExWidget *w, void *u) {
     ExGraphPanel *p = u;
@@ -155,6 +159,7 @@ static void on_slider(ExWidget *w, float v, void *u) {
     case S_CENTER: p->o.center = v; break;
     case S_REPEL: p->o.repel = v; break;
     case S_LINKF: p->o.link_strength = v; break;
+    case S_DEPTH: p->o.local_depth = (int)(v + 0.5f); break;
     default: p->o.link_distance = v; break;
     }
     show_value(p, i, v);
@@ -246,23 +251,41 @@ static void free_panel(void *vp) {
 
 static void tick_fn(void *p, int64_t now) { ex_graphpanel_tick(p, now); }
 
-ExGraphPanel *ex_graphpanel_create(ExUi *ui, ExWidget *graph, ExGraphModel *m, ExGraphPanelChanged changed, void *user) {
+/* The keys the graph widget leaves to the panel: g opens and closes it, [ and ] change the depth of a local graph. */
+static int act_fn(void *vp, int c) {
+    ExGraphPanel *p = vp;
+    if (c == 'g') { ex_graphpanel_open(p, !p->open); return 1; }
+    if ((c == '[' || c == ']') && p->local) {
+        int d = p->o.local_depth + (c == ']' ? 1 : -1);
+        if (d < 1 || d > 5) return 1;
+        p->o.local_depth = d;
+        show_all(p);
+        commit(p);
+        return 1;
+    }
+    return 0;
+}
+
+ExGraphPanel *ex_graphpanel_create(ExUi *ui, ExWidget *graph, ExGraphModel *m, int local, ExGraphPanelChanged changed, void *user) {
     ExGraphPanel *p = calloc(1, sizeof *p);
     ExWidget *body;
     int i;
     char name[60];
     if (!p) return NULL;
-    p->ui = ui; p->graph = graph; p->m = m; p->changed = changed; p->user = user;
+    p->ui = ui; p->graph = graph; p->local = local != 0; p->m = m; p->changed = changed; p->user = user;
     p->o = *ex_graphmodel_options(m);
     p->search_doc = ex_doc_create("", 0);
     for (i = 0; i < EX_GRAPH_MAX_GROUPS; i++) p->group_doc[i] = ex_doc_create("", 0);
     p->col = ex_widget_box(ui, 1, "Graph settings");
     p->gear = ex_widget_button(ui, "Graph settings", on_gear, p);
+    p->wand = ex_widget_button(ui, "Animate the graph", on_wand, p);
     p->panel = ex_widget_box(ui, 1, "Graph settings panel");
-    if (!p->col || !p->gear || !p->panel || !p->search_doc) { free_panel(p); return NULL; }
+    if (!p->col || !p->gear || !p->wand || !p->panel || !p->search_doc) { free_panel(p); return NULL; }
     for (i = 0; i < EX_GRAPH_MAX_GROUPS; i++) if (!p->group_doc[i]) { free_panel(p); return NULL; }
     ex_widget_set_icon(p->gear, EX_ICON_GEAR);
     p->gear->bg_token = EX_COLOR_SURFACE;
+    ex_widget_set_icon(p->wand, EX_ICON_WAND);
+    p->wand->bg_token = EX_COLOR_SURFACE;
     p->col->gap = 0.5f; p->col->align_x = 2;
     p->panel->width = ex_size_token(EX_SIZE_SPACING, 36.0f);
     p->panel->bg_token = EX_COLOR_SURFACE; p->panel->border_token = EX_COLOR_BORDER; p->panel->radius_token = EX_SIZE_RADIUS;
@@ -270,6 +293,7 @@ ExGraphPanel *ex_graphpanel_create(ExUi *ui, ExWidget *graph, ExGraphModel *m, E
     p->panel->hidden = 1;
 
     body = section(p, SEC_FILTERS, "Filters");
+    if (local) ex_widget_add(body, slider_row(p, S_DEPTH));
     p->search_f = field(p, p->search_doc, "Search files in the graph");
     p->b_orphans = toggle(p, on_orphans); p->b_unres = toggle(p, on_unres); p->b_attach = toggle(p, on_attach);
     { ExWidget *sl = ex_widget_label(ui, "Search files"); if (sl) { sl->text_token = EX_COLOR_TEXT_MUTED; ex_widget_add(body, sl); } }
@@ -298,12 +322,13 @@ ExGraphPanel *ex_graphpanel_create(ExUi *ui, ExWidget *graph, ExGraphModel *m, E
     body = section(p, SEC_FORCES, "Forces");
     ex_widget_add(body, slider_row(p, S_CENTER)); ex_widget_add(body, slider_row(p, S_REPEL)); ex_widget_add(body, slider_row(p, S_LINKF)); ex_widget_add(body, slider_row(p, S_DIST));
 
-    for (i = 0; i < NSLIDER; i++) if (!p->slider[i]) { free_panel(p); return NULL; }
+    for (i = 0; i < NSLIDER; i++) if (!p->slider[i] && (i != S_DEPTH || local)) { free_panel(p); return NULL; }
     ex_widget_add(p->col, p->gear);
+    ex_widget_add(p->col, p->wand);
     ex_widget_add(p->col, p->panel);
     ex_widget_add(graph, p->col);
     show_all(p);
-    ex_graphview_set_extra(graph, p, free_panel, tick_fn);
+    ex_graphview_set_extra(graph, p, free_panel, tick_fn, act_fn);
     return p;
 }
 
@@ -332,12 +357,13 @@ static ExWidget *find_in(ExWidget *w, const char *name) {
     }
     return NULL;
 }
-ExWidget *ex_graphpanel_find(const ExGraphPanel *p, const char *name) { return p ? find_in(p->panel->first_child, name) : NULL; }
+ExWidget *ex_graphpanel_find(const ExGraphPanel *p, const char *name) { return p ? find_in(p->col->first_child, name) : NULL; }
 
 void ex_graphpanel_tick(ExGraphPanel *p, int64_t now_ms) {
     int i, typed = 0;
     (void)now_ms;
     if (!p) return;
+    p->wand->selected = ex_graphview_animation_running(p->graph);
     if (p->graph->w > 0.0f) {                                         /* the panel never wider than the pane */
         float sp = (float)ex_theme_size(ex_ui_theme(p->ui), EX_SIZE_SPACING) * ex_renderer_scale(ex_ui_renderer(p->ui));
         float want = 36.0f * sp, room = p->graph->w - 2.0f * sp;

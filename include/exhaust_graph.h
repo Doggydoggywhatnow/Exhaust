@@ -26,6 +26,7 @@ typedef struct ExGraphNode {
     char *path;          /* a note or attachment: its path from the vault; unresolved: the name the link uses */
     int kind;            /* ExGraphKind */
     uint32_t degree;
+    int64_t ctime;       /* a note: when its file was created (the index's files.ctime; 0 if unknown); other nodes: 0 */
     uint8_t group;       /* 0: in no group; n: in the group n of the options (5b), which colours it */
 } ExGraphNode;
 
@@ -50,6 +51,11 @@ void ex_graph_free(ExGraph *g);
  * did not parse (\n between the lines, cut to msgcap). Runs the search engine, so call it on the service thread.
  * Returns 0, or -1 on a failed search. */
 int ex_graph_apply_options(ExIndex *r, const char *vault_root, const ExGraphOptions *o, ExGraph *g, unsigned *bad, char *msg, size_t msgcap);
+/* The local graph (sub-slice 5c): keeps the node of the note `center` (a path) and every node at most `depth` links from it, a link counting in
+ * either direction, and removes the rest with the edges that touch them (degrees are counted again). Works on the graph in memory, in
+ * time proportional to its size: call it on the service thread. Returns 0, or 1 if the centre is not a node of the graph (the graph is then
+ * left empty), or -1 on failure. */
+int ex_graph_local(ExGraph *g, const char *center, int depth);
 /* The name to show for a node: the file name without a folder and without ".md" (a pointer into the node's path). */
 const char *ex_graph_label(const ExGraphNode *n, size_t *len);
 

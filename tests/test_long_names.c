@@ -367,7 +367,7 @@ int main(void) {
             gbox->width = ex_size_grow(); gbox->height = ex_size_grow();
             gv = ex_widget_graph(g_ui, gm, "Graph view", NULL);
             ex_widget_add(gbox, gv);
-            gp = ex_graphpanel_create(g_ui, gv, gm, NULL, NULL);
+            gp = ex_graphpanel_create(g_ui, gv, gm, 0, NULL, NULL);
             CHECK(gp != NULL);
             if (gp) {
                 ExWidget *ng;
@@ -379,6 +379,40 @@ int main(void) {
                     if (hd) hd->on_click(hd, hd->on_click_user);
                     pump(50);
                     check_layout(r, gbox, "graph settings panel");
+                    test_text_boxes(r, gbox, heads[k], in);
+                }
+                ex_ui_layout(g_ui, gbox, 200.0f, 400.0f);                              /* a narrow pane: the panel may not push anything out of the widget */
+                ex_ui_draw(g_ui, gbox, 1);
+                ex_ui_layout(g_ui, gbox, 200.0f, 400.0f);                              /* (the panel sizes itself while drawing, so lay out again) */
+                ex_ui_draw(g_ui, gbox, 1);
+                CHECK(ex_graphpanel_box(gp)->x >= gbox->x - 0.5f && ex_graphpanel_box(gp)->x + ex_graphpanel_box(gp)->w <= gbox->x + gbox->w + 0.5f);
+            }
+            ex_ui_release(g_ui, gbox);
+            ex_widget_free(gbox);
+            ex_graphmodel_free(gm);
+        }
+        {   /* the graph's gear panel (5c: the local graph's, with the Depth slider and the wand): every section open, long queries in every field, and a pane as narrow as a sidebar can be */
+            ExGraphModel *gm = ex_graphmodel_create();
+            ex_graphmodel_set_local(gm, 1);
+            ExWidget *gbox = ex_widget_box(g_ui, 1, "graph box"), *gv;
+            ExGraphPanel *gp;
+            static const char *heads[4] = {"Filters", "Groups", "Display", "Forces"};
+            int k;
+            gbox->width = ex_size_grow(); gbox->height = ex_size_grow();
+            gv = ex_widget_graph(g_ui, gm, "Graph view", NULL);
+            ex_widget_add(gbox, gv);
+            gp = ex_graphpanel_create(g_ui, gv, gm, 1, NULL, NULL);
+            CHECK(gp != NULL);
+            if (gp) {
+                ExWidget *ng;
+                ex_graphpanel_open(gp, 1);
+                ng = ex_graphpanel_find(gp, "New group");
+                for (k = 0; k < 6 && ng; k++) ng->on_click(ng, ng->on_click_user);
+                for (k = 0; k < 4; k++) {                                              /* one section at a time: each with its fields */
+                    ExWidget *hd = ex_graphpanel_find(gp, heads[k]);
+                    if (hd) hd->on_click(hd, hd->on_click_user);
+                    pump(50);
+                    check_layout(r, gbox, "local graph settings panel");
                     test_text_boxes(r, gbox, heads[k], in);
                 }
                 ex_ui_layout(g_ui, gbox, 200.0f, 400.0f);                              /* a narrow pane: the panel may not push anything out of the widget */

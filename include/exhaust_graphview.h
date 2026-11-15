@@ -34,9 +34,13 @@ int ex_graphmodel_update(ExGraphModel *m);
  * when the filters or groups changed: the caller must have the graph read again with them (the service thread applies them). */
 int ex_graphmodel_set_options(ExGraphModel *m, const ExGraphOptions *o);
 const ExGraphOptions *ex_graphmodel_options(const ExGraphModel *m);
+/* The model of a local graph tab (5c): only the message shown when there is nothing to draw differs. */
+void ex_graphmodel_set_local(ExGraphModel *m, int local);
 /* The note open in the main text view (drawn in the focus color); NULL for none. */
 void ex_graphmodel_set_active(ExGraphModel *m, const char *path);
 int ex_graphmodel_animating(const ExGraphModel *m);     /* the layout is still moving the nodes: draw every frame */
+/* The layout's temperature (1 at a cold start, falling to 0): for the tests, which check that a graph read again after a save restarts it gently. */
+float ex_graphmodel_temperature(const ExGraphModel *m);
 size_t ex_graphmodel_node_count(const ExGraphModel *m);
 size_t ex_graphmodel_edge_count(const ExGraphModel *m);
 const ExGraph *ex_graphmodel_graph(const ExGraphModel *m);
@@ -50,13 +54,24 @@ typedef struct ExGraphHandlers {
     void (*context)(void *user, const char *path, int kind, float x, float y);
     /* the pointer moved onto a node (path is NULL: off every node), x and y in window pixels */
     void (*hover)(void *user, const char *path, int kind, float x, float y);
+    /* the keyboard asks for the page preview of the selected node (5c), at x and y in window pixels; path is NULL to close it */
+    void (*preview)(void *user, const char *path, int kind, float x, float y);
     void *user;
 } ExGraphHandlers;
 
 /* The widget. The model must outlive it. */
 ExWidget *ex_widget_graph(ExUi *ui, ExGraphModel *m, const char *name, const ExGraphHandlers *h);
-/* Hands the widget something it frees with itself and ticks once a frame, before it draws (the gear panel's state, 5b). */
-void ex_graphview_set_extra(ExWidget *w, void *extra, void (*free_extra)(void *), void (*tick)(void *, int64_t));
+/* Hands the widget something it frees with itself and ticks once a frame, before it draws (the gear panel's state, 5b); act is given the
+ * keys the panel owns (5c: 'g' the gear, '[' and ']' the depth of a local graph) and returns 1 if it used one. */
+void ex_graphview_set_extra(ExWidget *w, void *extra, void (*free_extra)(void *), void (*tick)(void *, int64_t), int (*act)(void *, int));
+/* The animation (5c): the nodes appear in the order their files were created, over about ten seconds; a name or file that is not a note
+ * appears with the first note that links to it. It ends when everything is shown or when stopped. animations_running counts the views
+ * that are animating, so the main loop draws every frame; seek (for tests) moves a running animation to a fraction of its length. */
+void ex_graphview_animate(ExWidget *w, int on);
+void ex_graphview_animation_toggle(ExWidget *w);
+int ex_graphview_animation_running(const ExWidget *w);
+int ex_graphview_animations_running(void);
+void ex_graphview_animation_seek(ExWidget *w, float fraction);
 /* Mouse wheel over the widget: dy > 0 zooms in (a notch is 1), about the pointer at window position x, y. */
 void ex_graphview_wheel(ExWidget *w, float dy, float x, float y);
 /* The pointer is at x, y (window pixels), over this widget or, with inside = 0, has left it. */

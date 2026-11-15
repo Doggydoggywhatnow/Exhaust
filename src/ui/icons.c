@@ -182,6 +182,12 @@ void ex_icon_draw(ExRenderer *r, int icon, float x, float y, float w, float h, E
         }
         break;
     }
+    case EX_ICON_WAND:                                                          /* a wand with sparkles */
+        line(r, x + s * 0.18f, y + s * 0.82f, x + s * 0.62f, y + s * 0.38f, th * 1.6f, c);
+        plus(r, x + s * 0.72f, y + s * 0.28f, s * 0.14f, th, c);
+        plus(r, x + s * 0.3f, y + s * 0.22f, s * 0.08f, th, c);
+        plus(r, x + s * 0.82f, y + s * 0.7f, s * 0.08f, th, c);
+        break;
     case EX_ICON_CLIPBOARD:
         ex_stroke_round_rect(r, x + s * 0.24f, y + s * 0.2f, s * 0.52f, s * 0.68f, th * 1.5f, th, c);
         ex_fill_round_rect(r, x + s * 0.38f, y + s * 0.12f, s * 0.24f, s * 0.16f, th, c);

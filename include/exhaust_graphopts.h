@@ -18,6 +18,7 @@ typedef struct ExGraphOptions {
     /* filters (change the data) */
     char search[EX_GRAPH_QUERY_MAX];
     int show_orphans, show_unresolved, show_attachments;
+    int local_depth;                 /* the local graph (5c): how many links from the open note, 1 to 5 */
     ExGraphGroup groups[EX_GRAPH_MAX_GROUPS];
     /* forces (change the layout) */
     float center, repel, link_strength, link_distance;

@@ -15,7 +15,8 @@ typedef struct ExGraphPanel ExGraphPanel;
 typedef void (*ExGraphPanelChanged)(void *user, const ExGraphOptions *o, int filters);
 
 /* Adds the gear and the panel as children of the graph widget and gives the widget the state to free with itself. The model must outlive it. */
-ExGraphPanel *ex_graphpanel_create(ExUi *ui, ExWidget *graph, ExGraphModel *m, ExGraphPanelChanged changed, void *user);
+/* local: the panel of a local graph tab, which also has the Depth slider (and the keys [ and ]). Also adds the wand under the gear. */
+ExGraphPanel *ex_graphpanel_create(ExUi *ui, ExWidget *graph, ExGraphModel *m, int local, ExGraphPanelChanged changed, void *user);
 /* Once a frame (the graph widget calls it itself): commits a text field after each keystroke, and brings the controls up to date when the model's options were
  * changed from elsewhere (a restored session, another graph pane). */
 void ex_graphpanel_tick(ExGraphPanel *p, int64_t now_ms);

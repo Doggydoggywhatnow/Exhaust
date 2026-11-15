@@ -41,6 +41,8 @@ typedef struct ExPanelsHost {
     int (*file_op)(void *user, int op, const char *path, const char *arg);
     /* the graph's data, read on the service thread (sub-slice 5a): the receiver owns the graph and frees it (ex_graph_free, then free) */
     void (*graph_data)(void *user, struct ExGraph *graph);
+    /* the local graph's data (5c): the open note and what is within the options' local_depth links of it; same ownership */
+    void (*local_graph_data)(void *user, struct ExGraph *graph);
 } ExPanelsHost;
 
 typedef struct ExPanelsInit {
@@ -87,6 +89,9 @@ void ex_panels_show(ExPanels *p, const char *panel);                /* "files", 
 /* The graph view is open (wanted = 1): the panels read the graph's data now and again whenever the index changes (at most once every 1.5
  * seconds), and hand it to host.graph_data. wanted = 0 stops that. */
 void ex_panels_graph_wanted(ExPanels *p, int wanted);
+/* The same for the local graph (5c): read while a local graph tab exists, around the note `center` (a path; NULL: no note is open), to the
+ * depth of the options given to ex_panels_graph_options. A new centre reads it again at once. */
+void ex_panels_local_graph(ExPanels *p, int wanted, const char *center);
 /* The filters and groups the next graph read applies on the service thread (sub-slice 5b); the graph is read again at once. */
 void ex_panels_graph_options(ExPanels *p, const ExGraphOptions *o);
 void ex_panels_search_for(ExPanels *p, const char *query);          /* opens Search with this text and runs it */

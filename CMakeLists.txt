@@ -535,6 +535,10 @@ add_test(NAME graph_frame COMMAND test_graph_frame)
 add_executable(test_graph_options tests/test_graph_options.c)
 target_link_libraries(test_graph_options PRIVATE exhaust_ui exhaust_index exhaust_render exhaust_platform)
 add_test(NAME graph_options COMMAND test_graph_options)
+
+add_executable(test_graph_keyboard tests/test_graph_keyboard.c)
+target_link_libraries(test_graph_keyboard PRIVATE exhaust_ui exhaust_index exhaust_render exhaust_platform)
+add_test(NAME graph_keyboard COMMAND test_graph_keyboard)
 set_tests_properties(graph_frame PROPERTIES ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
 
 add_executable(test_props tests/test_props.c)

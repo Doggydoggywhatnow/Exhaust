@@ -146,7 +146,7 @@ void ex_panels_free(ExPanels *p) {
     }
     ex_queue_destroy(p->results);
     for (i = 0; i < p->nrecent; i++) free(p->recent[i]);
-    free(p->cur_path); free(p->root); free(p->index_path); free(p->dialog_arg_text);
+    free(p->cur_path); free(p->local_center); free(p->root); free(p->index_path); free(p->dialog_arg_text);
     for (i = 0; i < p->npending; i++) { free((char *)p->pending_moves[i].from); free((char *)p->pending_moves[i].to); }
     free(p->pending_moves);
     free(p);
@@ -164,8 +164,16 @@ static void graph_msg_ok(ExPanels *p, int button, void *arg) { (void)p; (void)bu
 void ex_panels_graph_options(ExPanels *p, const ExGraphOptions *o) {
     if (!p || !o) return;
     p->graph_opts = *o;
-    p->graph_stale = 1;
+    p->graph_stale = 1; p->local_stale = 1;
+    p->local_sent_at = now_ms() > 1350 ? now_ms() - 1350 : 1;
     p->graph_sent_at = now_ms() > 1350 ? now_ms() - 1350 : 1;               /* a changed filter reads the graph again in 150 ms (a query typed letter by letter is read once) */
+}
+
+void ex_panels_local_graph(ExPanels *p, int wanted, const char *center) {
+    int same = (center == NULL) == (p->local_center == NULL) && (!center || !strcmp(center, p->local_center));
+    if (wanted && !p->local_wanted) { p->local_stale = 1; p->local_sent_at = 0; }
+    p->local_wanted = wanted != 0;
+    if (!same) { free(p->local_center); p->local_center = center ? dup_s(center) : NULL; p->local_stale = 1; p->local_sent_at = 0; }
 }
 
 void ex_panels_graph_wanted(ExPanels *p, int wanted) {
@@ -402,7 +410,8 @@ void ex_panels_update(ExPanels *p) {
             case QJ_REWRITE: if (r->req == p->req_rewrite) finish_rename(p, r); break;
             case QJ_PREVIEW: preview_result(p, r); break;
             case QJ_GRAPH:
-                if (r->req == p->graph_req && r->ok && r->graph && p->in.host.graph_data) {
+                if (r->req == p->local_req && r->ok && r->graph && p->in.host.local_graph_data) { p->in.host.local_graph_data(p->in.host.user, r->graph); r->graph = NULL; }
+                else if (r->req == p->graph_req && r->ok && r->graph && p->in.host.graph_data) {
                     p->in.host.graph_data(p->in.host.user, r->graph); r->graph = NULL;
                     if (strcmp(p->graph_msg, r->summary)) { snprintf(p->graph_msg, sizeof p->graph_msg, "%s", r->summary); p->graph_msg_at = now_ms(); }
                     if (!r->summary[0]) p->graph_msg_shown[0] = 0;                  /* the queries work again: tell again if one breaks */
@@ -418,7 +427,7 @@ void ex_panels_update(ExPanels *p) {
                 if (!p->reader) p->reader = ex_index_open(p->index_path, 0, NULL, 0);
                 mark_index_views_stale(p);
                 p->snapshot_stale = 1;
-                p->graph_stale = 1;
+                p->graph_stale = 1; p->local_stale = 1;
             }
         }
         if (m.payload && m.free_payload) m.free_payload(m.payload);
@@ -435,7 +444,7 @@ void ex_panels_update(ExPanels *p) {
         p->index_dirty_at = 0;
         mark_index_views_stale(p);
         p->snapshot_stale = 1;
-        p->graph_stale = 1;
+        p->graph_stale = 1; p->local_stale = 1;
     }
     if (p->graph_msg[0] && strcmp(p->graph_msg, p->graph_msg_shown) && now - p->graph_msg_at >= 1200) {   /* a query that does not parse, and the user has stopped typing */
         char text[520], *q;
@@ -454,6 +463,13 @@ void ex_panels_update(ExPanels *p) {
         if (j) j->gopts = p->graph_opts;
         p->graph_stale = 0;
         p->graph_sent_at = now;
+        if (j) send_job(p, j);
+    }
+    if (p->local_wanted && p->local_stale && p->index_ready && (p->local_sent_at == 0 || now - p->local_sent_at >= 1500)) {
+        QJob *j = qjob_new(QJ_GRAPH, p->local_req = ++p->next_req);
+        if (j) { j->gopts = p->graph_opts; j->i1 = p->graph_opts.local_depth; j->a = p->local_center ? dup_s(p->local_center) : dup_s(""); }
+        p->local_stale = 0;
+        p->local_sent_at = now;
         if (j) send_job(p, j);
     }
     if (p->snapshot_stale && p->index_ready) {

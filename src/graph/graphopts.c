@@ -8,6 +8,7 @@ void ex_graphopts_defaults(ExGraphOptions *o) {
     int i;
     memset(o, 0, sizeof *o);
     o->show_orphans = o->show_unresolved = o->show_attachments = 1;
+    o->local_depth = 1;
     for (i = 0; i < EX_GRAPH_MAX_GROUPS; i++) o->groups[i].color = i;
     o->center = 0.3f; o->repel = 10.0f; o->link_strength = 1.0f; o->link_distance = 30.0f;
     o->text_fade = 0.0f; o->node_size = 1.0f; o->link_thickness = 1.0f;
@@ -20,6 +21,8 @@ void ex_graphopts_clamp(ExGraphOptions *o) {
     o->search[EX_GRAPH_QUERY_MAX - 1] = 0;
     o->show_orphans = o->show_orphans != 0; o->show_unresolved = o->show_unresolved != 0; o->show_attachments = o->show_attachments != 0;
     o->arrows = o->arrows != 0;
+    if (o->local_depth < 1) o->local_depth = 1;
+    if (o->local_depth > 5) o->local_depth = 5;
     for (i = 0; i < EX_GRAPH_MAX_GROUPS; i++) {
         o->groups[i].query[EX_GRAPH_QUERY_MAX - 1] = 0;
         if (o->groups[i].color < 0 || o->groups[i].color > 5) o->groups[i].color = i;
@@ -31,7 +34,7 @@ void ex_graphopts_clamp(ExGraphOptions *o) {
 
 int ex_graphopts_filters_equal(const ExGraphOptions *a, const ExGraphOptions *b) {
     int i;
-    if (strcmp(a->search, b->search) || a->show_orphans != b->show_orphans || a->show_unresolved != b->show_unresolved || a->show_attachments != b->show_attachments) return 0;
+    if (strcmp(a->search, b->search) || a->show_orphans != b->show_orphans || a->show_unresolved != b->show_unresolved || a->show_attachments != b->show_attachments || a->local_depth != b->local_depth) return 0;
     for (i = 0; i < EX_GRAPH_MAX_GROUPS; i++) if (strcmp(a->groups[i].query, b->groups[i].query)) return 0;   /* a group's colour is the view's business */
     return 1;
 }
@@ -53,6 +56,7 @@ void ex_graphopts_load(ExGraphOptions *o, const char *(*get)(void *, const char 
     }
     getf(&o->center, get(user, "center_force")); getf(&o->repel, get(user, "repel_force")); getf(&o->link_strength, get(user, "link_force"));
     getf(&o->link_distance, get(user, "link_distance"));
+    { const char *d = get(user, "local_depth"); if (d && *d) o->local_depth = atoi(d); }
     getb(&o->arrows, get(user, "arrows")); getf(&o->text_fade, get(user, "text_fade")); getf(&o->node_size, get(user, "node_size"));
     getf(&o->link_thickness, get(user, "link_thickness"));
     ex_graphopts_clamp(o);
@@ -65,6 +69,7 @@ void ex_graphopts_save(const ExGraphOptions *o, void (*set)(void *, const char *
     int i;
     char key[40], b[16];
     set(user, "search", o->search);
+    snprintf(b, sizeof b, "%d", o->local_depth); set(user, "local_depth", b);
     setb(set, user, "show_orphans", o->show_orphans); setb(set, user, "show_unresolved", o->show_unresolved); setb(set, user, "show_attachments", o->show_attachments);
     for (i = 0; i < EX_GRAPH_MAX_GROUPS; i++) {
         snprintf(key, sizeof key, "group_%d_query", i + 1); set(user, key, o->groups[i].query);

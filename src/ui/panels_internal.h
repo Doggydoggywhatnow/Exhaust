@@ -40,6 +40,7 @@ struct ExPanels {
     int snapshot_stale;
     int graph_wanted, graph_stale;   /* the graph view is open; its data is out of date */
     ExGraphOptions graph_opts;       /* the filters and groups the next graph read applies (5b) */
+    int local_wanted, local_stale; char *local_center; unsigned long local_req, local_sent_at;   /* the local graph (5c) */
     char graph_msg[220], graph_msg_shown[220];   /* why a query did not work (from the last read), and what the user was last told */
     unsigned long graph_msg_at;      /* when the last read brought it */
     unsigned long graph_req, graph_sent_at;
