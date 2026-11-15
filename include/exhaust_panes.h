@@ -43,6 +43,9 @@ ExPanes *ex_panes_create(ExUi *ui, ExWorkspace *ws, const ExPanesHooks *hooks, v
 void ex_panes_free(ExPanes *p);
 /* The box that holds the panes of the main window; add it to the window layout. */
 ExWidget *ex_panes_root(ExPanes *p);
+/* The pane of the right sidebar's group of tabs (5e): a box that holds the strip, header and content of that group, or nothing when the
+ * workspace has none. The application puts it in the right sidebar. It is built with the main panes, so tabs can be dragged between them. */
+ExWidget *ex_panes_side_root(ExPanes *p);
 /* Rebuilds the widgets if the workspace's layout changed and refreshes which pane is active.
  * Call once per frame, before layout. */
 void ex_panes_update(ExPanes *p);

@@ -284,7 +284,7 @@ Every command in the command registry, read from the nine hotkeys screenshots (`
 
 The code's table of commands (`ex_command_table`) is generated from this table at build time (`tools/gen_tables.c`), so a command exists in the code only if it is listed here. A command is *declared* by this table and *bound* when the code that runs it exists; an unbound command, a command whose feature is switched off in `[features]`, and a command of a stub feature are not available (they are shown disabled, never hidden from the hotkeys screen). A command's feature is its area with hyphens turned into underscores (`daily-notes.` belongs to `daily_notes`), except `graph-view.` (`graph`) and `unique-note-creator.` (`unique_note`); `app.`, `editor.`, `table.` and `format-converter.` commands have no feature switch.
 
-208 commands (203 read from the screenshots, one added for GitHub issue 2 (*Toggle main text view*, which collapses the main text view to its handle and brings it back), two added for sub-slice 3e and two for sub-slice 4c (*Random note: Open random note* and *Footnotes: Show footnotes*, which the Core plugins screenshots list as features but give no command for), *Spelling: Add word to dictionary* and *Spelling: Replace with the next suggestion*, because Exhaust has no context menu yet to pick a suggestion from). Left out on purpose: *Configure mobile Quick Action* (mobile is a non-goal), *Open sandbox vault* and *Show release notes* (Obsidian-specific), and *Copy Obsidian URL for current file*, which is renamed *Copy URL for current file*. Commands for stubbed features (Sync) are present and disabled; *Download attachments for current file* needs the network and is *(optional)*. *TODO-verify*: the screenshots are cropped at page edges, so a command may be missing at a boundary between two pages; the macOS defaults are not shown; and the shortcuts shown may be one person's settings rather than defaults.
+210 commands (203 read from the screenshots, two added in 5e (*Move the current tab to the right sidebar* and *to the main area*), one added for GitHub issue 2 (*Toggle main text view*, which collapses the main text view to its handle and brings it back), two added for sub-slice 3e and two for sub-slice 4c (*Random note: Open random note* and *Footnotes: Show footnotes*, which the Core plugins screenshots list as features but give no command for), *Spelling: Add word to dictionary* and *Spelling: Replace with the next suggestion*, because Exhaust has no context menu yet to pick a suggestion from). Left out on purpose: *Configure mobile Quick Action* (mobile is a non-goal), *Open sandbox vault* and *Show release notes* (Obsidian-specific), and *Copy Obsidian URL for current file*, which is renamed *Copy URL for current file*. Commands for stubbed features (Sync) are present and disabled; *Download attachments for current file* needs the network and is *(optional)*. *TODO-verify*: the screenshots are cropped at page edges, so a command may be missing at a boundary between two pages; the macOS defaults are not shown; and the shortcuts shown may be one person's settings rather than defaults.
 
 | Id | Name | Default | Editor |
 | --- | --- | --- | --- |
@@ -386,6 +386,8 @@ The code's table of commands (`ex_command_table`) is generated from this table a
 | `editor.move-line-up` | Move line up |  | yes |
 | `app.navigate-back` | Navigate back | `Ctrl+Alt+Left` |  |
 | `app.navigate-forward` | Navigate forward | `Ctrl+Alt+Right` |  |
+| `workspace.move-to-right-sidebar` | Move the current tab to the right sidebar |  |  |
+| `workspace.move-to-main-area` | Move the current tab to the main area |  |  |
 | `app.new-tab` | New tab | `Ctrl+T` |  |
 | `app.new-window` | New window |  |  |
 | `note-composer.extract-current-selection` | Note composer: Extract current selection... |  | yes |
@@ -569,6 +571,7 @@ Rules:
 | `[layout]` `left_visible`, `right_visible` | bool | `true` | 0.1.0 |
 | `[layout]` `left_width`, `right_width` | int (pixels at 100% zoom, kept between 120 and 1200) | `260`, `300` | 0.1.0 |
 | `[layout]` `open_panels` | list of `left:<name>` or `right:<name>` | empty | 0.1.0 |
+| `[layout]` `right_group` | int | none | 0.1.0 (5e). The id of the group of tabs the right sidebar holds (notes, a graph): its `[group.<id>]` section and the `[tab.<id>]` sections whose `group` is that id belong to it. The sidebar shows its tabs when it has some and the panels otherwise, or when the user pressed a view button of the sidebar's strip; the group has no window and no parent, and is never split. |
 | `[layout]` `active_tab` | int | empty (the active tab of the active group; written for readers, the group's own `active` is what is restored) | 0.1.0 |
 | `[layout]` `active_group` | int | the first group of the main window | 0.1.0 (added with 2c) |
 | `[tab.<id>]` `path`, `view`, `mode` | string | required | 0.1.0 |

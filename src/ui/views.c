@@ -503,8 +503,10 @@ static void fileprops_activate(ExWidget *w, size_t row, void *user) { Ctx *c = u
 static void on_strip_click(ExWidget *w, void *u) {
     ExPanels *p = u;
     int i;
-    for (i = 0; i < V_COUNT; i++) if (p->views[i].button == w) views_show(p, i);
+    for (i = 0; i < V_COUNT; i++) if (p->views[i].button == w) { if (p->views[i].side) p->right_clicked = 1; views_show(p, i); }
 }
+
+static void on_side_click(ExWidget *w, void *u) { ExPanels *p = u; (void)w; p->side_clicked = 1; }
 
 void views_build(ExPanels *p) {
     int i, side;
@@ -705,6 +707,8 @@ void views_build(ExPanels *p) {
         if (x->root) { x->root->hidden = 1; if (x->root->parent == NULL) ex_widget_add(s ? p->right_stack : p->left_stack, x->root); }
         x->root->width = ex_size_grow(); x->root->height = ex_size_grow();
     }
+    p->b_side = make_button(p, "Tabs", "Notes and graphs in this sidebar", on_side_click);      /* 5e: shown when the sidebar has a group of tabs */
+    if (p->b_side) { ex_widget_set_icon(p->b_side, EX_ICON_SIDEBAR_RIGHT); p->b_side->hidden = 1; ex_widget_add(p->right_strip, p->b_side); }
     refresh_saved(p);
     fill_bookmarks(p);
 }

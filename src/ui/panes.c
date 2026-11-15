@@ -24,10 +24,12 @@ struct ExPanes {
     ExPanesHooks hooks;
     void *user;
     ExWidget *root;
+    ExWidget *side_root;         /* the right sidebar's group of tabs (5e) */
     GroupWidgets *groups; size_t ngroups, capgroups;
     Cached *cache; size_t ncache, capcache;
     unsigned long built_layout;
     int header_visible;          /* the pane header strip is shown (5d) */
+    int building_side;           /* the group being built is the right sidebar's (5e): its tabs are narrower */
     ExId shown_active;           /* the active group the highlighting was last set for */
     Drag drag;
     Divider div;
@@ -338,7 +340,7 @@ static ExWidget *build_tab_button(ExPanes *p, const ExTab *t, int active_tab, in
     {   /* a tab is never wider than 200 px at 100%: a long name ends in "..." (the accessible name below keeps all of it) */
         char fitted[340];
         ExRenderer *r = ex_ui_renderer(p->ui);
-        ex_text_fit(r, ex_ui_font(p->ui, b->font_token, b->bold), ex_ui_base_size(p->ui) * b->text_scale, label, strlen(label), (float)ex_px(r, 200) - 2.0f * (float)ex_px(r, 12), fitted, sizeof fitted);
+        ex_text_fit(r, ex_ui_font(p->ui, b->font_token, b->bold), ex_ui_base_size(p->ui) * b->text_scale, label, strlen(label), (float)ex_px(r, p->building_side ? 110 : 200) - 2.0f * (float)ex_px(r, 12), fitted, sizeof fitted);
         ex_widget_set_text(b, fitted);
     }
     snprintf(name, sizeof name, "Tab: %s%s%s", title, t->pinned ? " (pinned)" : "", t->stacked ? " (stacked)" : "");
@@ -413,7 +415,7 @@ static ExWidget *build_group(ExPanes *p, ExId g) {
         if (c) ex_widget_add(content, c->w);
     }
     if (!content->first_child) {
-        ExWidget *hint = ex_widget_label(p->ui, "No tab is open here. Open a note from the file explorer.");
+        ExWidget *hint = ex_widget_label(p->ui, p->building_side ? "No tab here." : "No tab is open here. Open a note from the file explorer.");
         if (hint) { hint->text_token = EX_COLOR_TEXT_MUTED; hint->pad_x = 2; hint->pad_y = 2; ex_widget_add(content, hint); }
     }
     memset(&gw, 0, sizeof gw);
@@ -484,10 +486,23 @@ static void rebuild(ExPanes *p) {
         ex_widget_remove(p->root, old);
         ex_widget_free(old);
     }
+    for (old = p->side_root->first_child; old; old = next) {
+        next = old->next;
+        ex_ui_release(p->ui, old);
+        ex_widget_remove(p->side_root, old);
+        ex_widget_free(old);
+    }
     p->ngroups = 0;
     if (main_root) {
         ExWidget *top = build_node(p, main_root, -1, 1.0f);
         if (top) ex_widget_add(p->root, top);
+    }
+    if (ex_ws_side_group(p->ws, EX_SIDE_RIGHT)) {                       /* the right sidebar's tabs (5e) */
+        ExWidget *sg;
+        p->building_side = 1;                                              /* a sidebar is narrow: its tabs are at most 110 px */
+        sg = build_node(p, ex_ws_side_group(p->ws, EX_SIDE_RIGHT), -1, 1.0f);
+        p->building_side = 0;
+        if (sg) ex_widget_add(p->side_root, sg);
     }
     p->built_layout = ex_ws_layout_revision(p->ws);
     p->shown_active = ex_ws_active_group(p->ws);
@@ -518,7 +533,9 @@ ExPanes *ex_panes_create(ExUi *ui, ExWorkspace *ws, const ExPanesHooks *hooks, v
     p->ui = ui; p->ws = ws; p->user = user;
     if (hooks) p->hooks = *hooks;
     p->root = ex_widget_box(ui, 0, "Panes");
-    if (!p->root) { free(p); return NULL; }
+    p->side_root = ex_widget_box(ui, 1, "Sidebar tabs");
+    if (!p->root || !p->side_root) { ex_widget_free(p->root); ex_widget_free(p->side_root); free(p); return NULL; }
+    p->side_root->width = ex_size_grow(); p->side_root->height = ex_size_grow();
     p->root->width = ex_size_grow();
     p->root->height = ex_size_grow();
     p->built_layout = (unsigned long)-1;
@@ -527,6 +544,7 @@ ExPanes *ex_panes_create(ExUi *ui, ExWorkspace *ws, const ExPanesHooks *hooks, v
 }
 
 ExWidget *ex_panes_root(ExPanes *p) { return p->root; }
+ExWidget *ex_panes_side_root(ExPanes *p) { return p->side_root; }
 
 void ex_panes_free(ExPanes *p) {
     size_t i;
@@ -538,6 +556,7 @@ void ex_panes_free(ExPanes *p) {
     }
     /* the root widget belongs to whoever put it in a window; if it never was, free it here */
     if (!p->root->parent) ex_widget_free(p->root);
+    if (!p->side_root->parent) ex_widget_free(p->side_root);
     free(p->groups); free(p->cache);
     free(p);
 }

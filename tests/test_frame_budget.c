@@ -135,6 +135,14 @@ int main(void) {
             }
             if (gi < 3) g = ex_ws_split(ws, g, EX_SPLIT_HORIZONTAL, 1, 0);
         }
+        {                                                                       /* and the right sidebar's group of tabs next to them (5e) */
+            ExId sg = ex_ws_side_group_ensure(ws, EX_SIDE_RIGHT);
+            ExWidget *sb = ex_widget_box(ui, 1, "sidebar");
+            sb->width = ex_size_px(ui, 300); sb->height = ex_size_grow();
+            ex_widget_add(sb, ex_panes_side_root(panes));
+            ex_widget_add(win, sb);
+            for (ti = 0; ti < 6; ti++) { char p[64]; snprintf(p, sizeof p, "Side/A note in the sidebar number %d.md", ti); ex_ws_new_tab(ws, sg, p, "note"); ex_ws_history_visit(ws, sg, p, "note"); }
+        }
         for (i = 0; i < 120; i++) {
             double t0 = now_ms();
             ex_panes_update(panes);
@@ -142,9 +150,10 @@ int main(void) {
             if (i % 10 == 9) ex_ws_history_visit(ws, ex_ws_active_group(ws), "Folder 0/Another place.md", "note");   /* the history changes now and then */
             if (nh < 120) hf[nh++] = now_ms() - t0;
         }
-        report("a frame with four pane headers", hf, nh, frame_limit);
+        report("a frame with four pane headers and the sidebar's tabs", hf, nh, frame_limit);
         ex_ui_release(ui, win);
         ex_widget_remove(win, ex_panes_root(panes));
+        ex_widget_remove(win->last_child, ex_panes_side_root(panes));
         ex_widget_free(win);
         ex_panes_free(panes);
         ex_ws_free(ws);

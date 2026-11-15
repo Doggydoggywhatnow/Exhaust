@@ -161,6 +161,17 @@ int ex_panels_index_ready(const ExPanels *p) { return p->index_ready; }
 
 static void graph_msg_ok(ExPanels *p, int button, void *arg) { (void)p; (void)button; (void)arg; }
 
+void ex_panels_set_side_tabs(ExPanels *p, int available, int showing) {
+    if (p->b_side) { p->b_side->hidden = !available; p->b_side->selected = available && showing; }
+    if (p->right_stack) p->right_stack->hidden = available && showing;
+}
+
+int ex_panels_take_right_click(ExPanels *p, int *to_tabs) {
+    if (p->side_clicked) { p->side_clicked = 0; p->right_clicked = 0; *to_tabs = 1; return 1; }
+    if (p->right_clicked) { p->right_clicked = 0; *to_tabs = 0; return 1; }
+    return 0;
+}
+
 void ex_panels_graph_options(ExPanels *p, const ExGraphOptions *o) {
     if (!p || !o) return;
     p->graph_opts = *o;

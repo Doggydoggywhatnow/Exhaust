@@ -257,6 +257,19 @@ int main(void) {
     frame(ui, panes, win);
     CHECK(g_left->hidden && !g_ledge->hidden && fabsf(root->x - g_ledge->w) < 2);   /* a hidden sidebar leaves its handle at the edge */
 
+    {   /* the right sidebar's group of tabs (5e): built with the panes, shown in the right sidebar, and the main text view keeps its 240 px */
+        ExId sg = ex_ws_side_group_ensure(ws, EX_SIDE_RIGHT);
+        ExWidget *sr = ex_panes_side_root(panes);
+        ex_widget_add(g_right, sr);
+        ex_ws_new_tab(ws, sg, "Side.md", "note");
+        ex_ws_set_sidebar(ws, EX_SIDE_LEFT, 0, 260);
+        ex_ws_set_sidebar(ws, EX_SIDE_RIGHT, 1, 4000);                             /* as wide as the window allows */
+        frame(ui, panes, win);
+        CHECK(sr->first_child != NULL && sr->w > 100.0f && sr->x >= g_right->x - 1.0f && sr->x + sr->w <= g_right->x + g_right->w + 1.0f);
+        CHECK(ex_panes_content(panes, ex_ws_group_active(ws, sg)) != NULL);
+        CHECK(root->w >= 239.0f);                                                  /* the text keeps its 240 px */
+        ex_widget_remove(g_right, sr);
+    }
     ex_panes_free(panes);
     ex_widget_free(win);
     for (i = 0; i < ctx.ndocs; i++) ex_doc_free(ctx.docs[i]);

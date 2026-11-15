@@ -41,6 +41,7 @@ struct ExWorkspace {
     Window *wins; size_t nwin, capwin;
     ExTab *tabs; size_t ntabs, captabs;
     ExId next_node, next_tab, next_win, active_group;
+    ExId side_group[2];     /* the group of tabs of a sidebar (5e), 0 for none; it belongs to no window */
     Sidebar side[2];
     char *search;
     ExIni *extra;           /* sections this version does not know, kept for writing back */
@@ -267,6 +268,7 @@ static void clear_all(ExWorkspace *ws) {
     ws->ntabs = 0;
     for (i = 0; i < 2; i++) { for (k = 0; k < ws->side[i].n; k++) free(ws->side[i].panels[k]); ws->side[i].n = 0; }
     free(ws->search); ws->search = NULL;
+    ws->side_group[0] = ws->side_group[1] = 0;
 }
 
 void ex_ws_free(ExWorkspace *ws) {
@@ -497,6 +499,19 @@ static void drop_window_if_empty_popout(ExWorkspace *ws, ExId window) {
     ws->nwin--;
 }
 
+ExId ex_ws_side_group(const ExWorkspace *ws, ExSide side) { return side == EX_SIDE_RIGHT ? ws->side_group[EX_SIDE_RIGHT] : 0; }
+
+ExId ex_ws_side_group_ensure(ExWorkspace *ws, ExSide side) {
+    Node *g;
+    if (side != EX_SIDE_RIGHT) return 0;
+    if (ws->side_group[EX_SIDE_RIGHT] && node(ws, ws->side_group[EX_SIDE_RIGHT])) return ws->side_group[EX_SIDE_RIGHT];
+    g = new_node(ws, EX_NODE_GROUP);
+    if (!g) return 0;
+    ws->side_group[EX_SIDE_RIGHT] = g->id;
+    touch_layout(ws);
+    return g->id;
+}
+
 int ex_ws_close_tab(ExWorkspace *ws, ExId tid) {
     if (!tab(ws, tid)) return -1;
     detach_tab(ws, tid);
@@ -549,7 +564,7 @@ ExId ex_ws_split(ExWorkspace *ws, ExId gid, ExSplitDir dir, int after, ExId move
     ExId new_id;
     float share;
     size_t at;
-    if (!g || g->kind != EX_NODE_GROUP) return 0;
+    if (!g || g->kind != EX_NODE_GROUP || gid == ws->side_group[EX_SIDE_RIGHT]) return 0;     /* the sidebar's group is not split */
     if (move_tab) {
         ExTab *t = tab(ws, move_tab);
         if (!t) return 0;
@@ -881,6 +896,10 @@ char *ex_ws_serialize(const ExWorkspace *ws, size_t *len) {
         ex_ini_set_int(ini, "layout", "active_group", ws->active_group);
     }
     for (i = 0; i < ws->nwin; i++) write_node(ws, ini, ws->wins[i].root);
+    if (ws->side_group[EX_SIDE_RIGHT] && node(ws, ws->side_group[EX_SIDE_RIGHT])) {              /* the right sidebar's group of tabs (5e) */
+        ex_ini_set_int(ini, "layout", "right_group", ws->side_group[EX_SIDE_RIGHT]);
+        write_node(ws, ini, ws->side_group[EX_SIDE_RIGHT]);
+    }
     for (i = 0; i < ws->ntabs; i++) {
         const ExTab *t = &ws->tabs[i];
         snprintf(sec, sizeof sec, "tab.%u", (unsigned)t->id);
@@ -1052,6 +1071,16 @@ int ex_ws_deserialize(ExWorkspace *ws, const char *text, size_t len) {
         w->maximized = ex_ini_get_bool(ini, name, "maximized", 0);
         if (wid >= ws->next_win) ws->next_win = wid + 1;
         if (w->main && !main_root) main_root = root;
+    }
+    {                                                                       /* the right sidebar's group of tabs (5e) */
+        long long rg = ex_ini_get_int(ini, "layout", "right_group", 0);
+        if (rg > 0) {
+            char ref[24];
+            ExId id;
+            snprintf(ref, sizeof ref, "g%lld", rg);
+            id = build_node(ws, ini, ref, 0, 0, seen, &nseen);
+            if (id && node(ws, id) && node(ws, id)->kind == EX_NODE_GROUP) ws->side_group[EX_SIDE_RIGHT] = id;
+        }
     }
     if (ws->nwin > 0 && !main_root) { ws->wins[0].main = 1; main_root = ws->wins[0].root; }
     for (i = 0; i + 1 < ws->nwin; i++) for (k = i + 1; k < ws->nwin; k++) if (ws->wins[i].main && ws->wins[k].main) ws->wins[k].main = 0;

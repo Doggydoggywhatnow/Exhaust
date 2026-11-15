@@ -33,6 +33,8 @@ struct ExPanels {
     ExIndex *reader;                 /* for the small lookups of the interface thread (link suggestions) */
     View views[V_COUNT];
     ExWidget *left, *right, *left_strip, *right_strip, *left_stack, *right_stack;
+    ExWidget *b_side;                /* the strip button that shows the right sidebar's tabs instead of its panels (5e) */
+    int right_clicked, side_clicked; /* the user pressed a view button of the right strip, or b_side: the application switches (5e) */
     int active[2];
     ExBookmarks *bookmarks;
     ExSavedQueries *saved;

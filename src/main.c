@@ -104,6 +104,7 @@ typedef struct App {
     TabNote *tabnotes; size_t ntabnotes, captabnotes;
     ExId focus_tab;            /* the tab whose editor should get the focus when it exists */
     ExId menu_group;           /* the pane whose three-dot menu is open (5d) */
+    int right_tabs, had_side_tabs;   /* the right sidebar shows its tabs, not its panels; it had tabs the frame before (5e) */
     Banner banner_kind;
     int blink_on;
     float zoom;
@@ -711,6 +712,8 @@ static void cmd_toggle_reading(void *u) {
 /* ---- the pane header: history and the pane menu (sub-slice 5d) ---- */
 
 static int host_file_op(void *u, int what, const char *path, const char *arg);
+static void move_tab_to_sidebar(App *a, ExId tab);
+static void move_tab_to_main(App *a, ExId tab);
 
 /* A place of a pane's history still exists: a note must still be a file of the vault; a graph always does. */
 static int place_exists(const ExPlace *pl, void *u) {
@@ -777,7 +780,7 @@ static void pane_toggle_reading(ExPanes *p, ExId group, void *u) {
     ex_commands_run(a->commands, "app.toggle-reading-view");
 }
 
-enum { PM_RIGHT = 1, PM_WINDOW, PM_COPY, PM_SHOW, PM_BOOKMARK, PM_CLOSE };
+enum { PM_RIGHT = 1, PM_WINDOW, PM_COPY, PM_SHOW, PM_BOOKMARK, PM_CLOSE, PM_SIDE, PM_MAIN };
 
 static void reveal_in_explorer(App *a, const char *path) {
     if (!a->tree || !path[0]) return;
@@ -803,6 +806,8 @@ static void pane_menu_chosen(ExPanels *pn, int id, void *arg) {
     case PM_SHOW: reveal_in_explorer(a, path); break;
     case PM_BOOKMARK: if (a->panels && path[0]) ex_panels_bookmark_note(a->panels, path); break;
     case PM_CLOSE: ex_ws_close_tab(a->ws, t->id); break;
+    case PM_SIDE: move_tab_to_sidebar(a, t->id); break;
+    case PM_MAIN: move_tab_to_main(a, t->id); break;
     }
 }
 
@@ -810,22 +815,110 @@ static void pane_menu_chosen(ExPanels *pn, int id, void *arg) {
 static void pane_menu(ExPanes *p, ExId group, float x, float y, void *u) {
     App *a = u;
     const ExTab *t = ex_ws_tab(a->ws, ex_ws_group_active(a->ws, group));
-    ExMenuItem items[8];
+    ExMenuItem items[9];
     size_t n = 0;
     int is_note = t && !strcmp(t->view, "note");
     (void)p;
     if (!t || !a->panels) return;
     a->menu_group = group;
     ex_ws_set_active_group(a->ws, group);
-    { ExMenuItem it = {"Open to the right", EX_ICON_NEW_NOTE, PM_RIGHT, 0, 0}; items[n++] = it; }
+    if (group != ex_ws_side_group(a->ws, EX_SIDE_RIGHT)) { ExMenuItem it = {"Open to the right", EX_ICON_NEW_NOTE, PM_RIGHT, 0, 0}; items[n++] = it; }       /* the sidebar's group is not split */
     { ExMenuItem it = {"Open in new window", EX_ICON_EXTERNAL, PM_WINDOW, 0, 0}; items[n++] = it; }
     if (is_note) {
         { ExMenuItem it = {"Copy path", EX_ICON_CLIPBOARD, PM_COPY, 0, 1}; items[n++] = it; }
         { ExMenuItem it = {"Show in the explorer", EX_ICON_FILES, PM_SHOW, 0, 0}; items[n++] = it; }
         { ExMenuItem it = {"Bookmark", EX_ICON_BOOKMARK, PM_BOOKMARK, 0, 0}; items[n++] = it; }
     }
+    if (group == ex_ws_side_group(a->ws, EX_SIDE_RIGHT)) { ExMenuItem it = {"Move to main area", EX_ICON_MOVE, PM_MAIN, 0, 1}; items[n++] = it; }
+    else { ExMenuItem it = {"Move to right sidebar", EX_ICON_SIDEBAR_RIGHT, PM_SIDE, 0, 1}; items[n++] = it; }
     { ExMenuItem it = {"Close", EX_ICON_TRASH, PM_CLOSE, 0, 1}; items[n++] = it; }
     ex_panels_popup(a->panels, x, y, items, n, pane_menu_chosen, a);
+}
+
+/* ---- tabs in the right sidebar (sub-slice 5e) ---- */
+
+/* A reading view shows the text of its note when it was built; an edit made in another place (the same note in an editor in the main area or in
+ * the right sidebar) must show in it. Once a frame the version of each reading tab's note is compared with what the view shows; when it has
+ * changed and stayed the same for 200 ms (so typing does not rebuild the page for every key) the view takes the new text. */
+typedef struct ReadingSeen { ExId tab; unsigned long shown, seen; Uint64 seen_at; } ReadingSeen;
+static ReadingSeen g_reading_seen[16];
+
+static void refresh_reading_views(App *a) {
+    size_t i, k;
+    Uint64 now = SDL_GetTicks();
+    for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
+        const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
+        ExNote *n;
+        ExWidget *w;
+        ReadingSeen *rs = NULL;
+        unsigned long ver;
+        if (!t || !t->view || strcmp(t->view, "note") != 0 || !is_reading(t->mode)) continue;
+        n = note_for_tab(a, t->id);
+        w = ex_panes_content(a->panes, t->id);
+        if (!n || !w || w->type != EX_WIDGET_READING || !w->reading) continue;
+        ver = ex_doc_version(ex_note_doc(n));
+        for (k = 0; k < 16; k++) if (g_reading_seen[k].tab == t->id) { rs = &g_reading_seen[k]; break; }
+        if (!rs) {
+            for (k = 0; k < 16 && g_reading_seen[k].tab; k++) {}
+            if (k == 16) continue;
+            rs = &g_reading_seen[k];
+            rs->tab = t->id; rs->shown = rs->seen = ver; rs->seen_at = now;
+            continue;
+        }
+        if (ver != rs->seen) { rs->seen = ver; rs->seen_at = now; }
+        if (ver != rs->shown && now - rs->seen_at >= 200) {
+            size_t tl = 0;
+            char *txt = ex_buffer_text(ex_doc_buffer(ex_note_doc(n)), &tl);
+            if (txt) { ex_reading_set_text(w, txt, tl); free(txt); }
+            rs->shown = ver;
+        }
+    }
+}
+
+
+/* The first group of the main window (a place to move a tab back to). */
+static ExId first_main_group(App *a) {
+    ExId n = ex_ws_window_root(a->ws, ex_ws_main_window(a->ws));
+    while (n && ex_ws_node_kind(a->ws, n) == EX_NODE_SPLIT && ex_ws_split_count(a->ws, n) > 0) n = ex_ws_split_child(a->ws, n, 0);
+    return n;
+}
+
+static void move_tab_to_sidebar(App *a, ExId tab) {
+    ExId sg = ex_ws_side_group_ensure(a->ws, EX_SIDE_RIGHT);
+    const ExTab *t = ex_ws_tab(a->ws, tab);
+    if (!sg || !t || t->group == sg) return;
+    if (a->findbar) ex_findbar_target_closed(a->findbar, ex_panes_content(a->panes, tab));
+    ex_ws_move_tab(a->ws, tab, sg, (size_t)-1);
+    ex_ws_set_sidebar(a->ws, EX_SIDE_RIGHT, 1, ex_ws_sidebar_width(a->ws, EX_SIDE_RIGHT));      /* shown, if it was hidden */
+    a->right_tabs = 1;
+    a->focus_tab = tab;
+}
+
+static void move_tab_to_main(App *a, ExId tab) {
+    ExId sg = ex_ws_side_group(a->ws, EX_SIDE_RIGHT), mg = first_main_group(a);
+    const ExTab *t = ex_ws_tab(a->ws, tab);
+    if (!sg || !t || t->group != sg || !mg) return;
+    ex_ws_move_tab(a->ws, tab, mg, (size_t)-1);
+    a->focus_tab = tab;
+}
+
+static void cmd_move_to_sidebar(void *u) { App *a = u; move_tab_to_sidebar(a, ex_ws_group_active(a->ws, ex_ws_active_group(a->ws))); }
+static void cmd_move_to_main(void *u) { App *a = u; move_tab_to_main(a, ex_ws_group_active(a->ws, ex_ws_active_group(a->ws))); }
+
+/* Once a frame: the sidebar shows its tabs when it has some (a tab just moved there brings them forward) and the panels when the user
+ * pressed a view button of its strip; the panels' view is hidden while the tabs show, and the strip stays above them. */
+static void sync_right_sidebar(App *a) {
+    ExId sg = ex_ws_side_group(a->ws, EX_SIDE_RIGHT);
+    int has = sg && ex_ws_group_tab_count(a->ws, sg) > 0, to_tabs = 0, showing;
+    ExAxis fit = {EX_SIZING_FIT, 0, 0};
+    ExWidget *pr = a->panels ? ex_panels_right(a->panels) : NULL, *sr = ex_panes_side_root(a->panes);
+    if (a->panels && ex_panels_take_right_click(a->panels, &to_tabs)) a->right_tabs = to_tabs;
+    if (has && !a->had_side_tabs) a->right_tabs = 1;
+    a->had_side_tabs = has;
+    showing = has && a->right_tabs;
+    if (a->panels) ex_panels_set_side_tabs(a->panels, has, showing);
+    if (pr) pr->height = showing ? fit : ex_size_grow();
+    if (sr) sr->hidden = !showing;
 }
 static int has_note_tab(void *u) { App *a = u; ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws)); return t && note_for_tab(a, t) != NULL; }
 static void fold_cmd(App *a, ExFoldCmd cmd) { if (a->editor && a->editor->editor) ex_editor_fold(a->editor->editor, cmd); }
@@ -1030,6 +1123,7 @@ static void cmd_close_tab(void *u) {
     ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
     if (t) ex_ws_close_tab(a->ws, t);
 }
+static int has_side_tab(void *u) { App *a = u; ExId sg = ex_ws_side_group(a->ws, EX_SIDE_RIGHT); return sg && ex_ws_active_group(a->ws) == sg && ex_ws_group_active(a->ws, sg) != 0; }
 static int has_tab(void *u) { App *a = u; return ex_ws_group_active(a->ws, ex_ws_active_group(a->ws)) != 0; }
 
 static void on_files_feature(const char *id, int enabled, void *user) {
@@ -1151,6 +1245,8 @@ static void register_features_and_commands(App *a) {
     ex_commands_bind(a->commands, "editor.spelling-add-word-to-dictionary", cmd_spell_add, has_editor, a);
     ex_commands_bind(a->commands, "editor.spelling-replace-with-suggestion", cmd_spell_replace, has_editor, a);
     ex_commands_bind(a->commands, "app.toggle-reading-view", cmd_toggle_reading, has_note_tab, a);
+    ex_commands_bind(a->commands, "workspace.move-to-right-sidebar", cmd_move_to_sidebar, has_tab, a);
+    ex_commands_bind(a->commands, "workspace.move-to-main-area", cmd_move_to_main, has_side_tab, a);
     ex_commands_bind(a->commands, "app.navigate-back", cmd_nav_back, NULL, a);
     ex_commands_bind(a->commands, "app.navigate-forward", cmd_nav_forward, NULL, a);
     ex_commands_bind(a->commands, "app.create-new-note", cmd_new_note, has_notes, a);
@@ -1373,6 +1469,8 @@ static void sync_ui(App *a) {
     }
     ex_panes_update(a->panes);
     record_places(a);
+    sync_right_sidebar(a);
+    refresh_reading_views(a);
     ex_panes_set_header_visible(a->panes, ex_settings_get_bool(a->settings, "interface", "show_tab_title_bar"));
     {                                                                                /* the graph: read while a graph tab exists, updated once a frame */
         size_t i, graphs = 0;
@@ -2082,6 +2180,16 @@ int main(int argc, char **argv) {
     {
         ExWidget *right_content = app.panels ? ex_panels_right(app.panels) : info_label(&app, "Open a vault to see backlinks, the outline and tags.");
         if (right_content) { right_content->bg_token = EX_COLOR_BACKGROUND_ALT; right_content->width = ex_size_grow(); right_content->height = ex_size_grow(); }
+        {                                                                          /* the panels, and under them the group of tabs of the sidebar (5e) */
+            ExWidget *stack = ex_widget_box(app.ui, 1, "Right sidebar content"), *sr = ex_panes_side_root(app.panes);
+            if (stack && right_content && sr) {
+                stack->width = ex_size_grow(); stack->height = ex_size_grow(); stack->bg_token = EX_COLOR_BACKGROUND_ALT;
+                ex_widget_add(stack, right_content);
+                sr->hidden = 1;
+                ex_widget_add(stack, sr);
+                right_content = stack;
+            }
+        }
         app.right_sb = ex_sidebar_create(app.ui, app.ws, EX_SIDE_RIGHT, right_content, "Right sidebar");
         ex_widget_add(row, ex_sidebar_divider_create(app.right_sb));
         ex_widget_add(row, app.right_sb);

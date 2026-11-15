@@ -380,6 +380,18 @@ int main(void) {
                 ex_panes_update(panes);
                 check_layout(r, win, "pane header, a long title");
             }
+            {   /* the right sidebar's group of tabs (5e): the same long title in a sidebar as narrow as one can be */
+                ExId sg2 = ex_ws_side_group_ensure(ws, EX_SIDE_RIGHT);
+                ExWidget *sb = ex_widget_box(g_ui, 1, "sidebar");
+                sb->width = ex_size_px(g_ui, 200); sb->height = ex_size_grow();
+                ex_widget_add(sb, ex_panes_side_root(panes));
+                ex_widget_add(win, sb);
+                ex_ws_new_tab(ws, sg2, longrel, "note");                                   /* one tab: a strip that is narrower than its tabs is clipped, as in a narrow main pane */
+                for (pass = 0; pass < 3; pass++) { ex_panes_update(panes); check_layout(r, win, "sidebar tabs, a long title"); }
+                CHECK(ex_panes_header(panes, sg2) != NULL && ex_panes_header(panes, sg2)->w > 0);
+                ex_ui_release(g_ui, win);
+                ex_widget_remove(sb, ex_panes_side_root(panes));
+            }
             hdr = ex_panes_header(panes, ga);
             CHECK(hdr && hdr->w > 0 && hdr->h > 0);
             {

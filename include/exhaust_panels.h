@@ -93,6 +93,11 @@ void ex_panels_show(ExPanels *p, const char *panel);                /* "files", 
 typedef struct ExMenuItem { const char *label; int icon; int id; int danger, sep_before; } ExMenuItem;
 void ex_panels_popup(ExPanels *p, float x, float y, const ExMenuItem *items, size_t n, void (*cb)(ExPanels *p, int id, void *arg), void *arg);
 void ex_panels_bookmark_note(ExPanels *p, const char *path);          /* the Bookmark entry of the note menu */
+/* The right sidebar's group of tabs (5e). available: the group has tabs, so the strip shows a button for them; showing: the tabs are what
+ * the sidebar shows, so the panels' view (below the strip) is hidden. ex_panels_take_right_click tells the application, once, that the user
+ * pressed a view button of the right strip (*to_tabs = 0: show the panels) or the tabs button (*to_tabs = 1); it returns 0 when neither. */
+void ex_panels_set_side_tabs(ExPanels *p, int available, int showing);
+int ex_panels_take_right_click(ExPanels *p, int *to_tabs);
 void ex_panels_graph_wanted(ExPanels *p, int wanted);
 /* The same for the local graph (5c): read while a local graph tab exists, around the note `center` (a path; NULL: no note is open), to the
  * depth of the options given to ex_panels_graph_options. A new centre reads it again at once. */

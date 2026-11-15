@@ -102,6 +102,14 @@ ExId ex_ws_linked_group(const ExWorkspace *ws, ExId group, size_t i);
 /* Finds an open tab for a file in the main window (or any window), 0 if none. */
 ExId ex_ws_find_tab(const ExWorkspace *ws, const char *path);
 
+/* ---- a group of tabs in a sidebar (sub-slice 5e) ----
+ * The right sidebar can hold a group of tabs (notes, a graph) instead of its panels: the same ExGroup and ExTab as the panes of the main
+ * window, in no window (it has no parent). It is created empty on the first call of ex_ws_side_group_ensure and stays for the life of the
+ * workspace; the sidebar shows its tabs when it has some. ex_ws_new_tab and ex_ws_move_tab take its id like any other group. Only the right
+ * side has one. Saved as `[layout] right_group` and its `[group.<id>]` section. */
+ExId ex_ws_side_group(const ExWorkspace *ws, ExSide side);            /* 0 if there is none (yet) */
+ExId ex_ws_side_group_ensure(ExWorkspace *ws, ExSide side);
+
 /* ---- sidebars ---- */
 int ex_ws_sidebar_visible(const ExWorkspace *ws, ExSide side);
 /* A shown sidebar is never narrower than this (pixels at 100%): the strip of view buttons of the right sidebar is 186 px wide, and

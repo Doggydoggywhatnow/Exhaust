@@ -238,12 +238,87 @@ move 777 50
 down 777 50
 up 777 50
 wait 1000
-move 790 248
-down 790 248
-up 790 248
+move 790 288
+down 790 288
+up 790 288
 wait 2000
 quit' Home.md
 csession=$(find "$work" -name session.ini -newer "$work/menu_close.script" | head -1)
 if [ -n "$csession" ] && ! grep -q "path = Home.md" "$csession"; then echo "ok: Close in the pane menu closed the tab"; else echo "FAILED: the pane menu's Close"; fail=1; fi
+
+# a note in the right sidebar (5e): moved there from the pane menu, edited there and saved; after a restart it is still there and moves back
+run sidebar_edit 'wait 1000
+move 777 50
+down 777 50
+up 777 50
+wait 800
+move 790 249
+down 790 249
+up 790 249
+wait 1200
+move 900 400
+down 900 400
+up 900 400
+text  Typed here
+wait 2500
+quit' Home.md
+if grep -q "Typed here" "$work/sidebar_edit/Home.md"; then echo "ok: a note moved to the right sidebar takes typing and is saved to its file"; else echo "FAILED: typing in a note in the right sidebar"; fail=1; fi
+ssession=$(find "$work" -name session.ini -newer "$work/sidebar_edit.script" | head -1)
+rg=$(grep "^right_group = " "$ssession" 2>/dev/null | sed 's/.*= *//')
+if [ -n "$rg" ] && sed -n "/^\[group\.$rg\]/,/^\[/p" "$ssession" | grep -q "^tabs = [0-9]"; then echo "ok: the right sidebar's group of tabs is in the session with its tab"; else echo "FAILED: the sidebar group in the session ($rg)"; fail=1; fi
+vault="$work/sidebar_edit"
+printf '%s\n' 'wait 1500
+move 1083 86
+down 1083 86
+up 1083 86
+wait 800
+move 955 256
+down 955 256
+up 955 256
+wait 1500
+quit' > "$work/sidebar_back.script"
+unset EXHAUST_OPEN
+EXHAUST_SCRIPT="$work/sidebar_back.script" $lim "$exe" "$vault" >"$work/sidebar_back.log" 2>&1
+if [ -n "$rg" ] && sed -n "/^\[group\.$rg\]/,/^\[/p" "$ssession" | grep -q "^tabs = *$"; then echo "ok: after a restart the note was still in the sidebar and moved back to the main area"; else echo "FAILED: moving the note back to the main area"; fail=1; fi
+
+# a reading view of a note shows an edit made in an editor of the same note elsewhere (5e): reading on the left, the same note editing on the right
+run reading_refresh "wait 1200
+move 751 50
+down 751 50
+up 751 50
+wait 600
+move 777 50
+down 777 50
+up 777 50
+wait 600
+move 790 80
+down 790 80
+up 790 80
+wait 1200
+shot $work/read_before.ppm
+move 650 300
+down 650 300
+up 650 300
+text  REFRESHED
+wait 1500
+shot $work/read_after.ppm
+quit" Home.md
+changed=$(python3 - "$work/read_before.ppm" "$work/read_after.ppm" <<'PY'
+import sys
+def load(path):
+    d=open(path,'rb').read(); parts=d.split(b'\n',3); w,h=map(int,parts[1].split()); return w,h,parts[3]
+try:
+    w,h,a=load(sys.argv[1]); w2,h2,b=load(sys.argv[2])
+    n=0
+    for y in range(215,255):                       # the reading page on the left, where the text of the note is
+        for x in range(320,540):
+            i=(y*w+x)*3
+            if a[i:i+3]!=b[i:i+3]: n+=1
+    print(n)
+except Exception:
+    print(-1)
+PY
+)
+if [ "${changed:--1}" -gt 30 ] 2>/dev/null; then echo "ok: the reading view showed the edit made in the editor of the same note ($changed pixels changed)"; else echo "FAILED: the reading view did not show the edit ($changed)"; fail=1; fi
 
 exit $fail
