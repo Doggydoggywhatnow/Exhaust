@@ -1890,9 +1890,10 @@ int main(int argc, char **argv) {
                 float density = SDL_GetWindowPixelDensity(ex_renderer_window(app.r));
                 ExWidget *wheel_root = app.panels && ex_panels_modal(app.panels) ? ex_panels_overlay(app.panels) : app.root;
                 ExWidget *under = ex_ui_widget_at(wheel_root, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
-                while (under && under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
+                while (under && under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
                 if (!under && wheel_root == app.root) under = app.editor;
-                if (under && under->type == EX_WIDGET_LIST) ex_list_scroll(under, -e.wheel.y * 3.0f * ex_list_row_height(under));
+                if (under && under->type == EX_WIDGET_TREE) ex_tree_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
+                else if (under && under->type == EX_WIDGET_LIST) ex_list_scroll(under, -e.wheel.y * 3.0f * ex_list_row_height(under));
                 else if (under && under->type == EX_WIDGET_READING) ex_reading_scroll(under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 else if (under && under->editor) ex_editor_scroll(under->editor, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 break;

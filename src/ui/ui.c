@@ -293,12 +293,26 @@ static float tree_row_h(ExUi *ui, const ExWidget *w) {
     return (float)m.line_height * 1.45f;
 }
 
+/* The scroll limit: the last row can come up to the top of the view with one blank row after it, so there is always empty space under
+ * the rows to drop a dragged folder on (the vault folder) however long the tree is (ISSUES 16). */
+static float tree_max_scroll(ExUi *ui, const ExWidget *w) {
+    float rh = tree_row_h(ui, w), total = (float)(w->vault ? ex_vault_row_count(w->vault) : 0) * rh + rh;
+    return total > w->h ? total - w->h : 0;
+}
+
 static void tree_ensure_visible(ExUi *ui, ExWidget *w) {
-    float rh = tree_row_h(ui, w), top = (float)w->tree_selected * rh, bottom = top + rh;
-    size_t rows = w->vault ? ex_vault_row_count(w->vault) : 0;
-    float total = (float)rows * rh, max_scroll = total > w->h ? total - w->h : 0;
+    float rh = tree_row_h(ui, w), top = (float)w->tree_selected * rh, bottom = top + rh, max_scroll = tree_max_scroll(ui, w);
     if (top < w->tree_scroll) w->tree_scroll = top;
     else if (bottom > w->tree_scroll + w->h) w->tree_scroll = bottom - w->h;
+    if (w->tree_scroll > max_scroll) w->tree_scroll = max_scroll;
+    if (w->tree_scroll < 0) w->tree_scroll = 0;
+}
+
+void ex_tree_scroll(ExUi *ui, ExWidget *w, float dy) {
+    float max_scroll;
+    if (!w || w->type != EX_WIDGET_TREE) return;
+    max_scroll = tree_max_scroll(ui, w);
+    w->tree_scroll += dy;
     if (w->tree_scroll > max_scroll) w->tree_scroll = max_scroll;
     if (w->tree_scroll < 0) w->tree_scroll = 0;
 }
@@ -400,6 +414,13 @@ static void tree_drag_event(ExUi *ui, ExWidget *w, ExMouse kind, float x, float 
     if (kind == EX_MOUSE_DRAG) {
         float dx = x - w->tree_drag_x, dy = y - w->tree_drag_y;
         if (!w->tree_dragging && dx * dx + dy * dy > (float)(ex_px(ui->r, 6) * ex_px(ui->r, 6))) w->tree_dragging = 1;
+        if (w->tree_dragging && x >= w->x && x <= w->x + w->w) {        /* near the top or bottom edge the tree scrolls, so a far folder can be reached */
+            float edge = tree_row_h(ui, w), step = tree_row_h(ui, w) * 0.5f;
+            if (y < w->y + edge) ex_tree_scroll(ui, w, -step);
+            else if (y > w->y + w->h - edge) ex_tree_scroll(ui, w, step);
+            over = tree_row_at(ui, w, y);
+            if (x < w->x || x > w->x + w->w || y > w->y + w->h || y < w->y) over = -2;
+        }
         w->tree_drop_row = -1;
         if (w->tree_dragging && over != -2 && drop_folder(w, over)) w->tree_drop_row = over < 0 ? -3 : over;   /* -3: the vault folder */
         return;

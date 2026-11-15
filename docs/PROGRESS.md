@@ -8,9 +8,9 @@ Read this first when resuming. It tracks the sub-slices of [`0.1.0.md`](0.1.0.md
 
 ## Where things stand (2026-11-14, agent v.03)
 
-- **28 of 61 rows are done** (the plan had 59 sub-slices; 4c and 4d were added). Everything through 4d is built, plus the hand-test fixes after it. **Slices 5 to 9 are not started, and the user has said not to start 5a yet: ask first.** About 33,000 lines of C in `src/`; **96 ctest tests**; 208 commands in the registry.
+- **28 of 61 rows are done** (the plan had 59 sub-slices; 4c and 4d were added). Everything through 4d is built, plus the hand-test fixes after it. **Slices 5 to 9 are not started, and the user has said not to start 5a yet: ask first.** About 33,000 lines of C in `src/`; **97 ctest tests**; 208 commands in the registry.
 - **CI is green on Linux, Windows and macOS**: run 43578695787 on commit `3562c79` (all nine jobs: builds with tests on three systems, sanitizers, fuzzers, size, accessibility builds). It had been red since `855d89d` for two reasons: `ui_not_blocked` (the test measured an unbounded search on the UI thread, ISSUES 18) and, on macOS, `app_scripts` (GNU-only `sed -i`, ISSUES 24).
-- The user hand-tested three AppImages after this session began. Confirmed by them: ISSUES 1 to 8, 10, 12 to 15, 17 (with 20), 19, 20, 21, 22. Still open: 9, 11, 16. Waiting for a hand test: 23 (the 200 px minimum sidebar width). Issue 24 is a CI fix, confirmed by CI.
+- The user hand-tested three AppImages after this session began. Confirmed by them: ISSUES 1 to 8, 10, 12 to 15, 17 (with 20), 19, 20, 21, 22. Still open: 11. Fixed, waiting for a hand test: 9 (it was the frame test, not the editor) and 16 (the explorer now scrolls with the wheel and while dragging). Waiting for a hand test: 23 (the 200 px minimum sidebar width). Issue 24 is a CI fix, confirmed by CI.
 - Read [`HANDOFF-agent-v.03.md`](HANDOFF-agent-v.03.md) first (how the work went, what I built, tools, mistakes), then [`HANDOFF-agent-v.02.md`](HANDOFF-agent-v.02.md) (how slices 4a to 4d fit together; still correct). **`AGENTS.md` now has a section on efficiency and input latency and a guide to the slices that are left.**
 
 ## Sub-slices
@@ -133,7 +133,7 @@ Collected from the "Honest gaps" and TODO-verify text of the rows above. Nothing
 - **Watching:** Windows and macOS use the polling fallback; ReadDirectoryChangesW and FSEvents backends are not written (2b).
 - **UI gaps (rows 2a to 2e, partly closed since by 4c, 4d and the hand-test fixes; check `docs/ISSUES.md`):** the explorer's Sort button may still not write its settings (2d); the vault manager's menu was inline (2e) and Remove has no confirmation.
 - **Editor:** reading view has no find, no saved scroll, and shows images, embeds and math as placeholders; folds are not saved in the session; about 30 of the 73 editor commands were still unbound stubs at 3d (tables, templates, composer, bases); COLR v1 emoji are not rendered (1a-ii); `query` results are not drawn inside live preview or source mode (fixed row height, see 4d); a graph bookmark cannot be opened until slice 5.
-- **Open hand-test issues** (`docs/ISSUES.md`): 9 (first edit in a 6000-line note freezes the window about 270 ms), 11 (the inline title does not scroll with the text and is one per window, not per pane), 16 (moving a folder out of a folder by dragging did not work for the user; not reproducible in scripted tests, needs the exact drag). Waiting for the user: 23 (minimum sidebar width 200 px).
+- **Open hand-test issues** (`docs/ISSUES.md`): 11 (the inline title does not scroll with the text and is one per window, not per pane; a real fix moves the title into each pane's scrolling area). 9 and 16 are fixed and wait for a hand test.
 - **Timing tests:** `ui_not_blocked` is fixed (ISSUES 18) and green on all three systems; `frame_budget` and `search_perf` have failed on slow runners before. Re-run once to tell load from a regression, find the slow code, and never raise a limit. New perf tests should measure CPU time or work done, not wall-clock frames per second (see `AGENTS.md`).
 - **Spell check:** one language, no context menu, edit-distance-1 suggestions only (3e).
 - **Tests to add:** T-TEXT-BOX-01 for every screen still to come (settings pages, page previews, the status bar: add each to `tests/test_long_names.c`); a regular-expression fuzz target (3d); `libFuzzer` targets for frontmatter, canvas JSON, base expressions and importers when each module is written.
@@ -158,4 +158,4 @@ Added after hand-testing, so that every later feature stays inside the 16 ms rul
 
 ## Issues found by hand-testing
 
-The list is [`ISSUES.md`](ISSUES.md) (24 entries): all fixed in code except 9, 11 and 16, which are open; the ones the user has confirmed are marked. Causes are written there. Fix an issue with the next sub-slice or earlier if the user asks, and move it to **Fixed** with the commit.
+The list is [`ISSUES.md`](ISSUES.md) (24 entries): all fixed in code except 11, which is open (9 and 16 are fixed and wait for a hand test); the ones the user has confirmed are marked. Causes are written there. Fix an issue with the next sub-slice or earlier if the user asks, and move it to **Fixed** with the commit.

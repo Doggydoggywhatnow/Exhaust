@@ -25,6 +25,12 @@
 static int failures;
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "%s:%d: check failed: %s\n", __FILE__, __LINE__, #c); failures++; } } while (0)
 
+/* The renderer queues its drawing commands and runs them when something needs them (a texture update, a present). A test that never
+ * presents would see that queued work, all of it, land on whichever frame first updates the glyph atlas: that was the "first edit in a
+ * big note freezes for 270 ms" of ISSUES 9, which was not an edit cost at all. Running the queue at the end of each frame charges
+ * every frame for its own drawing, as a real frame is. */
+static void finish_frame(ExRenderer *r) { SDL_FlushRenderer(SDL_GetRenderer(ex_renderer_window(r))); }
+
 static double now_ms(void) { return (double)SDL_GetPerformanceCounter() * 1000.0 / (double)SDL_GetPerformanceFrequency(); }
 static int cmp_d(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
 static double p95(double *v, size_t n) { qsort(v, n, sizeof *v, cmp_d); return v[(n * 95) / 100 >= n ? n - 1 : (n * 95) / 100]; }
@@ -84,7 +90,7 @@ int main(void) {
         ex_ui_text_input(ui, "x", 1);
         t1 = now_ms();
         if (nk < 200) keys[nk++] = t1 - t0;
-        ex_ui_layout(ui, root, 1000, 700); ex_ui_draw(ui, root, 1);
+        ex_ui_layout(ui, root, 1000, 700); ex_ui_draw(ui, root, 1); finish_frame(r);
         { double ft = now_ms() - t1; if (getenv("FRAME_BUDGET_VERBOSE") && ft > 20) printf("  slow frame after step %zu: %.1f ms (handler %.1f)\n", i, ft, keys[nk - 1]); if (nf < 200) frames[nf++] = ft; }
     }
     /* Enter in the middle of the text, and paging */
@@ -93,14 +99,14 @@ int main(void) {
         ex_ui_key(ui, i % 4 == 3 ? EX_KEY_PAGE_DOWN : EX_KEY_ENTER, 0);
         t1 = now_ms();
         if (nk < 200) keys[nk++] = t1 - t0;
-        ex_ui_layout(ui, root, 1000, 700); ex_ui_draw(ui, root, 1);
+        ex_ui_layout(ui, root, 1000, 700); ex_ui_draw(ui, root, 1); finish_frame(r);
         { double ft = now_ms() - t1; if (getenv("FRAME_BUDGET_VERBOSE") && ft > 20) printf("  slow frame after step %zu: %.1f ms (handler %.1f)\n", i, ft, keys[nk - 1]); if (nf < 200) frames[nf++] = ft; }
     }
     /* resizing the window: layout and drawing at many sizes */
     for (i = 0; i < 40; i++) {
         double t0 = now_ms();
         float w = 700.0f + (float)((i * 37) % 300), h = 450.0f + (float)((i * 53) % 250);
-        ex_ui_layout(ui, root, w, h); ex_ui_draw(ui, root, 1);
+        ex_ui_layout(ui, root, w, h); ex_ui_draw(ui, root, 1); finish_frame(r);
         if (nf < 200) frames[nf++] = now_ms() - t0;
     }
     report("an input handler (typing, Enter, Page Down)", keys, nk, key_limit);

@@ -152,6 +152,8 @@ ExWidget *ex_widget_tree(ExUi *ui, ExVault *vault, const char *name,
                          void (*on_open)(ExWidget *w, const char *rel, void *user), void *user);
 void ex_tree_select_path(ExWidget *tree, const char *rel);          /* reveals and selects */
 const ExNode *ex_tree_selected(ExWidget *tree);
+/* Scrolls the tree by dy pixels (mouse wheel, and automatically while a row is dragged near its top or bottom edge). */
+void ex_tree_scroll(ExUi *ui, ExWidget *tree, float dy);
 /* The row under a window position (and the node of it) or NULL; selects it when select is set. For the context menu. */
 const ExNode *ex_tree_node_at(ExUi *ui, ExWidget *tree, float y, int select);
 void ex_tree_set_rename_handler(ExWidget *tree, int (*fn)(ExWidget *w, const char *rel, float x, float y, float width, float height, void *user), void *user);
