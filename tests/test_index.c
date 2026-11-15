@@ -317,9 +317,9 @@ static void test_ui(const char *tool) {
     SearchLoad load;
     SDL_Thread *searcher;
     char *root, err[200];
-    double worst = 0, t;
+    double worst = 0, t, t1, t2, t3, w_queue = 0, w_count = 0, w_lookup = 0;
     int done = 0;
-    long frames = 0;
+    long frames = 0, slow4 = 0, slow8 = 0, w_frame = 0;
     make_vault(tool);
     ex_platform_remove_tree(DBDIR);
     root = abs_vault();
@@ -342,16 +342,24 @@ static void test_ui(const char *tool) {
         ExMessage m;
         t = seconds();
         while (ex_queue_pop(q, &m)) { if (m.type == EX_MSG_INDEX_DONE) { done = 1; CHECK(((ExIndexDoneMsg *)m.payload)->ok); } if (m.free_payload) m.free_payload(m.payload); }
+        t1 = seconds();
         (void)ex_index_file_count(r, -1);                               /* what a frame reads from the index: counts and single-row lookups */
+        t2 = seconds();
         { char *path = ex_index_file_path(r, 1 + frames % 50); int64_t id = path ? ex_index_file_id(r, path) : 0; (void)id; free(path); }
-        t = seconds() - t;
-        if (t > worst) worst = t;
+        t3 = seconds();
+        t = t3 - t;
+        if (t > 0.004) slow4++;
+        if (t > 0.008) slow8++;
+        if (t > worst) { worst = t; w_queue = t1 - t; w_count = t2 - t1; w_lookup = t3 - t2; w_frame = frames; }
         frames++;
         SDL_Delay(2);                                                   /* the rest of the frame */
     }
     SDL_SetAtomicInt(&load.stop, 1);
     if (searcher) SDL_WaitThread(searcher, NULL);
     printf("while indexing: %ld frames, %d searches on another thread, longest blocked time %.2f ms\n", frames, SDL_GetAtomicInt(&load.runs), worst * 1000.0);
+    /* Where the worst frame went, and how many frames were slow at all: one slow frame among hundreds is a thread that was descheduled
+     * (a loaded runner); many are a real wait (ISSUES 39). */
+    printf("worst frame was number %ld: queue %.2f ms, count %.2f ms, lookup %.2f ms; frames over 4 ms: %ld, over 8 ms: %ld\n", w_frame, w_queue * 1000.0, w_count * 1000.0, w_lookup * 1000.0, slow4, slow8);
     CHECK(frames > 10);
     CHECK(SDL_GetAtomicInt(&load.runs) > 0);
     CHECK(worst < 0.016 * TIME_SCALE);
