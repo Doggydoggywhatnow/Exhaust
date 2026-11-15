@@ -72,7 +72,7 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 - **HTML** in notes: a safe subset of tags, drawn by Exhaust itself.
 - **Slash commands**: type `/` at the start of a line or after a space for a menu of the editor commands, narrowed as you type (fuzzy matching, Up and Down, Enter or Tab to run it, Escape or a space to close it). The feature is off until *Slash commands* is turned on in Core plugins. Editor commands whose features are not built yet are listed disabled. The text formatting commands that work now: bold, italic, strikethrough, highlight, code, inline math, comment, headings (set, remove, cycle), bullet and numbered lists, quote, checkbox status, indent and unindent list items, move line up and down, delete paragraph, horizontal rule, code block, callout, math block, table, footnote, links, embeds, tags, clear formatting and adding cursors.
 - **Audio recorder**: record straight into a note *(later)*.
-- **Vim mode**, off by default.
+- **Vim mode** *(later)*: not in 0.1.0; the switch in Editor settings is shown disabled and labelled.
 
 ## Links
 
@@ -94,6 +94,7 @@ PDFs open in a tab and embed in notes (needs the optional PDF library).
 - **Copy text** from the page.
 - **Links to a selection**: `[[file.pdf#page=1&selection=...]]` opens the PDF at that selected text.
 - **Annotations** are not supported (see Non-goals).
+- **Private**: the viewer makes no network requests and runs no scripts from a file; a link to a web address asks before it opens in the system browser.
 
 ## Graph
 
@@ -237,7 +238,7 @@ Exhaust is written in C (C11). There is no web browser or web view anywhere in i
 | Audio embeds | [lib-Peep](https://github.com/Doggydoggywhatnow/lib-Peep) 0.5.0, vendored and linked statically: hand-written assembly for x86-64 and ARM64 with no libc, no `malloc` and no threads. Plays 16-bit PCM WAV built in; other WAV depths and float (`wav` codec), compressed WAV (A-law, mu-law, IMA and Microsoft ADPCM; `wavc` codec) and FLAC 4 to 31 bit (`flac` codec) are separate codecs. Pull API in `peep.h`: `peep_open`, `peep_fill`, `peep_fill32`, `peep_seek`, `peep_close`, `peep_set_gain`, `peep_set_dither`, `peep_flac_metadata`; output is interleaved stereo. Size per its README: about 13 KB for WAV, FLAC and every WAV depth (*TODO-verify*: its own table lists `flac.asm` at 17.8 KB on x86-64 and 9.3 KB on ARM64; measure the vendored build). `peep.h` is on the repo's `dev` branch, `main` has the assembly and docs only (vendor it from the `dev` branch, with the assembly from the same commit). Needs `nasm` (x86-64) or the GNU assembler (ARM64) to build; The first task of 6c-ii is a CI build on Linux, Windows and macOS (its README says macOS and ARM hardware are not fully verified); it has no fallback decoder, so a failing platform is fixed in lib-Peep. dr_mp3 and stb_vorbis decode MP3 and OGG, SDL3 handles output, and other formats go through libmpv | Unlicense, public domain or MIT-0, public domain or MIT, zlib |
 | Video embeds | libmpv, loaded at run time | LGPL or GPL (never linked) |
 | PDF | PDFium, loaded at run time | BSD-3 or Apache-2.0 |
-| PDF export | Own PDF writer: lays pages out with Exhaust's reading-mode renderer, embeds font subsets through FreeType, compresses with miniz | Unlicense (own), public domain or MIT |
+| PDF export | Own PDF writer: lays pages out with Exhaust's reading-mode renderer, embeds font subsets made with HarfBuzz's subsetter, compresses with miniz | Unlicense (own), public domain or MIT |
 | Recovery journal | Own append-only journal (a CRC-32 per record) and session-state file in the OS local-data folder, keyed by vault; formats in `docs/formats.md` | Unlicense (own) |
 | Plugins | Lua, sandboxed, with Exhaust's own API | MIT |
 | Bases expressions | Own expression engine module: the documented types and all 72 documented functions, tested against the examples in the docs | Unlicense (own) |
@@ -281,7 +282,7 @@ Each sub-slice is finished, tested and committed before the next. The detailed s
 5. **5a** Barnes-Hut layout and rendering; **5b** filters, groups, forces and display; **5c** local graph, animation and keyboard route; **5d** pane header, navigation history and pane menu; **5e** views in the right sidebar.
 6. **6a** canvas. **6b** i expression engine; ii base core; iii layouts. **6c** i images including SVG; ii audio; iii libmpv loader; iv PDFium loader and PDF viewer; v embed syntax. **6d** i math; ii Mermaid flowchart and sequence; iii Mermaid class, state, ER, pie and gantt. **6e** i daily notes, templates and dates; ii unique notes and note composer; iii slides; iv format converter and PDF export; v importers and stubs.
 7. **7a** settings framework and Options pages; **7b** built-in feature pages; **7c** hotkeys; **7d** themes and style snippets; **7e** workspaces and file recovery; **7f** status bar, ribbon, high contrast and zoom.
-8. **8a** Vim mode; **8b** Lua runtime and plugin permissions; **8c** labeled stubs.
+8. **8b** Lua runtime and plugin permissions; **8c** labeled stubs (Vim mode is one of them; it is for a later release).
 9. **9a** Windows zip; **9b** Linux AppImage; **9c** macOS dmg; **9d** add-on package and final checks.
 
 Exhaust must run on Windows, Linux (Wayland and X11) and macOS, with no display-server-specific code.

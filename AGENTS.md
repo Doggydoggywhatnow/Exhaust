@@ -3,7 +3,7 @@
 Exhaust is a note-taking and knowledge-base app written in **C** (C11). **Stay in C.** `README.md` is the spec; the current release's build spec is `docs/0.1.0.md`.
 
 ## Goal
-Release 0.1.0 fits **every specification in the README**. Items marked *(later)* or *(optional)* may be stubs in the first demo, but must exist as disabled, clearly labeled entries where the README places them. Things listed under the README's **Non-goals** are not built. `*(optional)*` means the feature uses the network and is off by default. Other features that are off by default, such as Vim mode, are not marked `*(optional)*`. If you deviate from the README, update the README in the same change.
+Release 0.1.0 fits **every specification in the README**. Items marked *(later)* or *(optional)* may be stubs in the first demo, but must exist as disabled, clearly labeled entries where the README places them. Things listed under the README's **Non-goals** are not built. `*(optional)*` means the feature uses the network and is off by default. Other features that are off by default are not marked `*(optional)*`. Vim mode is not part of 0.1.0 (a disabled, labelled stub). If you deviate from the README, update the README in the same change.
 
 ## Other languages
 C for all of Exhaust's own code, with these exceptions only:
@@ -83,7 +83,7 @@ Add tests with the code. Required at minimum: the text buffer and undo tree, the
 - Spell check: own checker, `PFX`, `SFX`, `REP` and `KEY` only, no compounding, English (US) only in 0.1.
 - Fonts: Atkinson Hyperlegible, Atkinson Hyperlegible Mono for code, system fonts discovered by scanning the OS font folders, no bundled emoji font.
 - Date formatting uses an own formatter for Moment-style tokens.
-- PDF export uses an own PDF writer (fonts subset through FreeType, deflate from miniz); exports are always light-styled.
+- PDF export uses an own PDF writer (fonts subset with HarfBuzz's `hb-subset`, deflate from miniz; the PDF viewer's PDFium is built without JavaScript and never uses the network); exports are always light-styled.
 - There is no auto-updater. A manual update check is optional and off until the user presses it.
 
 ## Working here: environment, tools and the user
@@ -100,7 +100,7 @@ Add tests with the code. Required at minimum: the text buffer and undo tree, the
 - **Docs you must keep true in the same commit:** `docs/PROGRESS.md` (row, commit, honest gaps), `docs/ISSUES.md`, the README (build status and any deviation), `docs/formats.md` before code that adds a name, `tests/test_registry.c` when the command count changes, `third_party/VERSIONS.md` and the README table when you vendor something.
 
 ## Building the slices that are left (5a to 9d)
-`docs/0.1.0.md` is the spec of each sub-slice and its "Done when"; `docs/PROGRESS.md` says what is done. 28 of 63 are done (everything to 4d). Below is what exists to build on, what is not vendored yet, and the traps. **Ask the user before you start a slice.** One sub-slice at a time, tests with the code, CI green on three systems before the next, and a progress row with honest gaps.
+`docs/0.1.0.md` is the spec of each sub-slice and its "Done when"; `docs/PROGRESS.md` says what is done. 28 of 62 are done (everything to 4d). Below is what exists to build on, what is not vendored yet, and the traps. **Ask the user before you start a slice.** One sub-slice at a time, tests with the code, CI green on three systems before the next, and a progress row with honest gaps.
 
 **Patterns to follow (all exist):**
 - *A new view in a tab:* a tab has `t->view` (a string; `make_content` in `src/main.c` returns the widget; the graph and canvas return a placeholder label today). The ribbon has disabled entries for graph and canvas (`rb_graph`, `rb_canvas`, `EX_ICON_GRAPH`, `EX_ICON_CANVAS`): enable them when the view exists. Feature switches are in `[features]` of `docs/formats.md`; commands are rows of the Commands table there (the code table is generated from it; `graph-view.open-graph-view`, `graph-view.open-local-graph` and `graph-view.start-graph-timelapse-animation` already exist), bound in `main.c` with `ex_commands_bind`. Update the command count in `tests/test_registry.c` if you add one.
@@ -122,11 +122,11 @@ Add tests with the code. Required at minimum: the text buffer and undo tree, the
 
 **6d Math and diagrams.** STIX Two Math (OFL; check the size) with `hb-ot-math` from the vendored HarfBuzz; Mermaid flowchart and sequence, then class, state, ER, pie and gantt, all own renderers. Cache layouts by a hash of the source; draw from the cache; never lay out in a frame.
 
-**6e Daily notes to importers.** Date formatter for Moment-style tokens (own code, many tests); templates merge properties through `src/index/props*.c` (text surgery, never reformat); the composer reuses link-safe rename; slides split a note at `---`; the PDF writer is own code (font subsets through FreeType, deflate from miniz: vendor miniz, MIT or public domain); importers get fuzz targets and must never overwrite an existing note.
+**6e Daily notes to importers.** Date formatter for Moment-style tokens (own code, many tests); templates merge properties through `src/index/props*.c` (text surgery, never reformat); the composer reuses link-safe rename; slides split a note at `---`; the PDF writer is own code (font subsets with `hb-subset`, which is in the vendored HarfBuzz sources but may not be compiled in yet; FreeType cannot write fonts; deflate from miniz: vendor miniz, MIT or public domain; it runs on a worker and needs the images, math and Mermaid of 6c and 6d first); importers get fuzz targets and must never overwrite an existing note.
 
 **7 Settings, hotkeys, themes, workspaces, shell.** The settings screens follow `screenshots/settings/` (28 pages) and `docs/formats.md`; the table of keys is the contract (`tests/test_settings.c`). Resolve the TODO-verify items in `formats.md` named in each row of `0.1.0.md` first. Settings pages are text-box and list screens: **add each to `tests/test_long_names.c`**. The sidebar minimum width (200 px) and the hide threshold (60 px) are constants today. Themes reload within 1 second; unknown keys are kept and written back.
 
-**8 Vim, Lua, stubs.** Vim mode is key-sequence tests on the editor; it must add no latency to normal typing. Lua 5.4 (MIT) sandboxed (`os`, `io`, `package`, `debug`, `load` unavailable), a time limit and a memory cap, permissions per `docs/formats.md`. Stubs are present, disabled and labelled, and make no network request.
+**8 Lua, stubs.** Vim mode is not in 0.1.0 (a disabled stub in 8c; making `vim_mode` a stub means changing four tests that use it as a sample bool). Lua 5.4 (MIT) sandboxed (`os`, `io`, `package`, `debug`, `load` unavailable), a time limit and a memory cap, permissions per `docs/formats.md`. Stubs are present, disabled and labelled, and make no network request.
 
 **9 Packaging and release.** Windows zip, Linux AppImage, macOS dmg: each is a CI job with a smoke test; file association and URI registration are in `src/platform/`. The add-on package builds PDFium and libmpv from pinned, checksummed upstream releases. Final checks: warm start, memory, size. The maintainer checklist (screen reader, IME, real hardware) is in `0.1.0.md`. Also unassigned today and easy to forget: the AccessKit OS adapters (AT-SPI, UI Automation, NSAccessibility), real pop-out windows, the Windows and macOS file watchers (they poll now), and the stub editor commands.
 
