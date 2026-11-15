@@ -2,3 +2,5 @@ build/
 build-*/
 install/
 target/
+go_db/
+go_vault/
