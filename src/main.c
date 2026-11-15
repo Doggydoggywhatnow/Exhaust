@@ -62,11 +62,8 @@ typedef struct App {
     ExTheme theme;
     ExWidget *root, *editor, *tree, *status;     /* editor: the editor of the active tab, or NULL */
     ExFindBar *findbar;
-    ExDoc *title_doc;              /* the inline title: the name of the note, above its text */
-    ExWidget *title;
+    ExWidget *title;               /* the inline title of the active tab (a child of its editor), or NULL */
     ExWidget *rb_switcher, *rb_graph, *rb_canvas, *rb_palette, *rb_mode, *rb_left, *rb_right, *rb_theme;   /* the ribbon */
-    char title_for[512];           /* the path the title shows */
-    int title_was_focused;
     int main_collapsed, main_prev_width; ExSide main_collapsed_side;   /* app.toggle-main-text-view: the main text view is a handle, and what to give back */
     Uint64 title_warn_until;       /* the bubble under the title that names the characters a file name cannot have */
     ExSlashMenu *slash;
@@ -208,6 +205,9 @@ static void script_step(App *a) {
     } else if (!strncmp(line, "up ", 3) && sscanf(line + 3, "%f %f", &x, &y) == 2) {
         e.type = SDL_EVENT_MOUSE_BUTTON_UP; e.button.button = SDL_BUTTON_LEFT; e.button.x = x; e.button.y = y;
         g_script.button_down = 0;
+        SDL_PushEvent(&e);
+    } else if (!strncmp(line, "wheel ", 6) && sscanf(line + 6, "%f %f %f", &x, &y, &e.wheel.y) == 3) {      /* wheel X Y DY: DY < 0 scrolls down */
+        e.type = SDL_EVENT_MOUSE_WHEEL; e.wheel.mouse_x = x; e.wheel.mouse_y = y;
         SDL_PushEvent(&e);
     } else if (!strncmp(line, "text ", 5)) {
         static char typed[256];
@@ -412,6 +412,8 @@ static void on_reading_link(ExRSpanKind kind, const char *target, void *user) {
     } else if (kind == EX_RSK_LINK_EXTERNAL) set_status(a, "Only web and e-mail links are opened.");
 }
 
+static void make_title(App *a, ExWidget *ed, ExId tab);
+
 static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
     App *a = user;
     char msg[600];
@@ -451,6 +453,7 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
     ex_editor_set_wrap(ed->editor, 1);                                          /* long lines continue on the next row, at the width of the editor */
     ex_editor_set_state(ed->editor, t->cursor_line, t->cursor_column, t->scroll_y);
     ex_editor_set_mode(ed->editor, editor_mode_for(t->mode));
+    make_title(a, ed, t->id);
     if (!note_for_tab(a, t->id)) remember_tab_note(a, t->id, n);
     if (res == EX_OPEN_RECOVERED) show_banner(a, BANNER_RECOVERED, "Exhaust closed unexpectedly. The text you typed was restored from the recovery journal.", "OK", NULL, NULL);
     else if (res == EX_OPEN_CONFLICT && ex_note_has_conflict(n)) show_conflict_banner(a);
@@ -947,54 +950,60 @@ static void note_name_of(const char *path, char *out, size_t cap) {
     memcpy(out, b, n); out[n] = 0;
 }
 
-static void set_title_text(App *a, const char *text) {
-    size_t n = strlen(text), have = ex_buffer_size(ex_doc_buffer(a->title_doc));
+/* One title for each note editor (ISSUES 11): a child of the editor widget, so it scrolls with the text and every pane has its own. */
+typedef struct Title { App *a; ExDoc *doc; ExWidget *w, *ed; ExId tab; char path[512]; int was_focused; } Title;
+
+static void set_title_text(Title *t, const char *text) {
+    size_t n = strlen(text), have = ex_buffer_size(ex_doc_buffer(t->doc));
     ExChange c;
     c.offset = 0; c.remove_len = have; c.text = text; c.text_len = n;
-    ex_doc_apply(a->title_doc, &c, 1, 0, NULL, 0);
-    ex_doc_set_caret(a->title_doc, n);
+    ex_doc_apply(t->doc, &c, 1, 0, NULL, 0);
+    ex_doc_set_caret(t->doc, n);
 }
 
-static void title_revert(App *a) {
+static void title_revert(Title *t) {
     char name[300];
-    if (!a->title_for[0]) return;
-    note_name_of(a->title_for, name, sizeof name);
-    set_title_text(a, name);
+    if (!t->path[0]) return;
+    note_name_of(t->path, name, sizeof name);
+    set_title_text(t, name);
 }
 
 /* Enter in the title: the note is renamed (a note that is not on disk yet is started again under the new name). */
-static void title_commit(App *a, int keep_focus) {
+static void title_commit(Title *t, int keep_focus) {
+    App *a = t->a;
     size_t len = 0;
-    char *typed = ex_buffer_text(ex_doc_buffer(a->title_doc), &len), path[512];
-    ExId tab = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
-    if (!typed || !a->title_for[0] || !a->panels) { free(typed); return; }
-    snprintf(path, sizeof path, "%s", a->title_for);
-    if (a->note && !ex_note_exists_on_disk(a->note) && ex_buffer_size(ex_doc_buffer(ex_note_doc(a->note))) == 0) {
+    char *typed = ex_buffer_text(ex_doc_buffer(t->doc), &len), path[512];
+    ExNote *note = note_for_tab(a, t->tab);
+    if (!typed || !t->path[0] || !a->panels) { free(typed); return; }
+    snprintf(path, sizeof path, "%s", t->path);
+    if (note && !ex_note_exists_on_disk(note) && ex_buffer_size(ex_doc_buffer(ex_note_doc(note))) == 0) {
         char to[700], name[300];
         const char *slash = strrchr(path, '/');
         size_t n = strlen(typed);
         while (n > 0 && typed[n - 1] == ' ') typed[--n] = 0;
         snprintf(name, sizeof name, "%s", typed);
-        if (!name[0] || !ex_name_valid(name)) { set_status(a, "That is not a valid note name (no  # ^ [ ] | : and not empty)."); title_revert(a); free(typed); return; }
+        if (!name[0] || !ex_name_valid(name)) { set_status(a, "That is not a valid note name (no  # ^ [ ] | : and not empty)."); title_revert(t); free(typed); return; }
         snprintf(to, sizeof to, "%.*s%s%s.md", slash ? (int)(slash - path) : 0, path, slash ? "/" : "", name);
         if (strcmp(to, path)) {
             ExPathInfo info;
             char abs[1400];
             snprintf(abs, sizeof abs, "%s/%s", ex_vault_path(a->vault), to);
-            if (ex_platform_path_info(abs, &info) == 0) { set_status(a, "A note with that name already exists."); title_revert(a); free(typed); return; }
-            if (tab) ex_ws_close_tab(a->ws, tab);
+            if (ex_platform_path_info(abs, &info) == 0) { set_status(a, "A note with that name already exists."); title_revert(t); free(typed); return; }
+            ex_ws_close_tab(a->ws, t->tab);                                      /* t is freed with the tab's content: nothing of it is used below */
             host_open_note(a, to, (size_t)-1, 0);
+            free(typed);
+            return;
         }
-    } else if (ex_panels_rename_to(a->panels, path, typed) != 0) title_revert(a);
+    } else if (ex_panels_rename_to(a->panels, path, typed) != 0) title_revert(t);
     free(typed);
-    if (keep_focus && a->editor) ex_ui_set_focus(a->ui, a->editor);
+    if (keep_focus && t->ed) ex_ui_set_focus(a->ui, t->ed);
 }
 
 #define NAME_FORBIDDEN "\\/:#^[]|"
 
 /* The title is a file name: the characters a name cannot have are not typed (a bubble says which), the rest of a paste goes in. */
 static int title_text(ExWidget *w, const char *utf8, size_t len, void *user) {
-    App *a = user;
+    Title *t = user;
     char clean[512];
     size_t i, o = 0;
     int dropped = 0;
@@ -1005,45 +1014,75 @@ static int title_text(ExWidget *w, const char *utf8, size_t len, void *user) {
     }
     if (!dropped) return 0;
     if (o) ex_editor_text_input(w->editor, clean, o);
-    a->title_warn_until = SDL_GetTicks() + 3000;
+    t->a->title_warn_until = SDL_GetTicks() + 3000;
     return 1;
 }
 
 static int title_key(ExWidget *w, ExKey key, int mods, void *user) {
-    App *a = user;
+    Title *t = user;
     (void)w; (void)mods;
-    if (key == EX_KEY_ENTER) { title_commit(a, 1); return 1; }
-    if (key == EX_KEY_ESCAPE) { title_revert(a); if (a->editor) ex_ui_set_focus(a->ui, a->editor); return 1; }
-    if (key == EX_KEY_DOWN) { if (a->editor) ex_ui_set_focus(a->ui, a->editor); return 1; }
+    if (key == EX_KEY_ENTER) { title_commit(t, 1); return 1; }
+    if (key == EX_KEY_ESCAPE) { title_revert(t); if (t->ed) ex_ui_set_focus(t->a->ui, t->ed); return 1; }
+    if (key == EX_KEY_DOWN) { if (t->ed) ex_ui_set_focus(t->a->ui, t->ed); return 1; }
     return 0;
 }
 
-/* Shows the title of the active note (not while it is being typed in). Leaving the title with a changed name renames the note, as Enter does. */
+static void title_free(void *p) { Title *t = p; ex_doc_free(t->doc); free(t); }
+
+/* The title widget of a note editor: large and bold, wrapping, no frame; it grows with its rows. */
+static void make_title(App *a, ExWidget *ed, ExId tab) {
+    Title *t = calloc(1, sizeof *t);
+    if (!t) return;
+    t->a = a; t->ed = ed; t->tab = tab;
+    t->doc = ex_doc_create("", 0);
+    t->w = t->doc ? ex_widget_editor(a->ui, t->doc, "Note title") : NULL;
+    if (!t->w) { if (t->doc) ex_doc_free(t->doc); free(t); return; }
+    ex_editor_set_mode(t->w->editor, EX_EDITOR_PLAIN);
+    ex_editor_set_wrap(t->w->editor, 1);
+    t->w->text_scale = 2.0f; t->w->bold = 1;
+    t->w->width = ex_size_grow(); t->w->height = ex_size_token(EX_SIZE_SPACING, 7.0f);
+    t->w->on_key = title_key; t->w->on_key_user = t;
+    t->w->on_text = title_text; t->w->on_text_user = t;
+    t->w->hidden = 1;
+    t->w->clip = 0;                                  /* it is clipped to the editor it sits in, which draws it */
+    t->w->owned = t; t->w->free_owned = title_free;
+    ex_widget_add(ed, t->w);
+}
+
+/* Shows the title of every open note editor (not while it is being typed in). Leaving a title with a changed name renames the note, as Enter does. */
 static void sync_title(App *a) {
-    int focused = a->title && ex_ui_focus(a->ui) == a->title;
-    if (a->title_was_focused && !focused && a->title_for[0]) {
-        size_t len = 0;
-        char *typed = ex_buffer_text(ex_doc_buffer(a->title_doc), &len), name[300];
-        note_name_of(a->title_for, name, sizeof name);
-        if (typed && strcmp(typed, name)) title_commit(a, 0);          /* clicked elsewhere or switched away: the rename is made */
-        free(typed);
-    }
-    a->title_was_focused = focused;
-    ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
-    const ExTab *tab = t ? ex_ws_tab(a->ws, t) : NULL;
-    int show = a->title && tab && a->note && tab->path[0] && ex_file_kind(tab->path) == EX_KIND_MARKDOWN && ex_settings_get_bool(a->settings, "editor", "inline_title");
-    if (!a->title) return;
-    a->title->hidden = !show;
-    if (!show) { a->title_for[0] = 0; return; }
-    {   /* the field is as tall as the rows of the title (one frame behind the width: it is measured at the width of the last layout) */
-        float h = ex_editor_content_height(a->title->editor, a->r), scale = ex_renderer_scale(a->r), one = (float)ex_px(a->r, 56);
-        if (h < one) h = one;
-        a->title->height = ex_size_px(a->ui, (h + (float)ex_px(a->r, 8)) / (scale > 0 ? scale : 1.0f));
-    }
-    if (strcmp(a->title_for, tab->path) || a->title_for[0] == 0) {
-        snprintf(a->title_for, sizeof a->title_for, "%s", tab->path);
-        title_revert(a);
-        if (!ex_note_exists_on_disk(a->note)) ex_ui_set_focus(a->ui, a->title);   /* a new note: the first thing typed is its name */
+    size_t i;
+    ExId active = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+    for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
+        ExId tid = ex_ws_tab_at(a->ws, i);
+        ExWidget *c = ex_panes_content(a->panes, tid);
+        Title *t = c && c->type == EX_WIDGET_EDITOR && c->first_child ? c->first_child->owned : NULL;
+        const ExTab *tab = ex_ws_tab(a->ws, tid);
+        ExNote *note = note_for_tab(a, tid);
+        int focused, show;
+        if (!t || !tab) continue;
+        focused = ex_ui_focus(a->ui) == t->w;
+        if (t->was_focused && !focused && t->path[0]) {
+            size_t len = 0;
+            char *typed = ex_buffer_text(ex_doc_buffer(t->doc), &len), name[300];
+            note_name_of(t->path, name, sizeof name);
+            if (typed && strcmp(typed, name)) { free(typed); title_commit(t, 0); continue; }   /* clicked elsewhere or switched away: the rename is made */
+            free(typed);
+        }
+        t->was_focused = focused;
+        show = note && tab->path[0] && ex_file_kind(tab->path) == EX_KIND_MARKDOWN && ex_settings_get_bool(a->settings, "editor", "inline_title");
+        t->w->hidden = !show;
+        if (!show) { t->path[0] = 0; continue; }
+        {   /* the field is as tall as the rows of the title (one frame behind the width: it is measured at the width of the last layout) */
+            float h = ex_editor_content_height(t->w->editor, a->r), scale = ex_renderer_scale(a->r), one = (float)ex_px(a->r, 56);
+            if (h < one) h = one;
+            t->w->height = ex_size_px(a->ui, (h + (float)ex_px(a->r, 8)) / (scale > 0 ? scale : 1.0f));
+        }
+        if (strcmp(t->path, tab->path) || t->path[0] == 0) {
+            snprintf(t->path, sizeof t->path, "%s", tab->path);
+            title_revert(t);
+            if (!ex_note_exists_on_disk(note) && tid == active) ex_ui_set_focus(a->ui, t->w);   /* a new note: the first thing typed is its name */
+        }
     }
 }
 
@@ -1080,6 +1119,7 @@ static void sync_ui(App *a) {
         }
     }
     a->note = t ? note_for_tab(a, t) : NULL;
+    a->title = a->editor && a->editor->first_child ? a->editor->first_child : NULL;
     sync_title(a);
     if (a->rb_left) a->rb_left->selected = ex_ws_sidebar_visible(a->ws, EX_SIDE_LEFT);          /* pressed while the sidebar shows */
     if (a->rb_right) a->rb_right->selected = ex_ws_sidebar_visible(a->ws, EX_SIDE_RIGHT);
@@ -1744,18 +1784,6 @@ int main(int argc, char **argv) {
     ex_widget_add(col, app.banner);
     app.findbar = ex_findbar_create(app.ui);
     if (app.findbar) ex_widget_add(col, ex_findbar_widget(app.findbar));
-    app.title_doc = ex_doc_create("", 0);
-    app.title = app.title_doc ? ex_widget_editor(app.ui, app.title_doc, "Note title") : NULL;
-    if (app.title) {                                                           /* the inline title: large and bold, one line, no frame */
-        ex_editor_set_mode(app.title->editor, EX_EDITOR_PLAIN);
-        ex_editor_set_wrap(app.title->editor, 1);                              /* a long title continues on the next row and the field grows */
-        app.title->text_scale = 2.0f; app.title->bold = 1;
-        app.title->width = ex_size_grow(); app.title->height = ex_size_token(EX_SIZE_SPACING, 7.0f);
-        app.title->on_key = title_key; app.title->on_key_user = &app;
-        app.title->on_text = title_text; app.title->on_text_user = &app;
-        app.title->hidden = 1;
-        ex_panes_set_header(app.panes, app.title);                              /* between the tab strip and the text, as in Obsidian */
-    }
     ex_widget_add(col, ex_panes_root(app.panes));
     if (app.panels) ex_widget_add(col, ex_panels_bottom(app.panels));
     ex_widget_add(row, col);
@@ -1891,6 +1919,7 @@ int main(int argc, char **argv) {
                 ExWidget *wheel_root = app.panels && ex_panels_modal(app.panels) ? ex_panels_overlay(app.panels) : app.root;
                 ExWidget *under = ex_ui_widget_at(wheel_root, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
                 while (under && under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
+                if (under && under->parent && under->parent->type == EX_WIDGET_EDITOR) under = under->parent;   /* over the title: the note scrolls */
                 if (!under && wheel_root == app.root) under = app.editor;
                 if (under && under->type == EX_WIDGET_TREE) ex_tree_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 else if (under && under->type == EX_WIDGET_LIST) ex_list_scroll(under, -e.wheel.y * 3.0f * ex_list_row_height(under));
@@ -1954,7 +1983,6 @@ int main(int argc, char **argv) {
     ex_slash_free(app.slash);
     ex_spell_free(app.spell);
     ex_panes_free(app.panes);                                          /* contents are detached and closed; their notes are closed too */
-    if (app.title) { ex_ui_release(app.ui, app.title); ex_widget_free(app.title); app.title = NULL; }
     if (app.panels) {
         ex_panels_free(app.panels);
         ex_widget_free(app.left_content);                              /* the explorer: the panels only held it */
@@ -1965,7 +1993,6 @@ int main(int argc, char **argv) {
     ex_widget_free(app.root);
     free(app.tabnotes);
     ex_doc_free(app.demo_doc);
-    ex_doc_free(app.title_doc);
     ex_ws_free(app.ws);
     ex_commands_free(app.commands);
     ex_features_free(app.features);

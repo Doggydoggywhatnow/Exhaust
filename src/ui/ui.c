@@ -640,8 +640,17 @@ void ex_ui_layout(ExUi *ui, ExWidget *root, float width, float height) {
                 if (e->type == EX_WIDGET_READING && e->reading) ex_readingview_set_viewport(e->reading, e->x, e->y, e->w, e->h);
                 if (e->type == EX_WIDGET_EDITOR && e->editor) {
                     ExFont *f = ex_ui_font(ui, e->font_token, e->bold);
+                    ex_editor_set_head(e->editor, e->first_child ? e->first_child->h : 0);       /* a child (the inline title) sits above the text and scrolls with it */
+                    if (e->first_child) { e->first_child->x = e->x; e->first_child->w = e->w; e->first_child->y = e->y - ex_editor_scroll_y(e->editor); }
                     ex_editor_set_font(e->editor, f, ui->base_size * (e->text_scale > 0 ? e->text_scale : 1.0f), ex_theme_size(ui->theme, EX_SIZE_LINE_HEIGHT));
-                    ex_editor_set_viewport(e->editor, e->x, e->y, e->w, e->h);
+                    if (e->parent && e->parent->type == EX_WIDGET_EDITOR && e->y < e->parent->y) {   /* a title scrolled partly above its editor: only the part inside is drawn */
+                        float d = e->parent->y - e->y;
+                        ex_editor_set_viewport(e->editor, e->x, e->y + d, e->w, e->h > d ? e->h - d : 0);
+                        ex_editor_scroll(e->editor, d - ex_editor_scroll_y(e->editor));
+                    } else {
+                        ex_editor_set_viewport(e->editor, e->x, e->y, e->w, e->h);
+                        if (e->parent && e->parent->type == EX_WIDGET_EDITOR) ex_editor_scroll(e->editor, -ex_editor_scroll_y(e->editor));
+                    }
                 }
                 if (e->first_child && sp < 63) stack[sp++] = e->first_child;
             }
@@ -703,6 +712,7 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
     if (w->type == EX_WIDGET_READING && w->reading) ex_readingview_draw(w->reading, r, t, ui->base_size);
     if (w->type == EX_WIDGET_TREE) tree_draw(ui, w);
     if (w->type == EX_WIDGET_LIST) ex_list_draw(ui, w);
+    if (w->clip && w->type == EX_WIDGET_EDITOR && w->first_child) ex_set_clip(r, (int)w->x, (int)w->y, (int)ceilf(w->w), (int)ceilf(w->h));   /* the editor drew with its own clip: the child (title) is clipped to the widget */
     for (c = w->first_child; c; c = c->next) draw_widget(ui, c, blink_on);
     if (w->clip) ex_set_clip(r, 0, 0, -1, -1);
     if (w->focusable && ui->focus == w) { /* the visible focus ring, drawn last so nothing covers it */

@@ -34,6 +34,7 @@ struct ExEditor {
     int line_pct;
     float vx, vy, vw, vh;       /* viewport, pixels */
     float scroll_y;
+    float head;                 /* height of a header widget (the inline title) above the first row: it scrolls with the text */
     char composition[512];
     float *goal;                 /* per selection: x to keep while moving vertically; <0 none */
     size_t ngoal;
@@ -157,6 +158,9 @@ void ex_editor_set_font(ExEditor *e, ExFont *font, float size, int line_height_p
 }
 
 void ex_editor_set_viewport(ExEditor *e, float x, float y, float w, float h) { e->vx = x; e->vy = y; e->vw = w; e->vh = h; }
+void ex_editor_set_head(ExEditor *e, float px) { e->head = px > 0 ? px : 0; }
+/* The scroll position in the text's own coordinates: negative while the header is still in view. */
+static float ts(const ExEditor *e) { return e->scroll_y - e->head; }
 float ex_editor_scroll_y(const ExEditor *e) { return e->scroll_y; }
 
 
@@ -851,12 +855,12 @@ static void wrap_sync(ExEditor *e, ExRenderer *r) {
         size_t top, bottom, l0, l1, anchor, changed = 0;
         float within;
         if (!e->vpre_ok) wrap_prefix(e);
-        top = (size_t)(e->scroll_y > 0 ? e->scroll_y / (float)lh : 0);
-        bottom = (size_t)((e->scroll_y + e->vh) / (float)lh) + 1;
+        top = (size_t)(ts(e) > 0 ? ts(e) / (float)lh : 0);
+        bottom = (size_t)((ts(e) + e->vh) / (float)lh) + 1;
         l0 = line_of_vrow(e, top, NULL);
         l1 = line_of_vrow(e, bottom, NULL);
         anchor = l0;
-        within = e->scroll_y - (float)e->vpre[anchor] * (float)lh;
+        within = ts(e) - (float)e->vpre[anchor] * (float)lh;
         l0 = l0 > 30 ? l0 - 30 : 0;
         l1 = l1 + 30 < e->wn ? l1 + 30 : e->wn - 1;
         {   /* the caret line is measured too: the view follows the caret */
@@ -873,7 +877,7 @@ static void wrap_sync(ExEditor *e, ExRenderer *r) {
         }
         if (!changed) break;
         wrap_prefix(e);
-        e->scroll_y = (float)e->vpre[anchor] * (float)lh + within;
+        e->scroll_y = (float)e->vpre[anchor] * (float)lh + within + e->head;
         if (e->scroll_y < 0) e->scroll_y = 0;
     }
     e->last_rows = e->vpre_ok ? e->vpre[e->wn] : 0;
@@ -922,8 +926,8 @@ static void ensure_visible(ExEditor *e, ExRenderer *r) {
     if (wrap_active(e)) { WrapLine w; seg = seg_of(e, r, line, p.head, &w); wl_free(&w); }
     top = (float)(vrow_of_line(e, line) + seg) * (float)lh;
     bottom = top + (float)lh;
-    if (top < e->scroll_y) e->scroll_y = top;
-    else if (bottom > e->scroll_y + e->vh) e->scroll_y = bottom - e->vh;
+    if (top < ts(e)) e->scroll_y = top == 0 ? 0 : top + e->head;                       /* the first row: back to the very top, where the header shows */
+    else if (bottom > ts(e) + e->vh) e->scroll_y = bottom - e->vh + e->head;
     if (e->scroll_y < 0) e->scroll_y = 0;
 }
 
@@ -1416,7 +1420,7 @@ void ex_editor_key(ExEditor *e, ExRenderer *r, ExKey key, int mods) {
 
 static size_t point_to_offset(ExEditor *e, ExRenderer *r, float x, float y) {
     int lh = line_height_px(e, r);
-    long row = (long)floorf((y - e->vy + e->scroll_y) / (float)(lh > 0 ? lh : 1));
+    long row = (long)floorf((y - e->vy + ts(e)) / (float)(lh > 0 ? lh : 1));
     size_t rows, line, seg, off;
     WrapLine w;
     geometry(e, r);
@@ -1456,8 +1460,8 @@ void ex_editor_rect_select(ExEditor *e, ExRenderer *r, float ax, float ay, float
     if (!e->font || lh <= 0) return;
     geometry(e, r);
     rows = vrow_total(e);
-    ra = (long)floorf((ay - e->vy + e->scroll_y) / (float)lh);
-    rb = (long)floorf((y - e->vy + e->scroll_y) / (float)lh);
+    ra = (long)floorf((ay - e->vy + ts(e)) / (float)lh);
+    rb = (long)floorf((y - e->vy + ts(e)) / (float)lh);
     if (ra < 0) ra = 0;
     if (rb < 0) rb = 0;
     if ((size_t)ra >= rows) ra = (long)rows - 1;
@@ -1507,7 +1511,7 @@ void ex_editor_mouse(ExEditor *e, ExRenderer *r, ExMouse kind, float x, float y,
         if (ex_editor_link_at(e, r, x, y, target, sizeof target, heading, sizeof heading, block, sizeof block)) { e->link_click(e->link_click_user, target, heading, block); return; }
     }
     if (kind == EX_MOUSE_DOWN && x >= e->vx && x < e->vx + (float)gutter_px(r) && e->mode != EX_EDITOR_PLAIN) {   /* the gutter: fold or open */
-        size_t row = (size_t)floorf((y - e->vy + e->scroll_y) / (float)line_height_px(e, r)), line;
+        size_t row = (size_t)floorf((y - e->vy + ts(e)) / (float)line_height_px(e, r)), line;
         geometry(e, r);
         if (y >= e->vy && row < vrow_total(e)) {
             line = line_of_vrow(e, row, NULL);
@@ -1627,7 +1631,7 @@ void ex_editor_caret_rect(ExEditor *e, ExRenderer *r, float *x, float *y, float 
     cx = e->vx + (float)pad_px(r) + x_of(e, r, line, p.head) - wl.x[seg];
     wl_free(&wl);
     if (x) *x = cx;
-    if (y) *y = e->vy + (float)(vrow_of_line(e, line) + seg) * (float)lh - e->scroll_y;
+    if (y) *y = e->vy + (float)(vrow_of_line(e, line) + seg) * (float)lh - ts(e);
     if (w) *w = (float)ex_px(r, 1.5f);
     if (h) *h = (float)lh;
 }
@@ -1963,7 +1967,7 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
     ex_set_clip(r, (int)e->vx, (int)e->vy, (int)e->vw, (int)e->vh);
     geometry(e, r);
     rows = vrow_total(e);
-    first = (size_t)(e->scroll_y / (float)lh);
+    first = (size_t)(ts(e) > 0 ? ts(e) / (float)lh : 0);
     last = first + (size_t)(e->vh / (float)lh) + 1;
     if (last >= rows) last = rows - 1;
     caret_line = ex_buffer_line_of_offset(buf(e), ex_doc_sel(e->doc, ex_doc_primary(e->doc)).head);
@@ -1974,7 +1978,7 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
         int lastseg;
         char *txt;
         const ExShaped *sh;
-        float y = e->vy + (float)row * (float)lh - e->scroll_y;
+        float y = e->vy + (float)row * (float)lh - ts(e);
         float ty = y + (float)(lh - fm.line_height) / 2.0f, segx, x0pad;
         line = line_of_vrow(e, row, &seg);
         if (line != cached_line) { wl_free(&wl); wrap_line(e, r, line, &wl); cached_line = line; }
