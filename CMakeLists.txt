@@ -314,7 +314,7 @@ add_library(exhaust_text STATIC src/text/font.c
 target_include_directories(exhaust_text PUBLIC include PRIVATE src/text)
 target_link_libraries(exhaust_text PUBLIC exhaust_unicode freetype harfbuzz sheenbidi exhaust_platform)
 
-add_library(exhaust_layout STATIC src/graph/layout.c)
+add_library(exhaust_layout STATIC src/graph/layout.c src/graph/graphopts.c)
 target_include_directories(exhaust_layout PUBLIC include)
 target_link_libraries(exhaust_layout PUBLIC exhaust_buffer SDL3::SDL3-static)
 if(NOT MSVC)
@@ -343,7 +343,7 @@ if(EXHAUST_A11Y)
   target_link_libraries(exhaust_a11y PUBLIC accesskit)
 endif()
 
-add_library(exhaust_ui STATIC src/ui/graphview.c src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/editor_layout.c src/ui/editor_fold.c src/ui/editor_keys.c src/ui/editor_format.c src/ui/findbar.c src/ui/reading_view.c src/ui/ui.c src/ui/list.c src/ui/icons.c src/ui/service.c src/ui/views.c src/ui/dialogs.c src/ui/panels.c src/ui/fileactions.c src/ui/fileprops.c src/ui/panes.c src/ui/vault_screen.c ${THEME_C})
+add_library(exhaust_ui STATIC src/ui/graphview.c src/ui/slider.c src/ui/graph_panel.c src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/editor_layout.c src/ui/editor_fold.c src/ui/editor_keys.c src/ui/editor_format.c src/ui/findbar.c src/ui/reading_view.c src/ui/ui.c src/ui/list.c src/ui/icons.c src/ui/service.c src/ui/views.c src/ui/dialogs.c src/ui/panels.c src/ui/fileactions.c src/ui/fileprops.c src/ui/panes.c src/ui/vault_screen.c ${THEME_C})
 target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
 target_link_libraries(exhaust_ui PUBLIC exhaust_layout exhaust_nav exhaust_index exhaust_spell exhaust_settings exhaust_find exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace exhaust_markdown clay_impl)
 if(NOT MSVC)
@@ -475,7 +475,7 @@ add_test(NAME workspace_layout COMMAND test_workspace_layout layout)
 add_test(NAME session_restore COMMAND test_workspace_layout session)
 
 add_executable(test_session tests/test_session.c)
-target_link_libraries(test_session PRIVATE exhaust_workspace)
+target_link_libraries(test_session PRIVATE exhaust_workspace exhaust_layout)
 add_test(NAME session_restore_files COMMAND test_session)
 
 add_executable(test_panes tests/test_panes.c)
@@ -520,7 +520,7 @@ add_test(NAME links COMMAND test_links ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/li
 add_test(NAME unlinked_lookup COMMAND test_links --lookup $<TARGET_FILE:gen_vault>)
 
 add_executable(test_graph tests/test_graph.c)
-target_link_libraries(test_graph PRIVATE exhaust_index exhaust_platform)
+target_link_libraries(test_graph PRIVATE exhaust_index exhaust_platform exhaust_layout)
 add_dependencies(test_graph gen_vault)
 add_test(NAME graph_data COMMAND test_graph $<TARGET_FILE:gen_vault>)
 
@@ -531,6 +531,10 @@ add_test(NAME graph_perf COMMAND test_graph_layout)
 add_executable(test_graph_frame tests/test_graph_frame.c)
 target_link_libraries(test_graph_frame PRIVATE exhaust_ui exhaust_render)
 add_test(NAME graph_frame COMMAND test_graph_frame)
+
+add_executable(test_graph_options tests/test_graph_options.c)
+target_link_libraries(test_graph_options PRIVATE exhaust_ui exhaust_index exhaust_render exhaust_platform)
+add_test(NAME graph_options COMMAND test_graph_options)
 set_tests_properties(graph_frame PROPERTIES ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
 
 add_executable(test_props tests/test_props.c)

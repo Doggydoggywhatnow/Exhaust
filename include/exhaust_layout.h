@@ -41,6 +41,11 @@ void ex_layout_free(ExLayout *l);
 const float *ex_layout_positions(ExLayout *l, uint64_t *generation);
 /* For the tests: 1 if the buffer the UI is reading is whole (written start to end by one step); a torn copy would return 0. */
 int ex_layout_front_consistent(const ExLayout *l);
+/* The forces (5b). charge is the repulsion (-30 by default: negative pushes apart), link_strength a multiple of the spring's strength (1),
+ * link_distance the spring's length (30) and center the pull to the middle (0 to 1; 0 by default here, which is what 5a did). They take
+ * effect at the next step and wake a layout that has settled. */
+typedef struct ExLayoutParams { float center, charge, link_strength, link_distance; } ExLayoutParams;
+void ex_layout_set_params(ExLayout *l, const ExLayoutParams *p);
 void ex_layout_reheat(ExLayout *l);      /* wakes a settled layout (after a change of forces), at a middling temperature */
 void ex_layout_stats(const ExLayout *l, ExLayoutStats *out);
 

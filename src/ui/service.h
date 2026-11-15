@@ -34,6 +34,7 @@ typedef struct QJob {
     ExResultView view;
     ExMove *moves; size_t nmoves;  /* the strings are owned */
     int include_attachments;
+    ExGraphOptions gopts;          /* QJ_GRAPH: the filters and groups to apply (5b) */
 } QJob;
 
 typedef struct QRes {

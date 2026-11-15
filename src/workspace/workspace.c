@@ -823,6 +823,17 @@ static int parse_ref(const char *s, ExId *id, char *kind) {
     return 0;
 }
 
+const char *ex_ws_extra_get(const ExWorkspace *ws, const char *section, const char *key) { return ws ? ex_ini_get(ws->extra, section, key) : NULL; }
+
+void ex_ws_extra_set(ExWorkspace *ws, const char *section, const char *key, const char *value) {
+    const char *old;
+    if (!ws || !value) return;
+    old = ex_ini_get(ws->extra, section, key);
+    if (old && !strcmp(old, value)) return;
+    ex_ini_set(ws->extra, section, key, value);
+    touch(ws);
+}
+
 static int is_known_section(const char *name) {
     return !strncmp(name, "window.", 7) || !strncmp(name, "split.", 6) || !strncmp(name, "group.", 6) || !strncmp(name, "tab.", 4) ||
            !strcmp(name, "layout") || !strcmp(name, "session") || !strcmp(name, "search");

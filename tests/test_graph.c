@@ -122,6 +122,23 @@ static void big(const char *tool) {
     CHECK(deg_sum == 2 * g.ne);                              /* every edge touches two nodes */
     CHECK(g.resolves > 0 && g.resolves <= g.links_read);     /* never more questions than links */
     (void)unres;
+    {   /* 5b: the filters and groups on the big graph (run on the service thread in the app): the time is printed, the result is checked */
+        ExGraphOptions o;
+        unsigned bad = 0;
+        size_t n0 = g.n, ne0 = g.ne;
+        ex_graphopts_defaults(&o);
+        snprintf(o.search, sizeof o.search, "Copper");
+        snprintf(o.groups[0].query, sizeof o.groups[0].query, "path:Area");
+        snprintf(o.groups[1].query, sizeof o.groups[1].query, "tag:#x");
+        o.show_orphans = 0;
+        t0 = SDL_GetTicksNS();
+        CHECK(ex_graph_apply_options(r, root, &o, &g, &bad) == 0 && bad == 0);
+        t1 = SDL_GetTicksNS();
+        printf("graph filter (a search, two groups, no orphans) on %zu nodes: %zu nodes and %zu edges left, %.0f ms\n", n0, g.n, g.ne, (double)(t1 - t0) / 1e6);
+        CHECK(g.n > 0 && g.n < n0 && g.ne < ne0);
+        for (i = 0, deg_sum = 0; i < g.n; i++) { deg_sum += g.nodes[i].degree; CHECK(g.nodes[i].degree > 0); }
+        CHECK(deg_sum == 2 * g.ne);
+    }
     ex_graph_free(&g);
     ex_index_close(r); ex_index_close(w);
     free(root);

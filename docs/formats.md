@@ -576,7 +576,21 @@ Rules:
 | `[tab.<id>]` `group` | int | `0` (the split it is in) | 0.1.0 |
 | `[tab.<id>]` `cursor_line`, `cursor_column` | int | `0` | 0.1.0; `cursor_line` counts from 0, `cursor_column` is the byte offset in that line (from 0); both are clamped to the text on restore and never land inside a character |
 | `[tab.<id>]` `scroll_y` | float (pixels at 100% zoom, one decimal) | `0` | 0.1.0 |
-| `[graph]` | keys of the graph settings, plus `open` (bool) | the last state | 0.1.0. **No keys exist yet:** 5a saves only that a graph tab is open (as a tab with view `graph`); pan and zoom are not saved. 5b adds the keys of its display options, filters, groups and forces here first. |
+| `[graph]` `open` | bool | the last state | 0.1.0; 5a: that a graph tab is open (as a tab with view `graph`); pan and zoom are not saved |
+| `[graph]` `search` | string | empty | 0.1.0 (5b). Filter: a query in the search language of the README (terms, `path:`, `file:`, `tag:`, `[property:value]`); only the notes it finds stay in the graph, with the attachments and unresolved names they link to. At most 200 bytes. |
+| `[graph]` `show_orphans` | bool | `true` | 0.1.0 (5b). Off removes the nodes that no edge touches (after the other filters). |
+| `[graph]` `show_unresolved` | bool | `true` | 0.1.0 (5b). Off removes the nodes for names no note answers to. |
+| `[graph]` `show_attachments` | bool | `true` | 0.1.0 (5b). Off removes the nodes for files that are not notes. (5a showed them always; Obsidian's default is off, ours stays on so a graph does not change under a user.) |
+| `[graph]` `group_1_query` .. `group_6_query` | string | empty | 0.1.0 (5b). A group colours the nodes of the notes its query finds (same language as `search`; at most 200 bytes). A node in several groups takes the lowest number. An empty query is no group. |
+| `[graph]` `group_1_color` .. `group_6_color` | int 0 to 5 | `n - 1` | 0.1.0 (5b). The colour slot of the group: 0 `colors.accent`, 1 `colors.success`, 2 `colors.warning`, 3 `colors.error`, 4 `colors.tag`, 5 `colors.link` (existing theme tokens; no new token). |
+| `[graph]` `center_force` | float 0 to 1 | `0.3` | 0.1.0 (5b). The pull of every node to the middle (a force of `center_force * 0.05` of the distance, times the temperature). |
+| `[graph]` `repel_force` | float 0 to 20 | `10` | 0.1.0 (5b). The push between nodes: the charge is `-3 * repel_force` (10 gives the 5a value, -30). |
+| `[graph]` `link_force` | float 0 to 1 | `1` | 0.1.0 (5b). The spring's strength, times 5a's value. |
+| `[graph]` `link_distance` | float 10 to 200 | `30` | 0.1.0 (5b). The spring's length, in layout units. |
+| `[graph]` `arrows` | bool | `false` | 0.1.0 (5b). An arrow head on every line, at the note that is linked to. |
+| `[graph]` `text_fade` | float -3 to 3 | `0` | 0.1.0 (5b). Labels appear above a zoom of `0.9 * 2^text_fade` (a higher value needs more zoom, so fewer labels). |
+| `[graph]` `node_size` | float 0.3 to 3 | `1` | 0.1.0 (5b). A multiple of the circle's radius. |
+| `[graph]` `link_thickness` | float 0.3 to 4 | `1` | 0.1.0 (5b). A multiple of the line's width. |
 | `[search]` `text` | string | empty | 0.1.0 |
 
 **Layout tree (added with sub-slice 2c, since 0.1.0).** The window's panes form a tree of *groups* (a strip of tabs with one active tab) and *splits* (a row or a column of groups and splits). Ids are positive integers, written in values as `g<id>` for a group and `s<id>` for a split.

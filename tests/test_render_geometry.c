@@ -137,6 +137,39 @@ static void test_cull_and_reuse(ExRenderer *r) {
     ex_geom_free(g);
 }
 
+/* An arrow head (5b): one triangle, its tip where it was asked and the body behind it, along the direction in every quarter. */
+static void test_arrow(ExRenderer *r) {
+    ExGeom *g = ex_geom_create();
+    ExGeomStats a;
+    uint8_t *img;
+    int w, h, k;
+    static const float dir[4][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
+    for (k = 0; k < 4; k++) {
+        float dx = dir[k][0], dy = dir[k][1], tx = 100.0f, ty = 100.0f, bx = tx - dx * 12.0f, by = ty - dy * 12.0f;     /* the middle of the base, 12 behind the tip */
+        ex_geom_reset(g);
+        ex_geom_arrow(g, tx, ty, dx * 7.0f, dy * 7.0f, 20.0f, RED);                                                    /* the direction's length does not matter */
+        ex_geom_stats(g, &a);
+        CHECK(a.vertices == 3 && a.indices == 3);
+        img = frame(r, g, &w, &h);
+        CHECK(img != NULL);
+        if (img) {
+            CHECK(is_red(px(img, w, (int)bx, (int)by)));                                                               /* behind the tip, inside */
+            CHECK(is_red(px(img, w, (int)(tx - dx * 2.0f), (int)(ty - dy * 2.0f))));                                   /* just behind the tip */
+            CHECK(is_black(px(img, w, (int)(tx + dx * 4.0f), (int)(ty + dy * 4.0f))));                                 /* in front of the tip: nothing */
+            CHECK(is_black(px(img, w, (int)(tx - dx * 25.0f), (int)(ty - dy * 25.0f))));                               /* behind the base: nothing */
+            free(img);
+        }
+    }
+    ex_geom_reset(g);
+    ex_geom_set_cull(g, 0, 0, 50, 50);
+    ex_geom_arrow(g, 180, 180, 1, 0, 20, RED);                                                                         /* outside the cull rectangle: not built */
+    ex_geom_arrow(g, 100, 100, 0, 0, 20, RED);                                                                         /* no direction: nothing */
+    ex_geom_arrow(g, 20, 20, 1, 0, 0, RED);                                                                            /* no size: nothing */
+    ex_geom_stats(g, &a);
+    CHECK(a.vertices == 0 && a.culled == 1);
+    ex_geom_free(g);
+}
+
 int main(void) {
     ExRenderer *r;
     SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
@@ -145,6 +178,7 @@ int main(void) {
     if (!r) { fprintf(stderr, "renderer: %s\n", ex_render_error()); return 1; }
     test_shapes(r);
     test_cull_and_reuse(r);
+    test_arrow(r);
     ex_renderer_destroy(r);
     SDL_Quit();
     if (failures) { fprintf(stderr, "%d check(s) failed\n", failures); return 1; }

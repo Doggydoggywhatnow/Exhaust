@@ -90,6 +90,7 @@ ExPanels *ex_panels_create(const ExPanelsInit *init) {
     size_t nex;
     if (!p) return NULL;
     p->in = *init;
+    ex_graphopts_defaults(&p->graph_opts);
     p->ui = init->ui;
     p->root = dup_s(init->vault_root);
     p->index_path = init->index_path ? dup_s(init->index_path) : ex_index_path_for_vault(init->vault_id);
@@ -157,6 +158,13 @@ ExWidget *ex_panels_bottom(ExPanels *p) { return p->bottom; }
 ExWidget *ex_panels_overlay(ExPanels *p) { return p->overlay ? p->overlay : p->preview; }
 int ex_panels_modal(const ExPanels *p) { return p->overlay != NULL; }
 int ex_panels_index_ready(const ExPanels *p) { return p->index_ready; }
+
+void ex_panels_graph_options(ExPanels *p, const ExGraphOptions *o) {
+    if (!p || !o) return;
+    p->graph_opts = *o;
+    p->graph_stale = 1;
+    p->graph_sent_at = now_ms() > 1350 ? now_ms() - 1350 : 1;               /* a changed filter reads the graph again in 150 ms (a query typed letter by letter is read once) */
+}
 
 void ex_panels_graph_wanted(ExPanels *p, int wanted) {
     if (wanted && !p->graph_wanted) { p->graph_stale = 1; p->graph_sent_at = 0; }          /* opening the graph reads it at once */
@@ -423,6 +431,7 @@ void ex_panels_update(ExPanels *p) {
     }
     if (p->graph_wanted && p->graph_stale && p->index_ready && (p->graph_sent_at == 0 || now - p->graph_sent_at >= 1500)) {
         QJob *j = qjob_new(QJ_GRAPH, p->graph_req = ++p->next_req);
+        if (j) j->gopts = p->graph_opts;
         p->graph_stale = 0;
         p->graph_sent_at = now;
         if (j) send_job(p, j);

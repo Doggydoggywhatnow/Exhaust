@@ -81,6 +81,9 @@ void ex_geom_set_feather(ExGeom *g, float px);
 void ex_geom_set_cull(ExGeom *g, float x, float y, float w, float h);   /* w < 0: no culling */
 void ex_geom_line(ExGeom *g, float x1, float y1, float x2, float y2, float width, ExColor c);   /* a width under 1 px is drawn 1 px wide and fainter */
 void ex_geom_circle(ExGeom *g, float cx, float cy, float radius, ExColor c);
+/* An arrow head (a filled triangle): its tip at x, y, pointing along the direction dx, dy (any length but not zero), size long and 0.8 of
+ * that wide at the base. Used at the end of a graph's lines. */
+void ex_geom_arrow(ExGeom *g, float x, float y, float dx, float dy, float size, ExColor c);
 /* Draws everything added since the last reset with one renderer call; returns the number of triangles drawn. */
 size_t ex_geom_submit(ExRenderer *r, ExGeom *g);
 typedef struct ExGeomStats {

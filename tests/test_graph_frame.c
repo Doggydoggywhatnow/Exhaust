@@ -329,6 +329,35 @@ int main(void) {
         CHECK(p < hlimit);
     }
 
+    /* 5b: arrows, thicker lines and a colour for every node keep a frame of the big graph in the same limits, and a filtered (smaller) graph draws less */
+    {
+        ExGraphOptions o = *ex_graphmodel_options(m);
+        ExGraph *bg;
+        double fr[24], pf;
+        size_t nfr = 0;
+        ExGraphViewStats s5;
+        {   Uint64 t0 = SDL_GetTicks(); while (!ex_graphmodel_positions(m) && SDL_GetTicks() - t0 < 30000) { ex_graphmodel_update(m); SDL_Delay(2); } }   /* the new layout's first positions */
+        ex_ui_set_focus(ui, gw);
+        ex_ui_text_input(ui, "0", 1);                                                          /* fit the whole graph in the view again */
+        o.arrows = 1; o.link_thickness = 2.0f;
+        ex_graphmodel_set_options(m, &o);
+        bg = (ExGraph *)ex_graphmodel_graph(m);
+        for (i = 0; bg && i < bg->n; i++) bg->nodes[i].group = (uint8_t)(1 + i % 3);
+        frame(ui, r, root);                                                                  /* the first frame may grow the buffer */
+        for (i = 0; i < 24; i++) { ex_graphmodel_update(m); fr[nfr++] = frame(ui, r, root); }
+        pf = p95(fr, nfr);
+        ex_graphview_stats(gw, &s5);
+        printf("with arrows, groups and thick lines: 95th percentile %.2f ms (limit %.0f ms), %zu triangles\n", pf, limit, s5.triangles);
+        CHECK(pf < limit);
+        CHECK(s5.nodes_drawn > 0 && s5.triangles > 1000);                                   /* something was drawn: the frames above are not empty ones */
+        CHECK(s5.triangles < 160000);                                                       /* the arrows add one triangle to each line drawn */
+        ex_graphmodel_set_graph(m, make_graph(500, 1500));                                   /* a filter on the service thread hands the view a smaller graph */
+        {   Uint64 t0 = SDL_GetTicks(); while (!ex_graphmodel_positions(m) && SDL_GetTicks() - t0 < 30000) { ex_graphmodel_update(m); SDL_Delay(2); } }
+        for (i = 0; i < 6; i++) { ex_graphmodel_update(m); frame(ui, r, root); }
+        ex_graphview_stats(gw, &s5);
+        CHECK(s5.nodes_drawn > 0 && s5.nodes_drawn <= 500 && s5.edges_drawn <= 1500 && s5.triangles < 30000);
+    }
+
     ex_widget_free(root);
     ex_graphmodel_free(m);
     ex_ui_free(ui); ex_theme_free(&theme); ex_renderer_destroy(r);

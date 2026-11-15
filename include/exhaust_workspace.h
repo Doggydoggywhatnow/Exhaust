@@ -118,6 +118,11 @@ int ex_ws_close_panel(ExWorkspace *ws, ExSide side, const char *name);
 const char *ex_ws_search_text(const ExWorkspace *ws);       /* "" if none */
 void ex_ws_set_search_text(ExWorkspace *ws, const char *text);
 
+/* Keys of sections this version of the workspace does not model (the [graph] section of 5b): kept in the session file. Setting a key to its
+ * present value changes nothing; any other change counts as a change of the session (so it is saved). */
+const char *ex_ws_extra_get(const ExWorkspace *ws, const char *section, const char *key);   /* NULL if absent */
+void ex_ws_extra_set(ExWorkspace *ws, const char *section, const char *key, const char *value);
+
 /* ---- the session file ---- */
 char *ex_ws_serialize(const ExWorkspace *ws, size_t *len);          /* session.ini text, malloc'ed */
 /* Replaces the state with the text's. Keeps unknown sections and keys for writing back. Bad or

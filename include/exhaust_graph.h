@@ -13,6 +13,7 @@
 #define EXHAUST_GRAPH_H
 #include <stddef.h>
 #include <stdint.h>
+#include "exhaust_graphopts.h"
 #include "exhaust_index.h"
 
 #ifdef __cplusplus
@@ -25,6 +26,7 @@ typedef struct ExGraphNode {
     char *path;          /* a note or attachment: its path from the vault; unresolved: the name the link uses */
     int kind;            /* ExGraphKind */
     uint32_t degree;
+    uint8_t group;       /* 0: in no group; n: in the group n of the options (5b), which colours it */
 } ExGraphNode;
 
 typedef struct ExGraphEdge { uint32_t from, to; } ExGraphEdge;   /* node indexes; from holds the link */
@@ -41,6 +43,12 @@ typedef struct ExGraph {
 /* Reads the whole graph. Returns 0, or -1 if the index cannot be read (out is left empty). */
 int ex_graph_load(ExIndex *r, ExGraph *out);
 void ex_graph_free(ExGraph *g);
+/* Applies the filters and groups of the options (sub-slice 5b) to a graph just read: the notes a search finds (the attachments and unresolved
+ * names they link to stay), the toggles for orphans, unresolved names and attachments, and the group of every note. Removes nodes and
+ * the edges that touch them, and counts degrees again. A query that does not parse is ignored (-1 for it) and the rest is applied: *bad
+ * (may be NULL) gets 1 for the search, or 2 to 7 for group 1 to 6, as a bit set. Runs the search engine, so call it on the service thread.
+ * Returns 0, or -1 on a failed search. */
+int ex_graph_apply_options(ExIndex *r, const char *vault_root, const ExGraphOptions *o, ExGraph *g, unsigned *bad);
 /* The name to show for a node: the file name without a folder and without ".md" (a pointer into the node's path). */
 const char *ex_graph_label(const ExGraphNode *n, size_t *len);
 

@@ -5,6 +5,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "exhaust_graphopts.h"
 #include "exhaust_graphview.h"
 #include "exhaust_layout.h"
 #include "exhaust_render.h"
@@ -36,11 +37,12 @@ struct ExGraphModel {
     int active;                              /* the node of the open note, or -1 */
     char *active_path;
     int animating;
+    ExGraphOptions opts;                     /* the settings of the gear panel (5b) */
 };
 
 ExGraphModel *ex_graphmodel_create(void) {
     ExGraphModel *m = calloc(1, sizeof *m);
-    if (m) m->active = -1;
+    if (m) { m->active = -1; ex_graphopts_defaults(&m->opts); }
     return m;
 }
 
@@ -92,6 +94,27 @@ static void build_adjacency(ExGraphModel *m) {
     free(fill);
 }
 
+static void apply_params(ExGraphModel *m) {
+    ExLayoutParams p;
+    if (!m->layout) return;
+    p.center = m->opts.center; p.charge = -3.0f * m->opts.repel; p.link_strength = m->opts.link_strength; p.link_distance = m->opts.link_distance;
+    ex_layout_set_params(m->layout, &p);
+}
+
+int ex_graphmodel_set_options(ExGraphModel *m, const ExGraphOptions *o) {
+    ExGraphOptions n;
+    int filters, forces;
+    if (!m || !o) return 0;
+    n = *o;
+    ex_graphopts_clamp(&n);
+    filters = !ex_graphopts_filters_equal(&m->opts, &n);
+    forces = n.center != m->opts.center || n.repel != m->opts.repel || n.link_strength != m->opts.link_strength || n.link_distance != m->opts.link_distance;
+    m->opts = n;
+    if (forces) apply_params(m);
+    return filters;
+}
+const ExGraphOptions *ex_graphmodel_options(const ExGraphModel *m) { return m ? &m->opts : NULL; }
+
 void ex_graphmodel_set_graph(ExGraphModel *m, ExGraph *g) {
     ExLayout *l;
     if (!m || !g) return;
@@ -102,6 +125,7 @@ void ex_graphmodel_set_graph(ExGraphModel *m, ExGraph *g) {
     free(m->adj_off); free(m->adj); m->adj_off = m->adj = NULL;
     m->g = g;
     m->layout = l;
+    apply_params(m);
     m->xy = NULL; m->have_xy = 0; m->gen = 0;
     build_adjacency(m);
     model_find_active(m);
@@ -194,6 +218,7 @@ typedef struct View {
     int pressed, moved;
     float press_x, press_y, press_cx, press_cy;
     ExGraphViewStats stats;
+    void *extra; void (*free_extra)(void *); void (*tick)(void *, int64_t);   /* the gear panel's state (5b), freed with the view, and what it does once a frame */
 } View;
 
 static View *view_of(const ExWidget *w) { return w && w->type == EX_WIDGET_GRAPH ? (View *)w->owned : NULL; }
@@ -202,19 +227,23 @@ static void view_free(void *p) {
     View *v = p;
     if (!v) return;
     ex_geom_free(v->geom);
+    if (v->free_extra) v->free_extra(v->extra);
     free(v->mark); free(v->vis); free(v->sxy);
     free(v);
 }
 
-/* A node's radius in pixels: bigger for a busier note, and a little bigger when zoomed in. */
-static float node_radius(const ExUi *ui, const View *v, uint32_t degree) {
+/* A node's radius in pixels: bigger for a busier note, and a little bigger when zoomed in. radius_k is what does not depend on the node
+ * (the spacing, the zoom and the node size), worked out once for a frame. */
+static float radius_k(const ExUi *ui, const View *v) {
     const ExTheme *t = ex_ui_theme(ui);
     float base = (float)ex_theme_size(t, EX_SIZE_SPACING) * ex_renderer_scale(ex_ui_renderer((ExUi *)ui)) * NODE_BASE;
     float zf = sqrtf(v->zoom);
     if (zf < 0.7f) zf = 0.7f;
     if (zf > 1.8f) zf = 1.8f;
-    return base * (0.85f + 0.3f * sqrtf((float)degree)) * zf;
+    return base * zf * v->m->opts.node_size;
 }
+static float radius_of(float rk, uint32_t degree) { return rk * (0.85f + 0.3f * sqrtf((float)degree)); }
+static float node_radius(const ExUi *ui, const View *v, uint32_t degree) { return radius_of(radius_k(ui, v), degree); }
 
 static void to_screen(const View *v, const ExWidget *w, float lx, float ly, float *sx, float *sy) {
     *sx = (lx - v->cx) * v->zoom + w->x + w->w / 2.0f;
@@ -339,6 +368,13 @@ static void set_marks(View *v) {
     v->mark[v->hover] = 2;
 }
 
+/* The colour of a node: its group's, else the node's own. */
+static ExColor node_color(const ExTheme *t, const ExGraphOptions *o, const ExGraphNode *nd, ExColor c_node, ExColor c_unres) {
+    static const int slot[6] = {EX_COLOR_ACCENT, EX_COLOR_SUCCESS, EX_COLOR_WARNING, EX_COLOR_ERROR, EX_COLOR_TAG, EX_COLOR_LINK};
+    if (nd->group >= 1 && nd->group <= EX_GRAPH_MAX_GROUPS) return ex_theme_color(t, (ExColorToken)slot[o->groups[nd->group - 1].color % 6]);
+    return nd->kind == EX_GRAPH_UNRESOLVED ? c_unres : c_node;
+}
+
 void ex_graphview_draw(ExUi *ui, ExWidget *w) {
     View *v = view_of(w);
     ExGraphModel *m;
@@ -346,9 +382,10 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
     ExRenderer *r;
     const ExGraph *g;
     ExColor c_node, c_unres, c_link, c_focus, c_text, c_muted;
-    float lw, fade;
+    float lw, fade, rk;
     size_t i, k, edges = 0, nodes = 0;
     if (!v) return;
+    if (v->tick) v->tick(v->extra, (int64_t)SDL_GetTicks());
     m = v->m; t = ex_ui_theme(ui); r = ex_ui_renderer(ui); g = m->g;
     memset(&v->stats, 0, sizeof v->stats);
     v->stats.hover = v->hover; v->stats.selected = v->selected; v->stats.following = v->following;
@@ -368,7 +405,8 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
     set_marks(v);
     c_node = ex_theme_color(t, EX_COLOR_GRAPH_NODE); c_unres = ex_theme_color(t, EX_COLOR_GRAPH_NODE_UNRESOLVED);
     c_link = ex_theme_color(t, EX_COLOR_GRAPH_LINK); c_focus = ex_theme_color(t, EX_COLOR_GRAPH_FOCUS);
-    lw = (float)ex_px(r, 1.0f);
+    lw = (float)ex_px(r, 1.0f) * m->opts.link_thickness;
+    rk = radius_k(ui, v);
     fade = v->hover >= 0 ? FADED : 1.0f;
     if (!v->geom) { v->geom = ex_geom_create(); if (!v->geom) return; }
     ex_geom_reset(v->geom);
@@ -388,6 +426,10 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
         if (fabsf(ax - bx) < 1.0f && fabsf(ay - by) < 1.0f) continue;                  /* shorter than a pixel: nothing to see */
         if ((ax < w->x && bx < w->x) || (ax > w->x + w->w && bx > w->x + w->w) || (ay < w->y && by < w->y) || (ay > w->y + w->h && by > w->y + w->h)) continue;
         ex_geom_line(v->geom, ax, ay, bx, by, lw, with_alpha(c_link, fade));
+        if (m->opts.arrows) {                                                          /* the head at the note that is linked to, at the rim of its circle */
+            float dl = hypotf(bx - ax, by - ay), rr = radius_of(rk, g->nodes[b].degree), hs = (float)ex_px(r, 6.0f) * (0.6f + 0.4f * m->opts.link_thickness);
+            if (dl > rr + hs * 0.5f) ex_geom_arrow(v->geom, bx - (bx - ax) / dl * rr, by - (by - ay) / dl * rr, bx - ax, by - ay, hs, with_alpha(c_link, fade));
+        }
         edges++;
     }
     /* the circles of what is in view, with a soft edge */
@@ -396,11 +438,11 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
         uint32_t i2 = v->vis[k];
         const ExGraphNode *nd = &g->nodes[i2];
         float sx, sy;
-        ExColor col = nd->kind == EX_GRAPH_UNRESOLVED ? c_unres : c_node;
+        ExColor col = node_color(t, &m->opts, nd, c_node, c_unres);
         if ((int)i2 == m->active) continue;                                        /* drawn last, in the focus color */
         if (v->hover >= 0 && v->mark && v->mark[i2]) continue;                     /* the hovered node and its neighbours, later */
         sx = v->sxy[2 * i2]; sy = v->sxy[2 * i2 + 1];
-        ex_geom_circle(v->geom, sx, sy, node_radius(ui, v, nd->degree), with_alpha(col, fade));
+        ex_geom_circle(v->geom, sx, sy, radius_of(rk, nd->degree), with_alpha(col, fade));
         nodes++;
     }
     if (v->hover >= 0 && m->adj_off) {                                             /* the hovered node's lines, its neighbours and itself */
@@ -418,7 +460,7 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
             uint32_t nb = m->adj[i];
             float nx, ny;
             nx = v->sxy[2 * nb]; ny = v->sxy[2 * nb + 1];
-            ex_geom_circle(v->geom, nx, ny, node_radius(ui, v, g->nodes[nb].degree), g->nodes[nb].kind == EX_GRAPH_UNRESOLVED ? c_unres : c_node);
+            ex_geom_circle(v->geom, nx, ny, node_radius(ui, v, g->nodes[nb].degree), node_color(t, &m->opts, &g->nodes[nb], c_node, c_unres));
             nodes++;
         }
         ex_geom_circle(v->geom, hx, hy, node_radius(ui, v, g->nodes[v->hover].degree) * 1.15f, c_focus);
@@ -442,11 +484,12 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
     { ExGeomStats gs; ex_geom_stats(v->geom, &gs); v->stats.geom_grows = gs.grows; }
     v->stats.nodes_drawn = nodes; v->stats.edges_drawn = edges;
     v->stats.zoom = v->zoom;
+    v->stats.line_px = lw; v->stats.node_px = node_radius(ui, v, 1); v->stats.label_zoom = LABEL_ZOOM * exp2f(m->opts.text_fade);
 
     /* labels: above the zoom threshold, the busiest first, none on top of another; the hovered and selected node always have one */
     {
         ExFont *f = ex_ui_font(ui, EX_FONT_TOKEN_INTERFACE, 0);
-        float size = ex_ui_base_size(ui) * 0.8f, alpha = clampf((v->zoom - LABEL_ZOOM) / (LABEL_ZOOM * 0.5f), 0.0f, 1.0f);
+        float lz = LABEL_ZOOM * exp2f(m->opts.text_fade), size = ex_ui_base_size(ui) * 0.8f, alpha = clampf((v->zoom - lz) / (lz * 0.5f), 0.0f, 1.0f);
         Rect placed[MAX_LABELS + 2];
         size_t np = 0, shown = 0, nc = 0, nlab;
         Cand *cand = NULL;
@@ -549,8 +592,8 @@ void ex_graphview_context(ExWidget *w, float x, float y) {
 
 static int mouse_hook(ExWidget *w, ExMouse kind, float x, float y, ExWidget *under, void *user) {
     View *v = user;
-    (void)under;
     if (kind == EX_MOUSE_DOWN) {
+        if (under != w) return 0;                                                  /* a press on the gear or its panel is theirs */
         v->pressed = 1; v->moved = 0;
         v->press_x = x; v->press_y = y; v->press_cx = v->cx; v->press_cy = v->cy;
         ex_ui_set_focus(v->ui, w);
@@ -615,11 +658,19 @@ ExWidget *ex_widget_graph(ExUi *ui, ExGraphModel *m, const char *name, const ExG
     w->bg_token = EX_COLOR_BACKGROUND;
     w->focusable = 1;
     w->clip = 1;
+    w->vertical = 1; w->align_x = 2; w->align_y = 0; w->pad_x = 1.0f; w->pad_y = 1.0f;   /* the gear and its panel (children) float at the top right */
     w->owned = v; w->free_owned = view_free;
     w->on_mouse = mouse_hook; w->on_mouse_user = v;
     w->on_key = key_hook; w->on_key_user = v;
     w->on_text = text_hook; w->on_text_user = v;
     return w;
+}
+
+void ex_graphview_set_extra(ExWidget *w, void *extra, void (*free_extra)(void *), void (*tick)(void *, int64_t)) {
+    View *v = view_of(w);
+    if (!v) { if (free_extra) free_extra(extra); return; }
+    if (v->free_extra) v->free_extra(v->extra);
+    v->extra = extra; v->free_extra = free_extra; v->tick = tick;
 }
 
 void ex_graphview_stats(const ExWidget *w, ExGraphViewStats *out) {

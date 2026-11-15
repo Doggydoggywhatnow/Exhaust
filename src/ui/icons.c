@@ -173,6 +173,15 @@ void ex_icon_draw(ExRenderer *r, int icon, float x, float y, float w, float h, E
         line(r, x + s * 0.54f, y + s * 0.48f, x + s * 0.66f, y + s * 0.58f, th, c);
         line(r, x + s * 0.54f, y + s * 0.68f, x + s * 0.66f, y + s * 0.58f, th, c);
         break;
+    case EX_ICON_GEAR: {                                                        /* a ring with eight teeth */
+        int k;
+        ring(r, x + s * 0.5f, y + s * 0.5f, s * 0.22f, th * 1.3f, c);
+        for (k = 0; k < 8; k++) {
+            float a = (float)k * 0.785398f, ca = cosf(a), sa = sinf(a);
+            line(r, x + s * (0.5f + 0.3f * ca), y + s * (0.5f + 0.3f * sa), x + s * (0.5f + 0.4f * ca), y + s * (0.5f + 0.4f * sa), th * 1.8f, c);
+        }
+        break;
+    }
     case EX_ICON_CLIPBOARD:
         ex_stroke_round_rect(r, x + s * 0.24f, y + s * 0.2f, s * 0.52f, s * 0.68f, th * 1.5f, th, c);
         ex_fill_round_rect(r, x + s * 0.38f, y + s * 0.12f, s * 0.24f, s * 0.16f, th, c);

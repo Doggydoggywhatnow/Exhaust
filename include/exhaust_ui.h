@@ -131,10 +131,17 @@ typedef enum ExIcon {
     EX_ICON_NONE, EX_ICON_FILES, EX_ICON_SEARCH, EX_ICON_BOOKMARK, EX_ICON_BACKLINKS, EX_ICON_LINKS, EX_ICON_TAGS, EX_ICON_PROPERTIES,
     EX_ICON_FILE_PROPERTIES, EX_ICON_OUTLINE, EX_ICON_FOOTNOTES, EX_ICON_NEW_NOTE, EX_ICON_NEW_FOLDER, EX_ICON_SORT, EX_ICON_EXPAND, EX_ICON_MORE,
     EX_ICON_PALETTE, EX_ICON_GRAPH, EX_ICON_CANVAS, EX_ICON_THEME, EX_ICON_SIDEBAR_LEFT, EX_ICON_SIDEBAR_RIGHT, EX_ICON_MODE,
-    EX_ICON_TRASH, EX_ICON_COPY, EX_ICON_EXTERNAL, EX_ICON_MOVE, EX_ICON_CLIPBOARD, EX_ICON_CHEVRON_RIGHT, EX_ICON_CHEVRON_DOWN
+    EX_ICON_TRASH, EX_ICON_COPY, EX_ICON_EXTERNAL, EX_ICON_MOVE, EX_ICON_CLIPBOARD, EX_ICON_CHEVRON_RIGHT, EX_ICON_CHEVRON_DOWN, EX_ICON_GEAR
 } ExIcon;
 void ex_widget_set_icon(ExWidget *button, int icon);                 /* a square button of the theme's spacing: 3 units */
 void ex_icon_draw(ExRenderer *r, int icon, float x, float y, float w, float h, ExColor c);
+/* A slider (5b): a track with a filled part, from min to max in steps of step. Mouse: press or drag sets the value from the pointer.
+ * Keyboard (when focused): Left and Down one step less, Right and Up one more, Page Down and Page Up ten steps, Home and End the ends.
+ * Its accessible name is "name: value" and follows the value. fn is called with each change the user makes (not by ex_slider_set_value). */
+typedef void (*ExSliderFn)(ExWidget *slider, float value, void *user);
+ExWidget *ex_widget_slider(ExUi *ui, const char *name, float min, float max, float step, float value, ExSliderFn fn, void *user);
+void ex_slider_set_value(ExWidget *slider, float value);     /* clamps and rounds to the step; no callback */
+float ex_slider_value(const ExWidget *slider);
 ExWidget *ex_widget_editor(ExUi *ui, ExDoc *doc, const char *name);
 /* Reading mode: the note's text drawn as formatted pages to the width of the widget (read only, scrolls, follows links
  * and folds callouts). The text is copied; use ex_reading_set_text to show another or a changed one. */

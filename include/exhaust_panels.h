@@ -8,6 +8,7 @@
 #define EXHAUST_PANELS_H
 #include <stddef.h>
 #include "exhaust_commands.h"
+#include "exhaust_graphopts.h"
 #include "exhaust_ui.h"
 #include "exhaust_workspace.h"
 
@@ -86,6 +87,8 @@ void ex_panels_show(ExPanels *p, const char *panel);                /* "files", 
 /* The graph view is open (wanted = 1): the panels read the graph's data now and again whenever the index changes (at most once every 1.5
  * seconds), and hand it to host.graph_data. wanted = 0 stops that. */
 void ex_panels_graph_wanted(ExPanels *p, int wanted);
+/* The filters and groups the next graph read applies on the service thread (sub-slice 5b); the graph is read again at once. */
+void ex_panels_graph_options(ExPanels *p, const ExGraphOptions *o);
 void ex_panels_search_for(ExPanels *p, const char *query);          /* opens Search with this text and runs it */
 void ex_panels_rename_file(ExPanels *p, const char *path);
 /* Renames a note to new_name (no folder, no extension) in its own folder, through the link-safe flow; the link question is asked as

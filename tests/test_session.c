@@ -7,6 +7,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "exhaust_graphopts.h"
 #include "exhaust_platform.h"
 #include "exhaust_session.h"
 
@@ -14,6 +15,9 @@ static int failures;
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "%s:%d: check failed: %s\n", __FILE__, __LINE__, #c); failures++; } } while (0)
 
 #define DIR "session_test_data"
+
+static void set_graph_key(void *u, const char *key, const char *value) { ex_ws_extra_set(u, "graph", key, value); }
+static const char *get_graph_key(void *u, const char *key) { return ex_ws_extra_get(u, "graph", key); }
 
 static ExWorkspace *build(void) {
     ExWorkspace *ws = ex_ws_create();
@@ -46,6 +50,16 @@ int main(void) {
     CHECK(ex_session_writes(s) == 0);
     ex_ws_set_search_text(ws, "tag:#work -file:draft");           /* the active search text is part of the session */
     ex_ws_set_tab_state(ws, ex_ws_tab_at(ws, 0), 9, 9, 9.0f);   /* another change restarts the wait */
+    {   /* the graph's settings (5b) are part of the session: typed keys of [graph], next to a key a newer version wrote */
+        ExGraphOptions go;
+        ex_graphopts_defaults(&go);
+        snprintf(go.search, sizeof go.search, "tag:#work");
+        go.show_unresolved = 0; go.arrows = 1; go.repel = 14.0f; go.link_distance = 70.0f; go.node_size = 1.5f;
+        snprintf(go.groups[1].query, sizeof go.groups[1].query, "path:Notes"); go.groups[1].color = 4;
+        ex_graphopts_save(&go, set_graph_key, ws);
+        ex_ws_extra_set(ws, "graph", "future_key", "kept");
+        ex_ws_extra_set(ws, "graph", "future_key", "kept");     /* the same value again is no change */
+    }
     ex_session_tick(s, ws, now + 200);
     ex_session_tick(s, ws, now + 400);
     ex_session_tick(s, ws, now + 600);
@@ -62,6 +76,16 @@ int main(void) {
     t2 = ex_ws_serialize(re, &l2);
     CHECK(l1 == l2 && memcmp(t1, t2, l1) == 0);
     CHECK(!strcmp(ex_ws_search_text(re), "tag:#work -file:draft"));
+    {
+        ExGraphOptions go, want;
+        ex_graphopts_load(&go, get_graph_key, re);
+        ex_graphopts_defaults(&want);
+        snprintf(want.search, sizeof want.search, "tag:#work");
+        want.show_unresolved = 0; want.arrows = 1; want.repel = 14.0f; want.link_distance = 70.0f; want.node_size = 1.5f;
+        snprintf(want.groups[1].query, sizeof want.groups[1].query, "path:Notes"); want.groups[1].color = 4;
+        CHECK(ex_graphopts_equal(&go, &want));
+        CHECK(get_graph_key(re, "future_key") && !strcmp(get_graph_key(re, "future_key"), "kept"));     /* unknown keys survive */
+    }
     CHECK(ex_ws_group_count(re) == 3 && ex_ws_tab_count(re) == 3 && ex_ws_sidebar_width(re, EX_SIDE_LEFT) == 333);
     /* loading is not a change: nothing is written again */
     ex_session_tick(s, re, now + 5000);

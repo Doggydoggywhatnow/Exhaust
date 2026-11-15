@@ -293,6 +293,21 @@ static int geom_outside(ExGeom *g, float x0, float y0, float x1, float y1) {
     return 0;
 }
 
+void ex_geom_arrow(ExGeom *g, float x, float y, float dx, float dy, float size, ExColor c) {
+    float len = sqrtf(dx * dx + dy * dy), ux, uy, bx, by, hw;
+    SDL_FColor col;
+    int a, b, d;
+    if (!g || len < 0.0001f || size <= 0.0f) return;
+    ux = dx / len; uy = dy / len;
+    bx = x - ux * size; by = y - uy * size;                       /* the middle of the base */
+    hw = size * 0.4f;
+    if (geom_outside(g, (x < bx ? x : bx) - hw, (y < by ? y : by) - hw, (x > bx ? x : bx) + hw, (y > by ? y : by) + hw)) return;
+    if (geom_reserve(g, 3, 3) != 0) return;
+    col = fcolor(c);
+    a = geom_vertex(g, x, y, col); b = geom_vertex(g, bx - uy * hw, by + ux * hw, col); d = geom_vertex(g, bx + uy * hw, by - ux * hw, col);
+    geom_tri(g, a, b, d);
+}
+
 void ex_geom_line(ExGeom *g, float x1, float y1, float x2, float y2, float width, ExColor c) {
     float dx = x2 - x1, dy = y2 - y1, len = sqrtf(dx * dx + dy * dy), nx, ny, f, half;
     SDL_FColor col, clear;

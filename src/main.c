@@ -24,6 +24,7 @@
 #include "exhaust_spell.h"
 #include "exhaust_ui.h"
 #include "exhaust_index.h"
+#include "exhaust_graphpanel.h"
 #include "exhaust_panels.h"
 #include "exhaust_vault.h"
 #include "exhaust_vaultmgr.h"
@@ -65,6 +66,7 @@ typedef struct App {
     ExFindBar *findbar;
     ExWidget *title;               /* the inline title of the active tab (a child of its editor), or NULL */
     ExGraphModel *gm;              /* the graph's data and layout, while a graph tab exists */
+    ExGraphOptions gopts;          /* the graph's settings (5b): filters, groups, forces, display; kept in the session's [graph] section */
     char *graph_note;              /* the note last open in a tab: drawn in the focus color (the graph's own tab is not a note) */
     ExWidget *rb_switcher, *rb_graph, *rb_canvas, *rb_palette, *rb_mode, *rb_left, *rb_right, *rb_theme;   /* the ribbon */
     int main_collapsed, main_prev_width; ExSide main_collapsed_side;   /* app.toggle-main-text-view: the main text view is a handle, and what to give back */
@@ -362,10 +364,14 @@ static void graph_open(void *u, const char *path, int kind, int new_tab) {
     else set_status(a, "Images and other files open in a tab in a later sub-slice.");
 }
 
+static ExGraphModel *ensure_gm(App *a) {
+    if (!a->gm) { a->gm = ex_graphmodel_create(); if (a->gm) ex_graphmodel_set_options(a->gm, &a->gopts); }
+    return a->gm;
+}
+
 static void host_graph_data(void *u, ExGraph *g) {
     App *a = u;
-    if (!a->gm) a->gm = ex_graphmodel_create();
-    if (a->gm) ex_graphmodel_set_graph(a->gm, g);
+    if (ensure_gm(a)) ex_graphmodel_set_graph(a->gm, g);
     else { ex_graph_free(g); free(g); }
 }
 
@@ -377,13 +383,26 @@ static void graph_context(void *u, const char *path, int kind, float x, float y)
     else if (kind == EX_GRAPH_UNRESOLVED) ex_panels_unresolved_menu_at(a->panels, path, x, y);
 }
 
+static void graph_set_key(void *u, const char *key, const char *value) { ex_ws_extra_set(((App *)u)->ws, "graph", key, value); }
+static const char *graph_get_key(void *u, const char *key) { return ex_ws_extra_get(((App *)u)->ws, "graph", key); }
+
+/* The gear panel changed something: remember it in the session and, when it is a filter or a group, have the graph read again with it. */
+static void graph_changed(void *u, const ExGraphOptions *o, int filters) {
+    App *a = u;
+    a->gopts = *o;
+    ex_graphopts_save(o, graph_set_key, a);
+    if (filters && a->panels) ex_panels_graph_options(a->panels, o);
+}
+
 static ExWidget *make_graph(App *a) {
     ExGraphHandlers h;
+    ExWidget *gw;
     memset(&h, 0, sizeof h);
     h.user = a; h.open = graph_open; h.context = graph_context;
-    if (!a->gm) a->gm = ex_graphmodel_create();
-    if (!a->gm) return info_label(a, "The graph cannot be shown: out of memory.");
-    return ex_widget_graph(a->ui, a->gm, "Graph view", &h);
+    if (!ensure_gm(a)) return info_label(a, "The graph cannot be shown: out of memory.");
+    gw = ex_widget_graph(a->ui, a->gm, "Graph view", &h);
+    if (gw) ex_graphpanel_create(a->ui, gw, a->gm, graph_changed, a);
+    return gw;
 }
 
 /* What a tab shows. Notes open here (not when the session is restored), so a note that is not on
@@ -1833,6 +1852,8 @@ int main(int argc, char **argv) {
         app.panels = ex_panels_create(&pi);
         if (app.panels) {
             ex_panels_register(app.panels);
+            ex_graphopts_load(&app.gopts, graph_get_key, &app);                  /* the graph's settings from the session */
+            ex_panels_graph_options(app.panels, &app.gopts);
             left_content = ex_panels_left(app.panels);
             left_content->width = ex_size_grow(); left_content->height = ex_size_grow(); left_content->bg_token = EX_COLOR_BACKGROUND_ALT;
         }

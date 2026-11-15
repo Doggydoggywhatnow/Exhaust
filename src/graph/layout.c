@@ -194,6 +194,7 @@ struct ExLayout {
     uint64_t gen;
     SDL_AtomicInt latest;            /* the buffer last published (low two bits) and, in bit 2, that the UI has not taken it yet */
     SDL_AtomicInt stop, reheat, settled, iterations, interactions, alpha_milli;
+    SDL_AtomicInt p_center, p_charge, p_strength, p_distance;   /* the parameters (5b), in thousandths: the UI sets them, the worker reads them each step */
 };
 
 static void publish(ExLayout *l) {
@@ -211,12 +212,14 @@ static void step(ExLayout *l) {
     size_t k;
     float cx = 0, cy = 0;
     unsigned long inter = 0;
+    float charge = (float)SDL_GetAtomicInt(&l->p_charge) / 1000.0f, kstr = (float)SDL_GetAtomicInt(&l->p_strength) / 1000.0f;
+    float dist = (float)SDL_GetAtomicInt(&l->p_distance) / 1000.0f, grav = (float)SDL_GetAtomicInt(&l->p_center) / 1000.0f * 0.05f;
     l->alpha += (0.0f - l->alpha) * ALPHA_DECAY;
     for (i = 0; i < n; i++) { l->xy[2 * i] = l->x[i]; l->xy[2 * i + 1] = l->y[i]; }
     if (qt_build(&l->tree, l->xy, n) == 0) {
         for (i = 0; i < n; i++) {
             float fx, fy;
-            inter += qt_force(&l->tree, l->xy, i, CHARGE, THETA * THETA, &l->rng, &fx, &fy);
+            inter += qt_force(&l->tree, l->xy, i, charge, THETA * THETA, &l->rng, &fx, &fy);
             l->vx[i] += fx * l->alpha; l->vy[i] += fy * l->alpha;
         }
     }
@@ -226,12 +229,13 @@ static void step(ExLayout *l) {
         if (dx == 0.0f) dx = jitter(&l->rng);
         if (dy == 0.0f) dy = jitter(&l->rng);
         len = sqrtf(dx * dx + dy * dy);
-        len = (len - LINK_DISTANCE) / len * l->alpha * l->strength[k];
+        len = (len - dist) / len * l->alpha * l->strength[k] * kstr;
         dx *= len; dy *= len;
         b = l->bias[k];
         l->vx[t] -= dx * b; l->vy[t] -= dy * b;
         l->vx[s] += dx * (1.0f - b); l->vy[s] += dy * (1.0f - b);
     }
+    if (grav > 0.0f) for (i = 0; i < n; i++) { l->vx[i] -= l->x[i] * grav * l->alpha; l->vy[i] -= l->y[i] * grav * l->alpha; }   /* the pull to the middle */
     for (i = 0; i < n; i++) { l->x[i] += l->vx[i] *= VELOCITY_DECAY; l->y[i] += l->vy[i] *= VELOCITY_DECAY; cx += l->x[i]; cy += l->y[i]; }
     if (n > 0) { cx /= (float)n; cy /= (float)n; for (i = 0; i < n; i++) { l->x[i] -= cx; l->y[i] -= cy; } }   /* the centre of mass stays at the origin */
     SDL_SetAtomicInt(&l->interactions, (int)inter);
@@ -340,6 +344,7 @@ ExLayout *ex_layout_create(const ExGraph *g, const ExGraph *prev_g, const float 
     }
     l->alpha = kept > 0 ? 0.3f : 1.0f;
     SDL_SetAtomicInt(&l->alpha_milli, (int)(l->alpha * 1000000.0f));
+    SDL_SetAtomicInt(&l->p_center, 0); SDL_SetAtomicInt(&l->p_charge, (int)(CHARGE * 1000.0f)); SDL_SetAtomicInt(&l->p_strength, 1000); SDL_SetAtomicInt(&l->p_distance, (int)(LINK_DISTANCE * 1000.0f));
 
     /* all three buffers hold the start, so the UI has something valid to read before the first step */
     for (i = 0; i < 3; i++) { int j; for (j = 0; j < n; j++) { l->pub[i].xy[2 * j] = l->x[j]; l->pub[i].xy[2 * j + 1] = l->y[j]; } }
@@ -385,6 +390,15 @@ const float *ex_layout_positions(ExLayout *l, uint64_t *generation) {
 int ex_layout_front_consistent(const ExLayout *l) { return l->pub[l->front].gen_a == l->pub[l->front].gen_b; }
 
 void ex_layout_reheat(ExLayout *l) { SDL_SetAtomicInt(&l->reheat, 1); }
+
+void ex_layout_set_params(ExLayout *l, const ExLayoutParams *p) {
+    if (!l || !p) return;
+    SDL_SetAtomicInt(&l->p_center, (int)(p->center * 1000.0f));
+    SDL_SetAtomicInt(&l->p_charge, (int)(p->charge * 1000.0f));
+    SDL_SetAtomicInt(&l->p_strength, (int)(p->link_strength * 1000.0f));
+    SDL_SetAtomicInt(&l->p_distance, (int)(p->link_distance * 1000.0f));
+    ex_layout_reheat(l);
+}
 
 void ex_layout_stats(const ExLayout *l, ExLayoutStats *out) {
     SDL_AtomicInt *it = (SDL_AtomicInt *)&l->iterations;

@@ -4,6 +4,7 @@
 
 #include "exhaust_graph.h"
 #include "exhaust_links.h"
+#include "exhaust_search.h"
 #include "store_internal.h"
 
 /* ---- two small hash maps: a string to a number, and a number to a number ---- */
@@ -116,6 +117,7 @@ static int add_node(Build *b, char *path_owned, int kind) {
     g->nodes[g->n].path = path_owned;
     g->nodes[g->n].kind = kind;
     g->nodes[g->n].degree = 0;
+    g->nodes[g->n].group = 0;
     return (int)g->n++;
 }
 
@@ -244,5 +246,103 @@ done:
     smap_free(&resolved);
     smap_free(&unresolved);
     if (rc != 0) ex_graph_free(out);
+    return rc;
+}
+
+/* ---- filters and groups (5b) ---- */
+
+typedef struct PathSet { char **v; size_t n; } PathSet;
+static int cmp_cstr(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
+
+/* The paths a query finds, sorted; 0 on success, -1 if it does not parse, -2 if the search failed. */
+static int found_paths(ExIndex *r, const char *root, const char *query, PathSet *out) {
+    char err[200];
+    ExSearch *q = ex_search_parse(query, err, sizeof err);
+    ExSearchOptions so;
+    ExSearchResult *res = NULL;
+    size_t n = 0, i;
+    out->v = NULL; out->n = 0;
+    if (!q) return -1;
+    memset(&so, 0, sizeof so);
+    so.sort = EX_SEARCH_PATH_AZ; so.max_results = 1000000; so.max_matches = 1;
+    if (ex_search_run(r, root, q, &so, &res, &n, NULL) != 0) { ex_search_free(q); return -2; }
+    ex_search_free(q);
+    out->v = malloc((n ? n : 1) * sizeof *out->v);
+    if (!out->v) { ex_search_results_free(res, n); return -2; }
+    for (i = 0; i < n; i++) { size_t l = strlen(res[i].path) + 1; out->v[i] = malloc(l); if (!out->v[i]) { out->n = i; break; } memcpy(out->v[i], res[i].path, l); out->n = i + 1; }
+    ex_search_results_free(res, n);
+    qsort(out->v, out->n, sizeof *out->v, cmp_cstr);
+    return 0;
+}
+static void pathset_free(PathSet *s) { size_t i; for (i = 0; i < s->n; i++) free(s->v[i]); free(s->v); s->v = NULL; s->n = 0; }
+static int pathset_has(const PathSet *s, const char *p) { return s->n && bsearch(&p, s->v, s->n, sizeof *s->v, cmp_cstr) != NULL; }
+
+int ex_graph_apply_options(ExIndex *r, const char *root, const ExGraphOptions *o, ExGraph *g, unsigned *bad) {
+    size_t i, w, n = g->n;
+    unsigned char *keep;
+    uint32_t *remap;
+    int gi, rc = -1;
+    if (bad) *bad = 0;
+    if (!g->nodes || n == 0) return 0;
+    keep = malloc(n);
+    remap = malloc(n * sizeof *remap);
+    if (!keep || !remap) goto done;
+    memset(keep, 1, n);
+    for (i = 0; i < n; i++) g->nodes[i].group = 0;
+    if (o->search[0]) {
+        PathSet ps;
+        int e = found_paths(r, root, o->search, &ps);
+        if (e == -2) goto done;
+        if (e == -1) { if (bad) *bad |= 1u; }
+        else {
+            unsigned char *linked = calloc(n, 1);
+            if (!linked) { pathset_free(&ps); goto done; }
+            for (i = 0; i < n; i++) if (g->nodes[i].kind == EX_GRAPH_NOTE) keep[i] = pathset_has(&ps, g->nodes[i].path) ? 1 : 0;
+            for (i = 0; i < g->ne; i++) if (keep[g->edges[i].from] && g->nodes[g->edges[i].from].kind == EX_GRAPH_NOTE) linked[g->edges[i].to] = 1;
+            for (i = 0; i < n; i++) if (g->nodes[i].kind != EX_GRAPH_NOTE) keep[i] = linked[i];   /* what the found notes link to */
+            free(linked);
+            pathset_free(&ps);
+        }
+    }
+    for (gi = 0; gi < EX_GRAPH_MAX_GROUPS; gi++) {
+        PathSet ps;
+        int e;
+        if (!o->groups[gi].query[0]) continue;
+        e = found_paths(r, root, o->groups[gi].query, &ps);
+        if (e == -2) goto done;
+        if (e == -1) { if (bad) *bad |= 2u << gi; continue; }
+        for (i = 0; i < n; i++) if (g->nodes[i].kind == EX_GRAPH_NOTE && !g->nodes[i].group && pathset_has(&ps, g->nodes[i].path)) g->nodes[i].group = (uint8_t)(gi + 1);
+        pathset_free(&ps);
+    }
+    for (i = 0; i < n; i++) {
+        if (g->nodes[i].kind == EX_GRAPH_UNRESOLVED && !o->show_unresolved) keep[i] = 0;
+        if (g->nodes[i].kind == EX_GRAPH_ATTACHMENT && !o->show_attachments) keep[i] = 0;
+    }
+    if (!o->show_orphans) {                                     /* an orphan has no edge among the nodes that are left */
+        uint32_t *deg = calloc(n, sizeof *deg);
+        if (!deg) goto done;
+        for (i = 0; i < g->ne; i++) if (keep[g->edges[i].from] && keep[g->edges[i].to]) { deg[g->edges[i].from]++; deg[g->edges[i].to]++; }
+        for (i = 0; i < n; i++) if (!deg[i]) keep[i] = 0;
+        free(deg);
+    }
+    for (i = 0, w = 0; i < n; i++) {                             /* compact: the order stays, so the edges stay sorted */
+        if (keep[i]) { remap[i] = (uint32_t)w; g->nodes[w] = g->nodes[i]; w++; }
+        else { remap[i] = 0xffffffffu; free(g->nodes[i].path); }
+    }
+    {
+        size_t k = 0;
+        for (i = 0; i < g->ne; i++) {
+            uint32_t a = remap[g->edges[i].from], b = remap[g->edges[i].to];
+            if (a == 0xffffffffu || b == 0xffffffffu) continue;
+            g->edges[k].from = a; g->edges[k].to = b; k++;
+        }
+        g->ne = k;
+    }
+    g->n = w;
+    for (i = 0; i < w; i++) g->nodes[i].degree = 0;
+    for (i = 0; i < g->ne; i++) { g->nodes[g->edges[i].from].degree++; g->nodes[g->edges[i].to].degree++; }
+    rc = 0;
+done:
+    free(keep); free(remap);
     return rc;
 }

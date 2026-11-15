@@ -16,6 +16,7 @@
 
 #include "exhaust_editor.h"
 #include "exhaust_findbar.h"
+#include "exhaust_graphpanel.h"
 #include "exhaust_graphview.h"
 #include "exhaust_panels.h"
 #include "exhaust_vaultscreen.h"
@@ -352,6 +353,39 @@ int main(void) {
                 ex_graphview_stats(gv, &gs);
                 CHECK(gs.nodes_drawn <= 4);
                 if (zoom == 3) CHECK(gs.labels_drawn > 0);
+            }
+            ex_ui_release(g_ui, gbox);
+            ex_widget_free(gbox);
+            ex_graphmodel_free(gm);
+        }
+        {   /* the graph's gear panel (5b): every section open, long queries in every field, and a pane as narrow as a sidebar can be */
+            ExGraphModel *gm = ex_graphmodel_create();
+            ExWidget *gbox = ex_widget_box(g_ui, 1, "graph box"), *gv;
+            ExGraphPanel *gp;
+            static const char *heads[4] = {"Filters", "Groups", "Display", "Forces"};
+            int k;
+            gbox->width = ex_size_grow(); gbox->height = ex_size_grow();
+            gv = ex_widget_graph(g_ui, gm, "Graph view", NULL);
+            ex_widget_add(gbox, gv);
+            gp = ex_graphpanel_create(g_ui, gv, gm, NULL, NULL);
+            CHECK(gp != NULL);
+            if (gp) {
+                ExWidget *ng;
+                ex_graphpanel_open(gp, 1);
+                ng = ex_graphpanel_find(gp, "New group");
+                for (k = 0; k < 6 && ng; k++) ng->on_click(ng, ng->on_click_user);
+                for (k = 0; k < 4; k++) {                                              /* one section at a time: each with its fields */
+                    ExWidget *hd = ex_graphpanel_find(gp, heads[k]);
+                    if (hd) hd->on_click(hd, hd->on_click_user);
+                    pump(50);
+                    check_layout(r, gbox, "graph settings panel");
+                    test_text_boxes(r, gbox, heads[k], in);
+                }
+                ex_ui_layout(g_ui, gbox, 200.0f, 400.0f);                              /* a narrow pane: the panel may not push anything out of the widget */
+                ex_ui_draw(g_ui, gbox, 1);
+                ex_ui_layout(g_ui, gbox, 200.0f, 400.0f);                              /* (the panel sizes itself while drawing, so lay out again) */
+                ex_ui_draw(g_ui, gbox, 1);
+                CHECK(ex_graphpanel_box(gp)->x >= gbox->x - 0.5f && ex_graphpanel_box(gp)->x + ex_graphpanel_box(gp)->w <= gbox->x + gbox->w + 0.5f);
             }
             ex_ui_release(g_ui, gbox);
             ex_widget_free(gbox);

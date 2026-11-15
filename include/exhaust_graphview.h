@@ -13,6 +13,8 @@
 #ifndef EXHAUST_GRAPHVIEW_H
 #define EXHAUST_GRAPHVIEW_H
 #include "exhaust_graph.h"
+#include "exhaust_graphopts.h"
+#include <stdint.h>
 #include "exhaust_ui.h"
 
 #ifdef __cplusplus
@@ -28,6 +30,10 @@ void ex_graphmodel_free(ExGraphModel *m);
 void ex_graphmodel_set_graph(ExGraphModel *m, ExGraph *g);
 /* UI thread, once a frame: takes the newest positions. Returns 1 if anything the views draw changed. */
 int ex_graphmodel_update(ExGraphModel *m);
+/* The settings of the gear panel (5b). The forces reach the layout at once and the display options the next frame; the return value is 1
+ * when the filters or groups changed: the caller must have the graph read again with them (the service thread applies them). */
+int ex_graphmodel_set_options(ExGraphModel *m, const ExGraphOptions *o);
+const ExGraphOptions *ex_graphmodel_options(const ExGraphModel *m);
 /* The note open in the main text view (drawn in the focus color); NULL for none. */
 void ex_graphmodel_set_active(ExGraphModel *m, const char *path);
 int ex_graphmodel_animating(const ExGraphModel *m);     /* the layout is still moving the nodes: draw every frame */
@@ -49,6 +55,8 @@ typedef struct ExGraphHandlers {
 
 /* The widget. The model must outlive it. */
 ExWidget *ex_widget_graph(ExUi *ui, ExGraphModel *m, const char *name, const ExGraphHandlers *h);
+/* Hands the widget something it frees with itself and ticks once a frame, before it draws (the gear panel's state, 5b). */
+void ex_graphview_set_extra(ExWidget *w, void *extra, void (*free_extra)(void *), void (*tick)(void *, int64_t));
 /* Mouse wheel over the widget: dy > 0 zooms in (a notch is 1), about the pointer at window position x, y. */
 void ex_graphview_wheel(ExWidget *w, float dy, float x, float y);
 /* The pointer is at x, y (window pixels), over this widget or, with inside = 0, has left it. */
@@ -57,7 +65,10 @@ void ex_graphview_hover(ExWidget *w, float x, float y, int inside);
 void ex_graphview_context(ExWidget *w, float x, float y);
 /* Where nodes are on the screen, for the tests: the number of nodes and edges drawn in the last frame, the nodes under the cull
  * rectangle, and a node's centre in window pixels. */
-typedef struct ExGraphViewStats { size_t nodes_drawn, edges_drawn, labels_drawn, triangles, geom_grows; float zoom; int hover, selected, following; } ExGraphViewStats;
+typedef struct ExGraphViewStats {
+    size_t nodes_drawn, edges_drawn, labels_drawn, triangles, geom_grows; float zoom; int hover, selected, following;
+    float line_px, node_px, label_zoom;      /* the width of a line, the radius of a node with one link, and the zoom above which labels show (5b) */
+} ExGraphViewStats;
 void ex_graphview_stats(const ExWidget *w, ExGraphViewStats *out);
 int ex_graphview_node_at(ExWidget *w, float x, float y);                  /* the node under a window position, or -1 */
 int ex_graphview_node_screen(ExWidget *w, int node, float *x, float *y);  /* 0 if it is off the view */

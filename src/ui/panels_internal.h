@@ -39,6 +39,7 @@ struct ExPanels {
     ExSwitcher *snapshot;
     int snapshot_stale;
     int graph_wanted, graph_stale;   /* the graph view is open; its data is out of date */
+    ExGraphOptions graph_opts;       /* the filters and groups the next graph read applies (5b) */
     unsigned long graph_req, graph_sent_at;
     unsigned long next_req;
     char *cur_path;                  /* the note of the active tab as last seen */
