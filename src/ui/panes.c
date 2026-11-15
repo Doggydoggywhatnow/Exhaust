@@ -5,7 +5,7 @@
 
 #include "exhaust_panes.h"
 
-typedef struct GroupWidgets { ExId group; ExWidget *box, *strip, *content; } GroupWidgets;
+typedef struct GroupWidgets { ExId group; ExWidget *box, *strip, *content; ExWidget *hdr, *back, *fwd, *title, *read, *more; } GroupWidgets;
 typedef struct Cached { ExId tab; ExWidget *w; } Cached;
 
 typedef struct Drag {
@@ -27,6 +27,7 @@ struct ExPanes {
     GroupWidgets *groups; size_t ngroups, capgroups;
     Cached *cache; size_t ncache, capcache;
     unsigned long built_layout;
+    int header_visible;          /* the pane header strip is shown (5d) */
     ExId shown_active;           /* the active group the highlighting was last set for */
     Drag drag;
     Divider div;
@@ -171,6 +172,67 @@ static void close_click(ExWidget *w, void *user) {
     ex_ws_close_tab(p->ws, w->tag);
 }
 
+/* ---- the pane header (5d) ---- */
+
+static void set_name(ExWidget *w, const char *name);
+
+static void back_click(ExWidget *w, void *user) { ExPanes *p = user; if (p->hooks.navigate) p->hooks.navigate(p, w->tag, -1, p->user); }
+static void fwd_click(ExWidget *w, void *user) { ExPanes *p = user; if (p->hooks.navigate) p->hooks.navigate(p, w->tag, 1, p->user); }
+static void read_click(ExWidget *w, void *user) { ExPanes *p = user; if (p->hooks.toggle_reading) p->hooks.toggle_reading(p, w->tag, p->user); }
+static void more_click(ExWidget *w, void *user) { ExPanes *p = user; if (p->hooks.pane_menu) p->hooks.pane_menu(p, w->tag, w->x, w->y + w->h, p->user); }
+
+static ExWidget *header_button(ExPanes *p, ExId g, const char *name, int icon, ExClickFn fn) {
+    ExWidget *b = ex_widget_button(p->ui, name, fn, p);
+    if (!b) return NULL;
+    ex_widget_set_icon(b, icon);
+    b->tag = g; b->bg_token = EX_COLOR_BACKGROUND; b->border_token = -1;
+    b->width = ex_size_token(EX_SIZE_SPACING, 3.0f); b->height = ex_size_token(EX_SIZE_SPACING, 3.0f);
+    return b;
+}
+
+/* Brings the headers up to date with the workspace: the title, whether back and forward have somewhere to go, the reading switch. */
+static void sync_headers(ExPanes *p) {
+    size_t i;
+    for (i = 0; i < p->ngroups; i++) {
+        GroupWidgets *gw = &p->groups[i];
+        const ExTab *t = ex_ws_tab(p->ws, ex_ws_group_active(p->ws, gw->group));
+        char title[300] = "";
+        if (!gw->hdr) continue;
+        gw->hdr->hidden = !p->header_visible;
+        if (t) ex_panes_tab_title(t, title, sizeof title);
+        if (!gw->title->name || strcmp(gw->title->name, title[0] ? title : "No tab")) set_name(gw->title, title[0] ? title : "No tab");   /* the screen reader gets the whole title */
+        {                                                                                  /* what is drawn is cut to the room it had at the last layout, with an ellipsis */
+            char shown[320] = "";
+            float sp = (float)ex_theme_size(ex_ui_theme(p->ui), EX_SIZE_SPACING) * ex_renderer_scale(ex_ui_renderer(p->ui));
+            float room = gw->hdr->w - (gw->back->w + gw->fwd->w + (gw->read->hidden ? 0.0f : gw->read->w) + gw->more->w) - 6.0f * 0.25f * sp - 2.0f * 0.5f * sp;   /* the strip less its buttons, gaps and padding */
+            if (room > 8.0f && title[0]) {                                                  /* the room is known from the last layout; until then the title waits */
+                size_t fl = ex_text_fit(ex_ui_renderer(p->ui), ex_ui_font(p->ui, gw->title->font_token, 0), ex_ui_base_size(p->ui), title, strlen(title), room, shown, sizeof shown);
+                shown[fl < sizeof shown ? fl : sizeof shown - 1] = 0;
+            }
+            if (!gw->title->text || strcmp(gw->title->text, shown)) ex_widget_set_text(gw->title, shown);
+        }
+        gw->back->disabled = !ex_ws_history_can(p->ws, gw->group, -1);
+        gw->fwd->disabled = !ex_ws_history_can(p->ws, gw->group, 1);
+        gw->read->hidden = !(t && t->view && !strcmp(t->view, "note"));
+        gw->read->selected = t && t->mode && !strcmp(t->mode, "reading");
+        gw->read->disabled = 0;
+    }
+}
+
+void ex_panes_set_header_visible(ExPanes *p, int visible) { p->header_visible = visible != 0; sync_headers(p); }
+ExWidget *ex_panes_header(ExPanes *p, ExId group) { size_t i; for (i = 0; i < p->ngroups; i++) if (p->groups[i].group == group) return p->groups[i].hdr; return NULL; }
+ExWidget *ex_panes_header_button(ExPanes *p, ExId group, const char *name) {
+    size_t i;
+    for (i = 0; i < p->ngroups; i++) if (p->groups[i].group == group) {
+        const GroupWidgets *gw = &p->groups[i];
+        ExWidget *b[4] = {gw->back, gw->fwd, gw->read, gw->more};
+        size_t k;
+        for (k = 0; k < 4; k++) if (b[k] && b[k]->name && !strcmp(b[k]->name, name)) return b[k];
+    }
+    return NULL;
+}
+const char *ex_panes_header_title(ExPanes *p, ExId group) { size_t i; for (i = 0; i < p->ngroups; i++) if (p->groups[i].group == group && p->groups[i].title) return p->groups[i].title->text; return NULL; }
+
 static void new_click(ExWidget *w, void *user) {
     ExPanes *p = user;
     if (p->hooks.new_tab) p->hooks.new_tab(p, w->tag, p->user);
@@ -295,6 +357,7 @@ static ExWidget *build_tab_button(ExPanes *p, const ExTab *t, int active_tab, in
 
 static ExWidget *build_group(ExPanes *p, ExId g) {
     ExWidget *box = ex_widget_box(p->ui, 1, "Pane"), *strip = ex_widget_box(p->ui, 0, "Tabs"), *content = ex_widget_box(p->ui, 1, "Content");
+    ExWidget *hdr = ex_widget_box(p->ui, 0, "Pane header");
     size_t i, n = ex_ws_group_tab_count(p->ws, g);
     int active_group = ex_ws_active_group(p->ws) == g;
     GroupWidgets gw;
@@ -353,7 +416,23 @@ static ExWidget *build_group(ExPanes *p, ExId g) {
         ExWidget *hint = ex_widget_label(p->ui, "No tab is open here. Open a note from the file explorer.");
         if (hint) { hint->text_token = EX_COLOR_TEXT_MUTED; hint->pad_x = 2; hint->pad_y = 2; ex_widget_add(content, hint); }
     }
+    memset(&gw, 0, sizeof gw);
+    if (hdr) {                                                       /* the header: back, forward, the title, the reading switch, the menu */
+        gw.back = header_button(p, g, "Navigate back", EX_ICON_ARROW_LEFT, back_click);
+        gw.fwd = header_button(p, g, "Navigate forward", EX_ICON_ARROW_RIGHT, fwd_click);
+        gw.title = ex_widget_label(p->ui, "");
+        gw.read = header_button(p, g, "Toggle reading view", EX_ICON_BOOK, read_click);
+        gw.more = header_button(p, g, "Pane menu", EX_ICON_MORE, more_click);
+        if (gw.back && gw.fwd && gw.title && gw.read && gw.more) {
+            hdr->tag = g; hdr->width = ex_size_grow(); hdr->height = ex_size_token(EX_SIZE_SPACING, 3.5f);
+            hdr->bg_token = EX_COLOR_BACKGROUND; hdr->pad_x = 0.5f; hdr->gap = 0.25f; hdr->align_y = 1; hdr->clip = 1;
+            gw.title->text_token = EX_COLOR_TEXT_MUTED; gw.title->width = ex_size_grow();
+            ex_widget_add(hdr, gw.back); ex_widget_add(hdr, gw.fwd); ex_widget_add(hdr, gw.title); ex_widget_add(hdr, gw.read); ex_widget_add(hdr, gw.more);
+            gw.hdr = hdr;
+        } else { ex_widget_free(gw.back); ex_widget_free(gw.fwd); ex_widget_free(gw.title); ex_widget_free(gw.read); ex_widget_free(gw.more); ex_widget_free(hdr); memset(&gw, 0, sizeof gw); }
+    }
     ex_widget_add(box, strip);
+    if (gw.hdr) ex_widget_add(box, gw.hdr);
     ex_widget_add(box, content);
     gw.group = g; gw.box = box; gw.strip = strip; gw.content = content;
     add_group(p, gw);
@@ -412,6 +491,7 @@ static void rebuild(ExPanes *p) {
     }
     p->built_layout = ex_ws_layout_revision(p->ws);
     p->shown_active = ex_ws_active_group(p->ws);
+    sync_headers(p);
 }
 
 static void refresh_active(ExPanes *p) {
@@ -429,6 +509,7 @@ static void refresh_active(ExPanes *p) {
 void ex_panes_update(ExPanes *p) {
     if (p->built_layout != ex_ws_layout_revision(p->ws) || p->root->first_child == NULL) rebuild(p);
     else if (p->shown_active != ex_ws_active_group(p->ws)) refresh_active(p);
+    sync_headers(p);
 }
 
 ExPanes *ex_panes_create(ExUi *ui, ExWorkspace *ws, const ExPanesHooks *hooks, void *user) {
@@ -441,6 +522,7 @@ ExPanes *ex_panes_create(ExUi *ui, ExWorkspace *ws, const ExPanesHooks *hooks, v
     p->root->width = ex_size_grow();
     p->root->height = ex_size_grow();
     p->built_layout = (unsigned long)-1;
+    p->header_visible = 1;
     return p;
 }
 

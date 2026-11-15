@@ -9,6 +9,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "exhaust_panes.h"
 #include "exhaust_ui.h"
 
 #if defined(__SANITIZE_ADDRESS__)
@@ -111,6 +112,43 @@ int main(void) {
     }
     report("an input handler (typing, Enter, Page Down)", keys, nk, key_limit);
     report("a frame (layout and drawing)", frames, nf, frame_limit);
+    {   /* the pane headers (5d): four panes with six tabs each and a history, brought up to date, laid out and drawn every frame */
+        ExWorkspace *ws = ex_ws_create();
+        ExPanesHooks hooks;
+        ExPanes *panes;
+        ExWidget *win;
+        ExId g = ex_ws_active_group(ws);
+        double hf[120];
+        size_t nh = 0;
+        int gi, ti;
+        memset(&hooks, 0, sizeof hooks);
+        panes = ex_panes_create(ui, ws, &hooks, NULL);
+        win = ex_widget_box(ui, 0, "window");
+        win->width = ex_size_grow(); win->height = ex_size_grow();
+        ex_widget_add(win, ex_panes_root(panes));
+        for (gi = 0; gi < 4; gi++) {
+            for (ti = 0; ti < 6; ti++) {
+                char p[64];
+                snprintf(p, sizeof p, "Folder %d/A fairly long note name number %d.md", gi, ti);
+                ex_ws_new_tab(ws, g, p, "note");
+                ex_ws_history_visit(ws, g, p, "note");
+            }
+            if (gi < 3) g = ex_ws_split(ws, g, EX_SPLIT_HORIZONTAL, 1, 0);
+        }
+        for (i = 0; i < 120; i++) {
+            double t0 = now_ms();
+            ex_panes_update(panes);
+            ex_ui_layout(ui, win, 1000, 700); ex_ui_draw(ui, win, 1); finish_frame(r);
+            if (i % 10 == 9) ex_ws_history_visit(ws, ex_ws_active_group(ws), "Folder 0/Another place.md", "note");   /* the history changes now and then */
+            if (nh < 120) hf[nh++] = now_ms() - t0;
+        }
+        report("a frame with four pane headers", hf, nh, frame_limit);
+        ex_ui_release(ui, win);
+        ex_widget_remove(win, ex_panes_root(panes));
+        ex_widget_free(win);
+        ex_panes_free(panes);
+        ex_ws_free(ws);
+    }
     ex_widget_free(root);
     ex_doc_free(doc);
     ex_ui_free(ui); ex_theme_free(&theme); ex_renderer_destroy(r);

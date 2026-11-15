@@ -29,6 +29,7 @@ typedef struct Node {
     ExId *kids; float *ratios; size_t nkids, capkids;      /* split */
     ExId *tabs; size_t ntabs, captabs; ExId active;          /* group */
     ExId *linked; size_t nlinked, caplinked;
+    ExPlace *hist; size_t nhist, caphist; int hpos;           /* group: the places it showed (5d) */
 } Node;
 
 typedef struct Window { ExId id; int main; ExId root; int x, y, w, h, maximized; } Window;
@@ -63,6 +64,86 @@ void ex_ws_set_search_text(ExWorkspace *ws, const char *text) {
 
 static void touch_layout(ExWorkspace *ws) { ws->revision++; ws->layout_revision++; }
 
+/* ---- the history of a pane (5d) ---- */
+
+static Node *group_node(const ExWorkspace *ws, ExId g);
+static void free_place(ExPlace *p);
+
+void ex_ws_history_visit(ExWorkspace *ws, ExId group, const char *path, const char *view) {
+    Node *nd = group_node(ws, group);
+    ExPlace *cur = NULL;
+    size_t i;
+    if (!nd || !path || !view) return;
+    if (nd->nhist && nd->hpos >= 0 && (size_t)nd->hpos < nd->nhist) cur = &nd->hist[nd->hpos];
+    if (cur && !strcmp(cur->path, path) && !strcmp(cur->view, view)) return;
+    if (cur) {                                                      /* leaving it: its cursor and scroll are what the tab holds now, if the tab is still there */
+        for (i = 0; i < ws->ntabs; i++) {
+            const ExTab *t = &ws->tabs[i];
+            if (t->group == group && !strcmp(t->path, cur->path) && !strcmp(t->view, cur->view)) { cur->line = t->cursor_line; cur->column = t->cursor_column; cur->scroll = t->scroll_y; break; }
+        }
+    }
+    for (i = nd->nhist; cur && i > (size_t)nd->hpos + 1; i--) free_place(&nd->hist[i - 1]);   /* what was ahead is gone */
+    if (cur) nd->nhist = (size_t)nd->hpos + 1;
+    if (nd->nhist == nd->caphist) {
+        size_t nc = nd->caphist ? nd->caphist * 2 : 8;
+        ExPlace *np = realloc(nd->hist, nc * sizeof *np);
+        if (!np) return;
+        nd->hist = np; nd->caphist = nc;
+    }
+    nd->hist[nd->nhist].path = dup_str(path); nd->hist[nd->nhist].view = dup_str(view);
+    nd->hist[nd->nhist].line = nd->hist[nd->nhist].column = 0; nd->hist[nd->nhist].scroll = 0.0f;
+    if (!nd->hist[nd->nhist].path || !nd->hist[nd->nhist].view) { free_place(&nd->hist[nd->nhist]); return; }
+    nd->nhist++;
+    if (nd->nhist > EX_HISTORY_MAX) {                               /* the oldest goes */
+        free_place(&nd->hist[0]);
+        memmove(nd->hist, nd->hist + 1, (nd->nhist - 1) * sizeof *nd->hist);
+        nd->nhist--;
+    }
+    nd->hpos = (int)nd->nhist - 1;
+    touch(ws);
+}
+
+size_t ex_ws_history_count(const ExWorkspace *ws, ExId group) { Node *nd = group_node(ws, group); return nd ? nd->nhist : 0; }
+int ex_ws_history_pos(const ExWorkspace *ws, ExId group) { Node *nd = group_node(ws, group); return nd && nd->nhist ? nd->hpos : -1; }
+const ExPlace *ex_ws_history_place(const ExWorkspace *ws, ExId group, size_t i) { Node *nd = group_node(ws, group); return nd && i < nd->nhist ? &nd->hist[i] : NULL; }
+int ex_ws_history_can(const ExWorkspace *ws, ExId group, int dir) {
+    Node *nd = group_node(ws, group);
+    if (!nd || !nd->nhist) return 0;
+    return dir < 0 ? nd->hpos > 0 : (size_t)nd->hpos + 1 < nd->nhist;
+}
+const ExPlace *ex_ws_history_go(ExWorkspace *ws, ExId group, int dir) {
+    Node *nd = group_node(ws, group);
+    if (!nd || !ex_ws_history_can(ws, group, dir)) return NULL;
+    nd->hpos += dir < 0 ? -1 : 1;
+    touch(ws);
+    return &nd->hist[nd->hpos];
+}
+const ExPlace *ex_ws_history_go_valid(ExWorkspace *ws, ExId group, int dir, int (*exists)(const ExPlace *, void *), void *user) {
+    Node *nd = group_node(ws, group);
+    if (!nd) return NULL;
+    for (;;) {
+        int j = nd->hpos + (dir < 0 ? -1 : 1);
+        if (!nd->nhist || j < 0 || j >= (int)nd->nhist) return NULL;
+        if (!exists || exists(&nd->hist[j], user)) { nd->hpos = j; touch(ws); return &nd->hist[j]; }
+        free_place(&nd->hist[j]);                                   /* gone: dropped, and the search goes on */
+        memmove(nd->hist + j, nd->hist + j + 1, (nd->nhist - (size_t)j - 1) * sizeof *nd->hist);
+        nd->nhist--;
+        if (dir < 0) nd->hpos--;
+        touch(ws);
+    }
+}
+
+void ex_ws_history_remove(ExWorkspace *ws, ExId group, size_t i) {
+    Node *nd = group_node(ws, group);
+    if (!nd || i >= nd->nhist) return;
+    free_place(&nd->hist[i]);
+    memmove(nd->hist + i, nd->hist + i + 1, (nd->nhist - i - 1) * sizeof *nd->hist);
+    nd->nhist--;
+    if ((size_t)nd->hpos > i || (size_t)nd->hpos >= nd->nhist) nd->hpos--;
+    if (nd->hpos < 0) nd->hpos = nd->nhist ? 0 : -1;
+    touch(ws);
+}
+
 /* ---- lookup ---- */
 
 static Node *node(const ExWorkspace *ws, ExId id) {
@@ -70,6 +151,7 @@ static Node *node(const ExWorkspace *ws, ExId id) {
     for (i = 0; i < ws->n; i++) if (ws->nodes[i].id == id) return &ws->nodes[i];
     return NULL;
 }
+static Node *group_node(const ExWorkspace *ws, ExId g) { Node *nd = node(ws, g); return nd && nd->kind == EX_NODE_GROUP ? nd : NULL; }
 static Window *win(const ExWorkspace *ws, ExId id) {
     size_t i;
     for (i = 0; i < ws->nwin; i++) if (ws->wins[i].id == id) return &ws->wins[i];
@@ -97,7 +179,13 @@ static Node *new_node(ExWorkspace *ws, ExNodeKind kind) {
     return nd;
 }
 
-static void free_node_data(Node *nd) { free(nd->kids); free(nd->ratios); free(nd->tabs); free(nd->linked); }
+static void free_place(ExPlace *p) { free(p->path); free(p->view); p->path = p->view = NULL; }
+static void free_node_data(Node *nd) {
+    size_t i;
+    free(nd->kids); free(nd->ratios); free(nd->tabs); free(nd->linked);
+    for (i = 0; i < nd->nhist; i++) free_place(&nd->hist[i]);
+    free(nd->hist);
+}
 
 static void delete_node(ExWorkspace *ws, ExId id) {
     Node *nd = node(ws, id);
@@ -742,6 +830,15 @@ static void write_node(const ExWorkspace *ws, ExIni *ini, ExId id) {
             for (i = 0; i < nd->nlinked && used + 24 < sizeof buf; i++) used += (size_t)snprintf(buf + used, sizeof buf - used, "%sg%u", i ? "," : "", (unsigned)nd->linked[i]);
             ex_ini_set(ini, sec, "linked", buf);
         }
+        if (nd->nhist) {                                                    /* the pane's history (5d) */
+            ex_ini_set_int(ini, sec, "history_pos", nd->hpos);
+            for (i = 0; i < nd->nhist; i++) {
+                char key[24], val[900];
+                snprintf(key, sizeof key, "history_%u", (unsigned)i);
+                snprintf(val, sizeof val, "%s|%s|%d|%d|%.1f", nd->hist[i].path, nd->hist[i].view, nd->hist[i].line, nd->hist[i].column, (double)nd->hist[i].scroll);
+                ex_ini_set(ini, sec, key, val);
+            }
+        }
     }
 }
 
@@ -1029,6 +1126,35 @@ int ex_ws_deserialize(ExWorkspace *ws, const char *text, size_t len) {
         {
             ExTab *at = tab(ws, g->active);
             if (!at || at->group != g->id) g->active = g->ntabs ? g->tabs[0] : 0;
+        }
+        {                                                                   /* the pane's history (5d): bad entries are skipped */
+            size_t k;
+            for (k = 0; k < EX_HISTORY_MAX; k++) {
+                char key[24], val[900], *f[5];
+                const char *v;
+                int nf = 0;
+                char *c;
+                snprintf(key, sizeof key, "history_%u", (unsigned)k);
+                v = ex_ini_get(ini, sec, key);
+                if (!v) break;
+                snprintf(val, sizeof val, "%s", v);
+                for (c = val, f[nf++] = c; *c && nf < 5; c++) if (*c == '|') { *c = 0; f[nf++] = c + 1; }
+                if (nf != 5 || !f[1][0]) continue;
+                if (g->nhist == g->caphist) {
+                    size_t nc = g->caphist ? g->caphist * 2 : 8;
+                    ExPlace *np = realloc(g->hist, nc * sizeof *np);
+                    if (!np) break;
+                    g->hist = np; g->caphist = nc;
+                }
+                g->hist[g->nhist].path = dup_str(f[0]); g->hist[g->nhist].view = dup_str(f[1]);
+                g->hist[g->nhist].line = atoi(f[2]); g->hist[g->nhist].column = atoi(f[3]); g->hist[g->nhist].scroll = (float)atof(f[4]);
+                if (g->hist[g->nhist].line < 0) g->hist[g->nhist].line = 0;
+                if (g->hist[g->nhist].column < 0) g->hist[g->nhist].column = 0;
+                if (!g->hist[g->nhist].path || !g->hist[g->nhist].view) { free_place(&g->hist[g->nhist]); break; }
+                g->nhist++;
+            }
+            g->hpos = (int)ex_ini_get_int(ini, sec, "history_pos", (long long)g->nhist - 1);
+            if (g->hpos < 0 || (size_t)g->hpos >= g->nhist) g->hpos = (int)g->nhist - 1;
         }
         tl = ex_ini_get(ini, sec, "linked");
         if (tl) {

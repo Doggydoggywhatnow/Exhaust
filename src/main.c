@@ -103,6 +103,7 @@ typedef struct App {
     float zoom_now;
     TabNote *tabnotes; size_t ntabnotes, captabnotes;
     ExId focus_tab;            /* the tab whose editor should get the focus when it exists */
+    ExId menu_group;           /* the pane whose three-dot menu is open (5d) */
     Banner banner_kind;
     int blink_on;
     float zoom;
@@ -706,6 +707,126 @@ static void cmd_toggle_reading(void *u) {
         a->focus_tab = tab;
     }
 }
+
+/* ---- the pane header: history and the pane menu (sub-slice 5d) ---- */
+
+static int host_file_op(void *u, int what, const char *path, const char *arg);
+
+/* A place of a pane's history still exists: a note must still be a file of the vault; a graph always does. */
+static int place_exists(const ExPlace *pl, void *u) {
+    App *a = u;
+    char abs[1400];
+    ExPathInfo info;
+    if (strcmp(pl->view, "note") != 0) return 1;
+    if (!a->vault) return 0;
+    snprintf(abs, sizeof abs, "%s/%s", ex_vault_path(a->vault), pl->path);
+    return ex_platform_path_info(abs, &info) == 0;
+}
+
+/* Shows a place in a pane: the tab the pane already has for it comes to the front; otherwise a tab is made, with the cursor and scroll the
+ * pane had when it left the place. */
+static void show_place(App *a, ExId group, const char *path, const char *view, int line, int column, float scroll) {
+    size_t i;
+    ExId t = 0;
+    for (i = 0; i < ex_ws_group_tab_count(a->ws, group); i++) {
+        const ExTab *tab = ex_ws_tab(a->ws, ex_ws_group_tab(a->ws, group, i));
+        if (tab && !strcmp(tab->path, path) && !strcmp(tab->view, view)) { t = tab->id; break; }
+    }
+    if (!t) {
+        t = ex_ws_new_tab(a->ws, group, path, view);
+        if (t && !strcmp(view, "note")) {
+            if (strcmp(ex_settings_get(a->settings, "editor", "default_view"), "reading") == 0) ex_ws_set_tab_mode(a->ws, t, "reading");
+            else if (strcmp(ex_settings_get(a->settings, "editor", "default_mode"), "source") == 0) ex_ws_set_tab_mode(a->ws, t, "source");
+            ex_ws_set_tab_state(a->ws, t, line, column, scroll);
+        }
+    }
+    if (t) { ex_ws_set_active_group(a->ws, group); ex_ws_activate(a->ws, t); a->focus_tab = t; }
+}
+
+static void pane_navigate(ExPanes *p, ExId group, int dir, void *u) {
+    App *a = u;
+    const ExPlace *pl;
+    char path[700], view[40];
+    int line, column;
+    float scroll;
+    (void)p;
+    pl = ex_ws_history_go_valid(a->ws, group, dir, place_exists, a);
+    if (!pl) return;
+    snprintf(path, sizeof path, "%s", pl->path); snprintf(view, sizeof view, "%s", pl->view);   /* copies: opening a tab changes the workspace */
+    line = pl->line; column = pl->column; scroll = pl->scroll;
+    show_place(a, group, path, view, line, column, scroll);
+}
+static void cmd_nav_back(void *u) { App *a = u; pane_navigate(a->panes, ex_ws_active_group(a->ws), -1, a); }
+static void cmd_nav_forward(void *u) { App *a = u; pane_navigate(a->panes, ex_ws_active_group(a->ws), 1, a); }
+
+/* What each pane shows is a place in its history: once a frame, the active tab of every pane is recorded (the same place again changes
+ * nothing). A tab with no file and no view of its own (a new tab) is not a place. */
+static void record_places(App *a) {
+    size_t i;
+    for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
+        const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
+        if (!t || !t->view || (!t->path[0] && !strcmp(t->view, "empty"))) continue;
+        if (ex_ws_group_active(a->ws, t->group) == t->id) ex_ws_history_visit(a->ws, t->group, t->path, t->view);
+    }
+}
+
+static void pane_toggle_reading(ExPanes *p, ExId group, void *u) {
+    App *a = u;
+    (void)p;
+    ex_ws_set_active_group(a->ws, group);
+    ex_commands_run(a->commands, "app.toggle-reading-view");
+}
+
+enum { PM_RIGHT = 1, PM_WINDOW, PM_COPY, PM_SHOW, PM_BOOKMARK, PM_CLOSE };
+
+static void reveal_in_explorer(App *a, const char *path) {
+    if (!a->tree || !path[0]) return;
+    ex_tree_select_path(a->tree, path);
+    if (a->panels) ex_panels_show(a->panels, "files");
+}
+
+static void pane_menu_chosen(ExPanels *pn, int id, void *arg) {
+    App *a = arg;
+    const ExTab *t = ex_ws_tab(a->ws, ex_ws_group_active(a->ws, a->menu_group));
+    char path[700], view[40];
+    (void)pn;
+    if (!t) return;
+    snprintf(path, sizeof path, "%s", t->path); snprintf(view, sizeof view, "%s", t->view);
+    switch (id) {
+    case PM_RIGHT: {
+        ExId ng = ex_ws_split(a->ws, a->menu_group, EX_SPLIT_HORIZONTAL, 1, 0);
+        if (ng) show_place(a, ng, path, view, t->cursor_line, t->cursor_column, t->scroll_y);
+        break;
+    }
+    case PM_WINDOW: set_status(a, "Opening a tab in a new window is not available yet."); break;
+    case PM_COPY: if (path[0]) { host_file_op(a, EX_FILEOP_COPY_REL, path, NULL); set_status(a, "Path copied."); } break;
+    case PM_SHOW: reveal_in_explorer(a, path); break;
+    case PM_BOOKMARK: if (a->panels && path[0]) ex_panels_bookmark_note(a->panels, path); break;
+    case PM_CLOSE: ex_ws_close_tab(a->ws, t->id); break;
+    }
+}
+
+/* The three-dot menu of a pane: the entries of the note menu that make sense for a pane. */
+static void pane_menu(ExPanes *p, ExId group, float x, float y, void *u) {
+    App *a = u;
+    const ExTab *t = ex_ws_tab(a->ws, ex_ws_group_active(a->ws, group));
+    ExMenuItem items[8];
+    size_t n = 0;
+    int is_note = t && !strcmp(t->view, "note");
+    (void)p;
+    if (!t || !a->panels) return;
+    a->menu_group = group;
+    ex_ws_set_active_group(a->ws, group);
+    { ExMenuItem it = {"Open to the right", EX_ICON_NEW_NOTE, PM_RIGHT, 0, 0}; items[n++] = it; }
+    { ExMenuItem it = {"Open in new window", EX_ICON_EXTERNAL, PM_WINDOW, 0, 0}; items[n++] = it; }
+    if (is_note) {
+        { ExMenuItem it = {"Copy path", EX_ICON_CLIPBOARD, PM_COPY, 0, 1}; items[n++] = it; }
+        { ExMenuItem it = {"Show in the explorer", EX_ICON_FILES, PM_SHOW, 0, 0}; items[n++] = it; }
+        { ExMenuItem it = {"Bookmark", EX_ICON_BOOKMARK, PM_BOOKMARK, 0, 0}; items[n++] = it; }
+    }
+    { ExMenuItem it = {"Close", EX_ICON_TRASH, PM_CLOSE, 0, 1}; items[n++] = it; }
+    ex_panels_popup(a->panels, x, y, items, n, pane_menu_chosen, a);
+}
 static int has_note_tab(void *u) { App *a = u; ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws)); return t && note_for_tab(a, t) != NULL; }
 static void fold_cmd(App *a, ExFoldCmd cmd) { if (a->editor && a->editor->editor) ex_editor_fold(a->editor->editor, cmd); }
 static void cmd_fold_all(void *u) { fold_cmd(u, EX_FOLD_ALL); }
@@ -1030,6 +1151,8 @@ static void register_features_and_commands(App *a) {
     ex_commands_bind(a->commands, "editor.spelling-add-word-to-dictionary", cmd_spell_add, has_editor, a);
     ex_commands_bind(a->commands, "editor.spelling-replace-with-suggestion", cmd_spell_replace, has_editor, a);
     ex_commands_bind(a->commands, "app.toggle-reading-view", cmd_toggle_reading, has_note_tab, a);
+    ex_commands_bind(a->commands, "app.navigate-back", cmd_nav_back, NULL, a);
+    ex_commands_bind(a->commands, "app.navigate-forward", cmd_nav_forward, NULL, a);
     ex_commands_bind(a->commands, "app.create-new-note", cmd_new_note, has_notes, a);
     ex_commands_bind(a->commands, "app.close-current-tab", cmd_close_tab, has_tab, a);
 }
@@ -1249,6 +1372,8 @@ static void sync_ui(App *a) {
         }
     }
     ex_panes_update(a->panes);
+    record_places(a);
+    ex_panes_set_header_visible(a->panes, ex_settings_get_bool(a->settings, "interface", "show_tab_title_bar"));
     {                                                                                /* the graph: read while a graph tab exists, updated once a frame */
         size_t i, graphs = 0;
         for (i = 0; i < ex_ws_tab_count(a->ws); i++) { const ExTab *gt = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i)); if (gt && gt->view && !strcmp(gt->view, "graph")) graphs++; }
@@ -1851,6 +1976,7 @@ int main(int argc, char **argv) {
     hooks.tab_shown = tab_shown;
     hooks.new_tab = app.vault ? new_empty_tab : NULL;
     hooks.drop_file = drop_file;
+    hooks.navigate = pane_navigate; hooks.toggle_reading = pane_toggle_reading; hooks.pane_menu = pane_menu;
     app.panes = ex_panes_create(app.ui, app.ws, &hooks, &app);
 
     /* window: ribbon | left sidebar | banner above the panes | right sidebar, and a status line */

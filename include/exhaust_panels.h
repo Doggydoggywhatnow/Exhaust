@@ -88,6 +88,11 @@ void ex_panels_register(ExPanels *p);
 void ex_panels_show(ExPanels *p, const char *panel);                /* "files", "search", "bookmarks", "backlinks", ... */
 /* The graph view is open (wanted = 1): the panels read the graph's data now and again whenever the index changes (at most once every 1.5
  * seconds), and hand it to host.graph_data. wanted = 0 stops that. */
+/* A popup menu at a window position for the application (the pane menu of 5d): each item has a label, an icon (ExIcon), an id the callback
+ * gets, and may be a red one or have a separator before it. arg must stay valid until the callback runs. */
+typedef struct ExMenuItem { const char *label; int icon; int id; int danger, sep_before; } ExMenuItem;
+void ex_panels_popup(ExPanels *p, float x, float y, const ExMenuItem *items, size_t n, void (*cb)(ExPanels *p, int id, void *arg), void *arg);
+void ex_panels_bookmark_note(ExPanels *p, const char *path);          /* the Bookmark entry of the note menu */
 void ex_panels_graph_wanted(ExPanels *p, int wanted);
 /* The same for the local graph (5c): read while a local graph tab exists, around the note `center` (a path; NULL: no note is open), to the
  * depth of the options given to ex_panels_graph_options. A new centre reads it again at once. */

@@ -52,7 +52,7 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 
 | Name | Type | Default | Since |
 | --- | --- | --- | --- |
-| `show_tab_title_bar` | bool | `true` | 0.1.0 |
+| `show_tab_title_bar` | bool | `true` | 0.1.0. **Works since 5d:** it shows or hides the pane header, the strip of back and forward arrows, the title, the reading switch and the three-dot menu under the tab strip of every pane (the plan of 5d called the switch `show_pane_header`; this key, from the settings page "Show tab title bar", is the same thing and is used instead of a second name). |
 | `show_ribbon` | bool | `true` | 0.1.0 |
 | `ribbon_items` | list | empty (all) | 0.1.0 |
 | `zoom_percent` | percent | `100` | 0.1.0 |
@@ -608,6 +608,8 @@ Rules:
 | `[split.<id>]` `ratios` | list of float | equal shares | one share for each child; they are normalized when read |
 | `[group.<id>]` `tabs` | list of ints | empty | tab ids in display order (pinned tabs come first) |
 | `[group.<id>]` `active` | int | the first tab | id of the active tab |
+| `[group.<id>]` `history_pos` | int | `-1` (no history) | 0.1.0 (5d). The index of the place the pane shows now in its history (the pane's list of places, newest last, at most 50). Back and forward move it. |
+| `[group.<id>]` `history_<n>` | string | none | 0.1.0 (5d). Place `n` (from 0): `path\|view\|cursor_line\|cursor_column\|scroll_y`, the path from the vault (empty for a graph), the view (`note`, `graph`, `localgraph`, ...), and where the note's cursor and scroll were when the pane left it. A place whose note is gone is skipped by back and forward and dropped from the list. A value that does not parse is ignored. |
 | `[group.<id>]` `linked` | list of groups | empty | linked panes follow each other: opening a note in one opens it in the others |
 | `[tab.<id>]` `group` | int | required | the group the tab is in (replaces the earlier "the split it is in") |
 

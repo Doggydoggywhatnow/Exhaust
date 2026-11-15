@@ -123,6 +123,25 @@ void ex_ws_set_search_text(ExWorkspace *ws, const char *text);
 const char *ex_ws_extra_get(const ExWorkspace *ws, const char *section, const char *key);   /* NULL if absent */
 void ex_ws_extra_set(ExWorkspace *ws, const char *section, const char *key, const char *value);
 
+/* ---- the history of a pane (sub-slice 5d) ----
+ * Each pane (group) keeps the list of places it showed, newest last (at most EX_HISTORY_MAX), and where in it the pane is now. A place is a
+ * note (with the cursor and scroll it had when the pane left it) or a view without a file (the graph). ex_ws_history_visit says what the pane
+ * shows now: the same place as the current one changes nothing; a different one drops the places after the current one and is added at the
+ * end. Back and forward move the position and return the place to show (NULL when there is none); the caller opens it and drops a place
+ * that no longer exists with ex_ws_history_remove. The history is saved in the session. */
+#define EX_HISTORY_MAX 50
+typedef struct ExPlace { char *path; char *view; int line, column; float scroll; } ExPlace;
+void ex_ws_history_visit(ExWorkspace *ws, ExId group, const char *path, const char *view);
+size_t ex_ws_history_count(const ExWorkspace *ws, ExId group);
+int ex_ws_history_pos(const ExWorkspace *ws, ExId group);                    /* -1 when the history is empty */
+const ExPlace *ex_ws_history_place(const ExWorkspace *ws, ExId group, size_t i);
+int ex_ws_history_can(const ExWorkspace *ws, ExId group, int dir);            /* dir -1 back, +1 forward */
+const ExPlace *ex_ws_history_go(ExWorkspace *ws, ExId group, int dir);
+void ex_ws_history_remove(ExWorkspace *ws, ExId group, size_t i);
+/* Back or forward to the nearest place that exists: exists(place, user) says so; the places before it that do not are dropped from the
+ * history. Returns the place the pane now has (NULL: none, and the history keeps its position). */
+const ExPlace *ex_ws_history_go_valid(ExWorkspace *ws, ExId group, int dir, int (*exists)(const ExPlace *place, void *user), void *user);
+
 /* ---- the session file ---- */
 char *ex_ws_serialize(const ExWorkspace *ws, size_t *len);          /* session.ini text, malloc'ed */
 /* Replaces the state with the text's. Keeps unknown sections and keys for writing back. Bad or

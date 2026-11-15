@@ -32,6 +32,11 @@ typedef struct ExPanesHooks {
     int (*drop_file)(ExPanes *p, ExId group, const char *path, void *user);
     /* A tab was dragged out of the window. May be NULL (the tab then stays where it was). */
     void (*popout)(ExPanes *p, ExId tab, void *user);
+    /* The pane header (5d). Back (dir -1) and forward (dir +1) in the history of a pane; the reading switch of a pane's active tab; the
+     * three-dot menu of a pane, at a window position. Each may be NULL (the button is then drawn but does nothing). */
+    void (*navigate)(ExPanes *p, ExId group, int dir, void *user);
+    void (*toggle_reading)(ExPanes *p, ExId group, void *user);
+    void (*pane_menu)(ExPanes *p, ExId group, float x, float y, void *user);
 } ExPanesHooks;
 
 ExPanes *ex_panes_create(ExUi *ui, ExWorkspace *ws, const ExPanesHooks *hooks, void *user);
@@ -48,6 +53,13 @@ void ex_panes_replace_content(ExPanes *p, ExId tab, ExWidget *content);
 ExWidget *ex_panes_content(ExPanes *p, ExId tab);
 /* The pane (group) that is under a window position (after the last layout), or 0. */
 ExId ex_panes_group_at(ExPanes *p, float x, float y);
+/* Shows or hides the header strip of every pane (the setting [interface] show_tab_title_bar). Shown by default. */
+void ex_panes_set_header_visible(ExPanes *p, int visible);
+/* The header of a pane (for the tests): its buttons by name ("Navigate back", "Navigate forward", "Toggle reading view", "Pane menu"), its
+ * title text and the strip itself. NULL if the pane or button is unknown. */
+ExWidget *ex_panes_header(ExPanes *p, ExId group);
+ExWidget *ex_panes_header_button(ExPanes *p, ExId group, const char *name);
+const char *ex_panes_header_title(ExPanes *p, ExId group);
 /* The text a tab shows in its tab strip. */
 void ex_panes_tab_title(const ExTab *tab, char *out, size_t cap);
 

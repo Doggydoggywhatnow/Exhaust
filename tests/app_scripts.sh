@@ -183,4 +183,67 @@ set -- $widths
 if [ -n "$1" ] && [ "$1" -gt 400 ] 2>/dev/null; then echo "ok: the left sidebar was dragged wider ($1 px)"; else echo "FAILED: the left sidebar was not resized ($widths)"; fail=1; fi
 if [ -n "$2" ] && [ "$2" -gt 300 ] 2>/dev/null; then echo "ok: the right sidebar was dragged wider ($2 px)"; else echo "FAILED: the right sidebar was not resized ($widths)"; fail=1; fi
 
+# the pane header (5d): the graph is opened after a note, back goes to the note, and the history is in the session; after a restart forward works
+run history_walk 'wait 1000
+move 21 53
+down 21 53
+up 21 53
+wait 1000
+move 326 50
+down 326 50
+up 326 50
+wait 800
+quit' Home.md
+hsession=$(find "$work/data" -name session.ini -newer "$work/history_walk.script" | head -1)
+if [ -n "$hsession" ] && grep -q "history_pos = 0" "$hsession" && grep -q "history_0 = Home.md|note|" "$hsession" && grep -q "history_1 = |graph|" "$hsession"; then echo "ok: back in the pane header walked from the graph to the note, and the history is saved"; else echo "FAILED: the pane history (back from the graph)"; fail=1; fi
+vault="$work/history_walk"
+printf '%s\n' 'wait 1000
+move 352 50
+down 352 50
+up 352 50
+wait 800
+quit' > "$work/history_walk2.script"
+if command -v timeout >/dev/null 2>&1; then lim="timeout 60"; else lim=""; fi
+unset EXHAUST_OPEN
+EXHAUST_SCRIPT="$work/history_walk2.script" $lim "$exe" "$vault" >"$work/history_walk2.log" 2>&1
+if [ -n "$hsession" ] && grep -q "history_pos = 1" "$hsession"; then echo "ok: after a restart forward in the pane header walked on to the graph (the history was restored)"; else echo "FAILED: the pane history after a restart"; fail=1; fi
+
+# the pane menu (5d): the three-dot button of the header; its entries do what they say
+run menu_right 'wait 1000
+move 777 50
+down 777 50
+up 777 50
+wait 400
+move 790 80
+down 790 80
+up 790 80
+wait 800
+quit' Home.md
+msession=$(find "$work/data" -name session.ini -newer "$work/menu_right.script" | head -1)
+groups=$(grep -c '^\[group\.' "$msession" 2>/dev/null)
+if [ "${groups:-0}" -ge 2 ] 2>/dev/null; then echo "ok: Open to the right in the pane menu made a second pane"; else echo "FAILED: the pane menu's Open to the right ($groups panes)"; fail=1; fi
+run menu_bookmark 'wait 1000
+move 777 50
+down 777 50
+up 777 50
+wait 400
+move 790 210
+down 790 210
+up 790 210
+wait 1000
+quit' Home.md
+if grep -rqs "Home.md" "$work/menu_bookmark/.exhaust/bookmarks.ini"; then echo "ok: Bookmark in the pane menu bookmarked the note"; else echo "FAILED: the pane menu's Bookmark"; fail=1; fi
+run menu_close 'wait 1000
+move 777 50
+down 777 50
+up 777 50
+wait 400
+move 790 248
+down 790 248
+up 790 248
+wait 800
+quit' Home.md
+csession=$(find "$work/data" -name session.ini -newer "$work/menu_close.script" | head -1)
+if [ -n "$csession" ] && ! grep -q "path = Home.md" "$csession"; then echo "ok: Close in the pane menu closed the tab"; else echo "FAILED: the pane menu's Close"; fail=1; fi
+
 exit $fail

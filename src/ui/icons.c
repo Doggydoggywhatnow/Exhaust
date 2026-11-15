@@ -188,6 +188,17 @@ void ex_icon_draw(ExRenderer *r, int icon, float x, float y, float w, float h, E
         plus(r, x + s * 0.3f, y + s * 0.22f, s * 0.08f, th, c);
         plus(r, x + s * 0.82f, y + s * 0.7f, s * 0.08f, th, c);
         break;
+    case EX_ICON_ARROW_LEFT: case EX_ICON_ARROW_RIGHT: {                        /* an arrow with a shaft */
+        float d = icon == EX_ICON_ARROW_LEFT ? -1.0f : 1.0f, tipx = x + s * (0.5f + 0.34f * d), tailx = x + s * (0.5f - 0.34f * d);
+        line(r, tailx, y + s * 0.5f, tipx, y + s * 0.5f, th * 1.4f, c);
+        line(r, tipx, y + s * 0.5f, tipx - d * s * 0.2f, y + s * 0.3f, th * 1.4f, c);
+        line(r, tipx, y + s * 0.5f, tipx - d * s * 0.2f, y + s * 0.7f, th * 1.4f, c);
+        break;
+    }
+    case EX_ICON_BOOK:                                                          /* an open book: two pages */
+        ex_stroke_round_rect(r, x + s * 0.12f, y + s * 0.24f, s * 0.38f, s * 0.52f, th * 0.8f, th, c);
+        ex_stroke_round_rect(r, x + s * 0.5f, y + s * 0.24f, s * 0.38f, s * 0.52f, th * 0.8f, th, c);
+        break;
     case EX_ICON_CLIPBOARD:
         ex_stroke_round_rect(r, x + s * 0.24f, y + s * 0.2f, s * 0.52f, s * 0.68f, th * 1.5f, th, c);
         ex_fill_round_rect(r, x + s * 0.38f, y + s * 0.12f, s * 0.24f, s * 0.16f, th, c);

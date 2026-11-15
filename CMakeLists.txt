@@ -482,6 +482,10 @@ add_executable(test_panes tests/test_panes.c)
 target_link_libraries(test_panes PRIVATE exhaust_ui)
 add_test(NAME workspace_layout_panes COMMAND test_panes)
 
+add_executable(test_pane_header tests/test_pane_header.c)
+target_link_libraries(test_pane_header PRIVATE exhaust_ui)
+add_test(NAME pane_header COMMAND test_pane_header)
+
 add_executable(test_settings tests/test_settings.c)
 target_link_libraries(test_settings PRIVATE exhaust_settings)
 target_compile_definitions(test_settings PRIVATE DOC_PATH="${CMAKE_CURRENT_SOURCE_DIR}/docs/formats.md")

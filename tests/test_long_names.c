@@ -17,6 +17,7 @@
 #include "exhaust_editor.h"
 #include "exhaust_findbar.h"
 #include "exhaust_graphpanel.h"
+#include "exhaust_panes.h"
 #include "exhaust_graphview.h"
 #include "exhaust_panels.h"
 #include "exhaust_vaultscreen.h"
@@ -357,6 +358,39 @@ int main(void) {
             ex_ui_release(g_ui, gbox);
             ex_widget_free(gbox);
             ex_graphmodel_free(gm);
+        }
+        {   /* the pane header (5d): a note with a very long name, in a pane as narrow as one can be, and a graph */
+            ExWorkspace *ws = ex_ws_create();
+            ExPanesHooks ph;
+            ExPanes *panes;
+            ExWidget *win = ex_widget_box(g_ui, 0, "window"), *hdr;
+            ExId ga = ex_ws_active_group(ws), gb;
+            char longrel[400];
+            int pass;
+            memset(&ph, 0, sizeof ph);
+            panes = ex_panes_create(g_ui, ws, &ph, NULL);
+            win->width = ex_size_grow(); win->height = ex_size_grow();
+            ex_widget_add(win, ex_panes_root(panes));
+            snprintf(longrel, sizeof longrel, "Folder/%s.md", w200);
+            ex_ws_new_tab(ws, ga, longrel, "note");
+            gb = ex_ws_split(ws, ga, EX_SPLIT_HORIZONTAL, 1, 0);
+            ex_ws_new_tab(ws, gb, "", "graph");
+            ex_ws_history_visit(ws, ga, longrel, "note");
+            for (pass = 0; pass < 3; pass++) {                                           /* the title is cut to the room of the last layout: lay out again */
+                ex_panes_update(panes);
+                check_layout(r, win, "pane header, a long title");
+            }
+            hdr = ex_panes_header(panes, ga);
+            CHECK(hdr && hdr->w > 0 && hdr->h > 0);
+            {
+                const char *shown = ex_panes_header_title(panes, ga);
+                CHECK(shown && strlen(shown) < strlen(longrel) && strstr(shown, "\xE2\x80\xA6"));                  /* cut with an ellipsis, the whole title stays the accessible name */
+            }
+            ex_ui_release(g_ui, win);
+            ex_widget_remove(win, ex_panes_root(panes));
+            ex_widget_free(win);
+            ex_panes_free(panes);
+            ex_ws_free(ws);
         }
         {   /* the graph's gear panel (5b): every section open, long queries in every field, and a pane as narrow as a sidebar can be */
             ExGraphModel *gm = ex_graphmodel_create();

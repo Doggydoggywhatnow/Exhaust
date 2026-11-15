@@ -115,6 +115,23 @@ static void menu_chosen(ExPanels *p, int a, void *arg) {
     action_done(p, a, arg);
 }
 
+void ex_panels_popup(ExPanels *p, float x, float y, const ExMenuItem *items, size_t n, void (*cb)(ExPanels *, int, void *), void *arg) {
+    PopupItem pi[16];
+    size_t i;
+    if (n > 16) n = 16;
+    for (i = 0; i < n; i++) { PopupItem it = {items[i].label, items[i].icon, items[i].id, items[i].danger, items[i].sep_before, 0}; pi[i] = it; }
+    dialog_popup(p, x, y, pi, n, cb, arg);
+}
+
+void ex_panels_bookmark_note(ExPanels *p, const char *path) {
+    ExBookmark b;
+    memset(&b, 0, sizeof b);
+    b.type = EX_BM_NOTE; b.path = (char *)path;
+    ex_bookmarks_add(p->bookmarks, &b, 0);
+    views_bookmarks_changed(p);
+    say(p, "Note bookmarked.");
+}
+
 /* The menu for a file or folder of the vault ("" is the vault folder itself), at a window position. */
 void ex_panels_file_menu_at(ExPanels *p, const char *path, float x, float y) {
     PopupItem items[16];
