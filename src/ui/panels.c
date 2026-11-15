@@ -6,6 +6,7 @@
 #include "exhaust_fuzzy.h"
 #include "exhaust_platform.h"
 #include "exhaust_vault.h"
+#include "exhaust_graphview.h"
 #include "panels_internal.h"
 
 unsigned long now_ms(void) { return (unsigned long)ex_platform_now_ms(); }
@@ -156,6 +157,11 @@ ExWidget *ex_panels_bottom(ExPanels *p) { return p->bottom; }
 ExWidget *ex_panels_overlay(ExPanels *p) { return p->overlay ? p->overlay : p->preview; }
 int ex_panels_modal(const ExPanels *p) { return p->overlay != NULL; }
 int ex_panels_index_ready(const ExPanels *p) { return p->index_ready; }
+
+void ex_panels_graph_wanted(ExPanels *p, int wanted) {
+    if (wanted && !p->graph_wanted) { p->graph_stale = 1; p->graph_sent_at = 0; }          /* opening the graph reads it at once */
+    p->graph_wanted = wanted != 0;
+}
 
 void ex_panels_show(ExPanels *p, const char *panel) { View *v = view_by_id(p, panel); if (v) views_show(p, (int)(v - p->views)); }
 void ex_panels_expand_queries(ExPanels *p, const char *path, const char *text, size_t len) {
@@ -385,6 +391,7 @@ void ex_panels_update(ExPanels *p) {
             case QJ_PLAN: handle_plan(p, r); break;
             case QJ_REWRITE: if (r->req == p->req_rewrite) finish_rename(p, r); break;
             case QJ_PREVIEW: preview_result(p, r); break;
+            case QJ_GRAPH: if (r->req == p->graph_req && r->ok && r->graph && p->in.host.graph_data) { p->in.host.graph_data(p->in.host.user, r->graph); r->graph = NULL; } break;
             case QJ_EXPAND: if (r->ok && r->text && p->in.host.query_results) p->in.host.query_results(p->in.host.user, r->summary, r->text); break;
             default: views_result(p, r); break;
             }
@@ -395,6 +402,7 @@ void ex_panels_update(ExPanels *p) {
                 if (!p->reader) p->reader = ex_index_open(p->index_path, 0, NULL, 0);
                 mark_index_views_stale(p);
                 p->snapshot_stale = 1;
+                p->graph_stale = 1;
             }
         }
         if (m.payload && m.free_payload) m.free_payload(m.payload);
@@ -411,6 +419,13 @@ void ex_panels_update(ExPanels *p) {
         p->index_dirty_at = 0;
         mark_index_views_stale(p);
         p->snapshot_stale = 1;
+        p->graph_stale = 1;
+    }
+    if (p->graph_wanted && p->graph_stale && p->index_ready && (p->graph_sent_at == 0 || now - p->graph_sent_at >= 1500)) {
+        QJob *j = qjob_new(QJ_GRAPH, p->graph_req = ++p->next_req);
+        p->graph_stale = 0;
+        p->graph_sent_at = now;
+        if (j) send_job(p, j);
     }
     if (p->snapshot_stale && p->index_ready) {
         QJob *j = qjob_new(QJ_SNAPSHOT, ++p->next_req);
@@ -474,6 +489,10 @@ void ex_panels_pointer(ExPanels *p, ExWidget *root, float x, float y, int ctrl) 
             snprintf(target, sizeof target, "%s", t);
             need = "ctrl_required_reading_view"; found = 1;
         }
+    } else if (w && w->type == EX_WIDGET_GRAPH) {                 /* a note's node in the graph */
+        int kind = 0;
+        const char *hp = ex_graphview_hover_path(w, &kind);
+        if (hp && kind == EX_GRAPH_NOTE) { snprintf(target, sizeof target, "\x01%s", hp); need = "ctrl_required_graph"; found = 1; }
     } else if (w && w->type == EX_WIDGET_EDITOR && w->editor && ex_ui_renderer(p->ui)) {
         if (ex_editor_link_at(w->editor, ex_ui_renderer(p->ui), x, y, target, sizeof target, heading, sizeof heading, block, sizeof block)) { need = "ctrl_required_editing_view"; found = 1; }
     }

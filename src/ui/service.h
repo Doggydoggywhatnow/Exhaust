@@ -4,6 +4,7 @@
 #define EXHAUST_SERVICE_H
 #include <stddef.h>
 #include <stdint.h>
+#include "exhaust_graph.h"
 #include "exhaust_index.h"
 #include "exhaust_ui.h"
 #include "exhaust_links.h"
@@ -19,7 +20,7 @@ typedef struct QRows { QRow *v; size_t n, cap; } QRows;
 void qrows_free(QRows *r);
 size_t qrows_add(QRows *r, const char *text, const char *detail, const char *key, int indent, int glyph, int muted, int bold, int64_t id, size_t aux1, size_t aux2);
 
-enum { QJ_SEARCH = 1, QJ_BACKLINKS, QJ_UNLINKED, QJ_OUTGOING, QJ_TAGS, QJ_PROPS, QJ_OUTLINE, QJ_FOOTNOTES, QJ_PREVIEW, QJ_SNAPSHOT, QJ_REWRITE, QJ_PLAN, QJ_PROPOP, QJ_LINKIT, QJ_EXPAND, QJ_FILEPROPS };
+enum { QJ_SEARCH = 1, QJ_BACKLINKS, QJ_UNLINKED, QJ_OUTGOING, QJ_TAGS, QJ_PROPS, QJ_OUTLINE, QJ_FOOTNOTES, QJ_PREVIEW, QJ_SNAPSHOT, QJ_REWRITE, QJ_PLAN, QJ_PROPOP, QJ_LINKIT, QJ_EXPAND, QJ_FILEPROPS, QJ_GRAPH };
 enum { EX_MSG_SERVICE = 0x200 };
 
 typedef struct QJob {
@@ -44,6 +45,7 @@ typedef struct QRes {
     QRows rows2;                   /* unlinked mentions, unresolved links */
     char *text;                    /* a preview */
     ExSwitcher *snapshot;
+    ExGraph *graph;                /* QJ_GRAPH: the whole graph (the receiver takes it and sets this to NULL) */
     ExRenameReport report;
     size_t changed;
     size_t total;

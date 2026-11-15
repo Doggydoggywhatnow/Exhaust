@@ -67,6 +67,31 @@ void ex_renderer_present(ExRenderer *r);
 void ex_fill_round_rect(ExRenderer *r, float x, float y, float w, float h, float radius, ExColor c);
 void ex_stroke_round_rect(ExRenderer *r, float x, float y, float w, float h, float radius, float thickness, ExColor c);
 void ex_fill_triangle(ExRenderer *r, float x1, float y1, float x2, float y2, float x3, float y3, ExColor c);
+/* ---- batched geometry (sub-slice 5a): lines and circles for the graph, and later the canvas ----
+ * One ExGeom holds the triangles of a whole frame. Lines (quads) and circles (a fan; fewer segments the smaller the circle, a plain
+ * square under about 1.5 px) are appended with no allocation once the buffer has grown to what a frame needs, and ex_geom_submit hands
+ * all of it to the renderer in ONE call. Keep one ExGeom for the life of a view and call ex_geom_reset at the start of each frame.
+ * Coordinates are window pixels. Primitives outside the clip rectangle set with ex_geom_set_cull are not added at all. A feather is a
+ * ramp to transparent outside the shape, in pixels (0 = none): a cheap soft edge, since SDL draws without antialiasing. UI thread only. */
+typedef struct ExGeom ExGeom;
+ExGeom *ex_geom_create(void);
+void ex_geom_free(ExGeom *g);
+void ex_geom_reset(ExGeom *g);                                  /* empties it, keeps the memory */
+void ex_geom_set_feather(ExGeom *g, float px);
+void ex_geom_set_cull(ExGeom *g, float x, float y, float w, float h);   /* w < 0: no culling */
+void ex_geom_line(ExGeom *g, float x1, float y1, float x2, float y2, float width, ExColor c);   /* a width under 1 px is drawn 1 px wide and fainter */
+void ex_geom_circle(ExGeom *g, float cx, float cy, float radius, ExColor c);
+/* Draws everything added since the last reset with one renderer call; returns the number of triangles drawn. */
+size_t ex_geom_submit(ExRenderer *r, ExGeom *g);
+typedef struct ExGeomStats {
+    size_t vertices, indices;     /* in the buffer now */
+    size_t culled;                /* primitives left out by the cull rectangle since the last reset */
+    size_t capacity_vertices;     /* what it can hold without growing */
+    size_t grows;                 /* times it had to grow since it was created: a steady frame adds none */
+    float min_x, max_x, min_y, max_y;   /* the box round every vertex in the buffer (a scan: for tests) */
+} ExGeomStats;
+void ex_geom_stats(const ExGeom *g, ExGeomStats *out);
+
 /* Clips drawing to a rectangle until the next call; w < 0 removes the clip. */
 void ex_set_clip(ExRenderer *r, int x, int y, int w, int h);
 

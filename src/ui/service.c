@@ -28,6 +28,7 @@ void qres_free(QRes *r) {
     qrows_free(&r->rows); qrows_free(&r->rows2);
     free(r->text);
     ex_switcher_free(r->snapshot);
+    if (r->graph) { ex_graph_free(r->graph); free(r->graph); }
     ex_rename_report_free(&r->report);
     free(r);
 }
@@ -409,6 +410,7 @@ static void service_job(ExWorker *self, const ExMessage *m, void *user) {
     case QJ_PROPOP: do_propop(s, j, res); break;
     case QJ_LINKIT: do_linkit(s, j, res); break;
     case QJ_EXPAND: do_expand(s, j, res); break;
+    case QJ_GRAPH: res->graph = calloc(1, sizeof *res->graph); if (res->graph && ex_graph_load(s->r, res->graph) == 0) res->ok = 1; else { free(res->graph); res->graph = NULL; } break;
     default: break;
     }
     if (j->kind == QJ_OUTLINE || j->kind == QJ_FOOTNOTES || j->kind == QJ_FILEPROPS) { if (!res->ok) res->ok = 1; }

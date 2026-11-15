@@ -16,6 +16,7 @@
 
 #include "exhaust_editor.h"
 #include "exhaust_findbar.h"
+#include "exhaust_graphview.h"
 #include "exhaust_panels.h"
 #include "exhaust_vaultscreen.h"
 #include "exhaust_platform.h"
@@ -51,6 +52,18 @@ static int h_move(void *u, const char *from, const char *to) { (void)u; (void)fr
 static void h_flush(void *u) { (void)u; }
 static void h_query(void *u, const char *path, const char *text) { (void)u; (void)path; (void)text; }
 static int h_fileop(void *u, int op, const char *path, const char *arg) { (void)u; (void)op; (void)path; (void)arg; return 0; }
+
+/* A test waits for the layout to settle; the interface never does (it draws what it has and the layout catches up). */
+static void wait_settled_model(ExGraphModel *m, int ms) {
+    Uint64 t0 = SDL_GetTicks();
+    for (;;) {
+        ex_graphmodel_update(m);
+        if (ex_graphmodel_positions(m) && !ex_graphmodel_animating(m)) break;
+        if (SDL_GetTicks() - t0 > (Uint64)ms) break;
+        SDL_Delay(2);
+    }
+    ex_graphmodel_update(m);
+}
 
 static void pump(int ms) { int i; for (i = 0; i < ms / 5; i++) { ex_panels_update(g_p); SDL_Delay(5); } }
 
@@ -308,6 +321,40 @@ int main(void) {
                 ex_vaultscreen_free(vs);
             }
             ex_vaultmgr_free(mgr);
+        }
+        {   /* the graph: nodes with very long names, labels drawn at every zoom, nothing outside the widget */
+            ExGraphModel *gm = ex_graphmodel_create();
+            ExGraph *gr = calloc(1, sizeof *gr);
+            ExWidget *gbox = ex_widget_box(g_ui, 1, "graph box"), *gv;
+            ExGraphViewStats gs;
+            const char *names[4] = {NULL, NULL, "Short.md", NULL};
+            char long1[400], long2[400];
+            int k, zoom;
+            snprintf(long1, sizeof long1, "%s.md", w200);
+            snprintf(long2, sizeof long2, "Folder/%s %s.md", cjk, w200);
+            names[0] = long1; names[1] = long2; names[3] = "A name with blanks that goes on and on and on and on and on and on and on and on and on.md";
+            gr->nodes = calloc(4, sizeof *gr->nodes); gr->edges = calloc(4, sizeof *gr->edges);
+            for (k = 0; k < 4; k++) { size_t l = strlen(names[k]) + 1; gr->nodes[k].path = malloc(l); memcpy(gr->nodes[k].path, names[k], l); gr->nodes[k].kind = k == 3 ? EX_GRAPH_UNRESOLVED : EX_GRAPH_NOTE; }
+            for (k = 0; k < 4; k++) { gr->edges[k].from = (uint32_t)k; gr->edges[k].to = (uint32_t)((k + 1) % 4); gr->nodes[k].degree = 2; }
+            gr->n = 4; gr->ne = 4;
+            ex_graphmodel_set_graph(gm, gr);
+            wait_settled_model(gm, 20000);
+            gbox->width = ex_size_grow(); gbox->height = ex_size_grow();
+            gv = ex_widget_graph(g_ui, gm, "Graph view", NULL);
+            ex_widget_add(gbox, gv);
+            for (zoom = 0; zoom < 4; zoom++) {
+                int w = 0, h = 0;
+                ex_renderer_size(r, &w, &h);
+                ex_graphview_wheel(gv, zoom == 0 ? 0.0f : 6.0f, (float)w / 2.0f, (float)h / 2.0f);
+                ex_ui_layout(g_ui, gbox, (float)w, (float)h);
+                ex_ui_draw(g_ui, gbox, 1);
+                check_layout(r, gbox, "graph view, long names");
+                ex_graphview_stats(gv, &gs);
+                CHECK(gs.nodes_drawn <= 4);
+                if (zoom == 3) CHECK(gs.labels_drawn > 0);
+            }
+            ex_widget_free(gbox);
+            ex_graphmodel_free(gm);
         }
         ex_findbar_free(fb);
         ex_widget_free(box);

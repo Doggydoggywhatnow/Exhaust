@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "clay.h"
+#include "exhaust_graphview.h"
 #include "exhaust_ui.h"
 #include "reading_view.h"
 
@@ -16,6 +17,7 @@ struct ExUi {
     ExWidget *focus;
     ExWidget *pressed;
     ExWidget *captured;      /* took the press through on_mouse; gets the drag and release */
+    ExWidget *hover_graph;   /* the graph view the pointer was last over */
     ExWidget *tree_drag;     /* a tree a row of which is being pressed or dragged: gets the drag and release wherever the pointer is */
     uint32_t next_id;
     ExWidget *last_root;
@@ -720,6 +722,7 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
     if (w->type == EX_WIDGET_READING && w->reading) ex_readingview_draw(w->reading, r, t, ui->base_size);
     if (w->type == EX_WIDGET_TREE) tree_draw(ui, w);
     if (w->type == EX_WIDGET_LIST) ex_list_draw(ui, w);
+    if (w->type == EX_WIDGET_GRAPH) ex_graphview_draw(ui, w);
     if (w->clip && (w->type == EX_WIDGET_EDITOR || w->type == EX_WIDGET_READING) && w->first_child) ex_set_clip(r, (int)w->x, (int)w->y, (int)ceilf(w->w), (int)ceilf(w->h));   /* the editor drew with its own clip: the child (title) is clipped to the widget */
     for (c = w->first_child; c; c = c->next) draw_widget(ui, c, blink_on);
     if (w->clip) ex_set_clip(r, 0, 0, -1, -1);
@@ -762,6 +765,15 @@ void ex_ui_release(ExUi *ui, ExWidget *subtree) {
     if (ui->captured && inside(subtree, ui->captured)) ui->captured = NULL;
     if (ui->tree_drag && inside(subtree, ui->tree_drag)) ui->tree_drag = NULL;
     if (ui->last_root && inside(subtree, ui->last_root)) ui->last_root = NULL;
+    if (ui->hover_graph && inside(subtree, ui->hover_graph)) ui->hover_graph = NULL;
+}
+
+void ex_ui_pointer_moved(ExUi *ui, ExWidget *root, float x, float y) {
+    ExWidget *w = ex_ui_widget_at(root, x, y);
+    while (w && w->type != EX_WIDGET_GRAPH) w = w->parent;
+    if (ui->hover_graph && ui->hover_graph != w) ex_graphview_hover(ui->hover_graph, x, y, 0);    /* the pointer left it */
+    ui->hover_graph = w;
+    if (w) ex_graphview_hover(w, x, y, 1);
 }
 
 int ex_ui_drop(ExUi *ui, ExWidget *root, int is_file, const char *data, float x, float y) {

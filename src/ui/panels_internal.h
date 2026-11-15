@@ -38,6 +38,8 @@ struct ExPanels {
     ExSavedQueries *saved;
     ExSwitcher *snapshot;
     int snapshot_stale;
+    int graph_wanted, graph_stale;   /* the graph view is open; its data is out of date */
+    unsigned long graph_req, graph_sent_at;
     unsigned long next_req;
     char *cur_path;                  /* the note of the active tab as last seen */
     unsigned long text_version; unsigned long text_seen_at; int text_dirty;

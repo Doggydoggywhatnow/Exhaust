@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-typedef enum ExWidgetType { EX_WIDGET_BOX, EX_WIDGET_LABEL, EX_WIDGET_BUTTON, EX_WIDGET_EDITOR, EX_WIDGET_TREE, EX_WIDGET_READING, EX_WIDGET_LIST, EX_WIDGET_TYPE_COUNT } ExWidgetType;
+typedef enum ExWidgetType { EX_WIDGET_BOX, EX_WIDGET_LABEL, EX_WIDGET_BUTTON, EX_WIDGET_EDITOR, EX_WIDGET_TREE, EX_WIDGET_READING, EX_WIDGET_LIST, EX_WIDGET_GRAPH, EX_WIDGET_TYPE_COUNT } ExWidgetType;
 
 typedef enum ExRole { EX_ROLE_WINDOW, EX_ROLE_GROUP, EX_ROLE_LABEL, EX_ROLE_BUTTON, EX_ROLE_TEXT_INPUT, EX_ROLE_TREE, EX_ROLE_LIST } ExRole;
 
@@ -202,6 +202,8 @@ void ex_list_set_scroll_y(ExWidget *w, float y);
 float ex_list_row_height(const ExWidget *w);
 long ex_list_row_at(const ExWidget *w, float x, float y);       /* -1 if none */
 float ex_ui_base_size(const ExUi *ui);
+/* Used by ui.c: the graph view (exhaust_graphview.h). */
+void ex_graphview_draw(ExUi *ui, ExWidget *w);
 /* Used by ui.c. */
 void ex_list_draw(ExUi *ui, ExWidget *w);
 void ex_list_key(ExUi *ui, ExWidget *w, ExKey key);
@@ -248,6 +250,8 @@ void ex_ui_key(ExUi *ui, ExKey key, int mods);
  * the tree last laid out; returns the newly focused widget or NULL. */
 ExWidget *ex_ui_focus_move(ExUi *ui, int dir);
 void ex_ui_text_input(ExUi *ui, const char *utf8, size_t len);
+/* The pointer moved without a button: a graph view under it tracks the node it is over (and the one it left is told it is gone). */
+void ex_ui_pointer_moved(ExUi *ui, ExWidget *root, float x, float y);
 /* Files (is_file, a path) or text dropped from the desktop at a window position: handed to the
  * deepest widget under the point that has an on_drop hook (a widget further up is asked when the
  * one below returns 0). Returns 1 when some hook took it. */

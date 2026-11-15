@@ -213,6 +213,189 @@ void ex_fill_triangle(ExRenderer *r, float x1, float y1, float x2, float y2, flo
     SDL_RenderGeometry(r->renderer, NULL, v, 3, idx, 3);
 }
 
+/* ---- batched geometry ---- */
+
+struct ExGeom {
+    SDL_Vertex *v;
+    int *idx;
+    size_t nv, ni, capv, capi, culled, grows;
+    float feather;
+    int cull;
+    float cx, cy, cw, ch;
+};
+
+ExGeom *ex_geom_create(void) { return calloc(1, sizeof(ExGeom)); }
+
+void ex_geom_free(ExGeom *g) {
+    if (!g) return;
+    free(g->v);
+    free(g->idx);
+    free(g);
+}
+
+void ex_geom_reset(ExGeom *g) { if (g) { g->nv = g->ni = 0; g->culled = 0; } }
+void ex_geom_set_feather(ExGeom *g, float px) { if (g) g->feather = px > 0.0f ? px : 0.0f; }
+void ex_geom_set_cull(ExGeom *g, float x, float y, float w, float h) {
+    if (!g) return;
+    g->cull = w >= 0.0f;
+    g->cx = x; g->cy = y; g->cw = w; g->ch = h;
+}
+
+void ex_geom_stats(const ExGeom *g, ExGeomStats *out) {
+    memset(out, 0, sizeof *out);
+    if (!g) return;
+    out->vertices = g->nv; out->indices = g->ni; out->culled = g->culled; out->capacity_vertices = g->capv; out->grows = g->grows;
+    if (g->nv) {
+        size_t i;
+        out->min_x = out->max_x = g->v[0].position.x; out->min_y = out->max_y = g->v[0].position.y;
+        for (i = 1; i < g->nv; i++) {
+            float x = g->v[i].position.x, y = g->v[i].position.y;
+            if (x < out->min_x) out->min_x = x;
+            if (x > out->max_x) out->max_x = x;
+            if (y < out->min_y) out->min_y = y;
+            if (y > out->max_y) out->max_y = y;
+        }
+    }
+}
+
+/* Room for nv more vertices and ni more indices; 0 on success. Grows by doubling, so a frame the same size as the last one never grows. */
+static int geom_reserve(ExGeom *g, size_t nv, size_t ni) {
+    if (g->nv + nv > g->capv) {
+        size_t cap = g->capv ? g->capv : 1024;
+        SDL_Vertex *p;
+        while (cap < g->nv + nv) cap *= 2;
+        p = realloc(g->v, cap * sizeof *p);
+        if (!p) return -1;
+        g->v = p; g->capv = cap; g->grows++;
+    }
+    if (g->ni + ni > g->capi) {
+        size_t cap = g->capi ? g->capi : 3072;
+        int *p;
+        while (cap < g->ni + ni) cap *= 2;
+        p = realloc(g->idx, cap * sizeof *p);
+        if (!p) return -1;
+        g->idx = p; g->capi = cap; g->grows++;
+    }
+    return 0;
+}
+
+static int geom_vertex(ExGeom *g, float x, float y, SDL_FColor c) {
+    SDL_Vertex *v = &g->v[g->nv];
+    v->position.x = x; v->position.y = y; v->color = c; v->tex_coord.x = v->tex_coord.y = 0.0f;
+    return (int)g->nv++;
+}
+
+static void geom_tri(ExGeom *g, int a, int b, int c) { g->idx[g->ni++] = a; g->idx[g->ni++] = b; g->idx[g->ni++] = c; }
+
+static int geom_outside(ExGeom *g, float x0, float y0, float x1, float y1) {
+    if (!g->cull) return 0;
+    if (x1 < g->cx || x0 > g->cx + g->cw || y1 < g->cy || y0 > g->cy + g->ch) { g->culled++; return 1; }
+    return 0;
+}
+
+void ex_geom_line(ExGeom *g, float x1, float y1, float x2, float y2, float width, ExColor c) {
+    float dx = x2 - x1, dy = y2 - y1, len = sqrtf(dx * dx + dy * dy), nx, ny, f, half;
+    SDL_FColor col, clear;
+    int l1, l2, r1, r2;
+    if (!g || len < 0.001f || width <= 0.0f) return;
+    if (width < 1.0f) { c.a = (uint8_t)((float)c.a * width + 0.5f); width = 1.0f; }       /* a hairline: one pixel, as faint as it is thin */
+    f = g->feather;
+    half = width / 2.0f + f;
+    if (geom_outside(g, (x1 < x2 ? x1 : x2) - half, (y1 < y2 ? y1 : y2) - half, (x1 > x2 ? x1 : x2) + half, (y1 > y2 ? y1 : y2) + half)) return;
+    if (g->cull) {                                               /* only the part inside the cull rectangle is built: a line that runs far off the screen is cut at its edge */
+        float t0 = 0.0f, t1 = 1.0f, p[4], q[4];
+        int k;
+        p[0] = -dx; q[0] = x1 - (g->cx - half);
+        p[1] = dx;  q[1] = (g->cx + g->cw + half) - x1;
+        p[2] = -dy; q[2] = y1 - (g->cy - half);
+        p[3] = dy;  q[3] = (g->cy + g->ch + half) - y1;
+        for (k = 0; k < 4; k++) {
+            if (p[k] == 0.0f) { if (q[k] < 0.0f) { g->culled++; return; } continue; }
+            if (p[k] < 0.0f) { float t = q[k] / p[k]; if (t > t0) t0 = t; }
+            else { float t = q[k] / p[k]; if (t < t1) t1 = t; }
+        }
+        if (t0 > t1) { g->culled++; return; }
+        if (t0 > 0.0f || t1 < 1.0f) {
+            float nx1 = x1 + t0 * dx, ny1 = y1 + t0 * dy, nx2 = x1 + t1 * dx, ny2 = y1 + t1 * dy;
+            x1 = nx1; y1 = ny1; x2 = nx2; y2 = ny2;
+            dx = x2 - x1; dy = y2 - y1; len = sqrtf(dx * dx + dy * dy);
+            if (len < 0.001f) return;
+        }
+    }
+    if (geom_reserve(g, 8, 18) != 0) return;
+    col = fcolor(c);
+    clear = col; clear.a = 0.0f;
+    nx = -dy / len * width / 2.0f; ny = dx / len * width / 2.0f;
+    l1 = geom_vertex(g, x1 + nx, y1 + ny, col); l2 = geom_vertex(g, x2 + nx, y2 + ny, col);
+    r1 = geom_vertex(g, x1 - nx, y1 - ny, col); r2 = geom_vertex(g, x2 - nx, y2 - ny, col);
+    geom_tri(g, l1, l2, r2); geom_tri(g, l1, r2, r1);
+    if (f > 0.0f) {
+        float fx = -dy / len * (width / 2.0f + f), fy = dx / len * (width / 2.0f + f);
+        int ol1 = geom_vertex(g, x1 + fx, y1 + fy, clear), ol2 = geom_vertex(g, x2 + fx, y2 + fy, clear);
+        int or1 = geom_vertex(g, x1 - fx, y1 - fy, clear), or2 = geom_vertex(g, x2 - fx, y2 - fy, clear);
+        geom_tri(g, ol1, ol2, l2); geom_tri(g, ol1, l2, l1);
+        geom_tri(g, r1, r2, or2); geom_tri(g, r1, or2, or1);
+    }
+}
+
+/* Segments of a circle: a few for a dot, more as it grows, so every size looks round and a small one costs little. */
+static int circle_segments(float r) {
+    if (r < 3.5f) return 6;                                      /* a hexagon is a circle at this size */
+    if (r < 6.0f) return 12;
+    if (r < 8.0f) return 20;
+    if (r < 16.0f) return 28;
+    return 40;
+}
+
+void ex_geom_circle(ExGeom *g, float cx, float cy, float rad, ExColor c) {
+    SDL_FColor col, clear;
+    float f;
+    int seg, k, center, first_in, first_out;
+    if (!g || rad <= 0.0f) return;
+    f = g->feather;
+    if (geom_outside(g, cx - rad - f, cy - rad - f, cx + rad + f, cy + rad + f)) return;
+    col = fcolor(c);
+    if (rad < 2.0f) {                                            /* a dot this small is a square of at least one pixel */
+        float h = rad < 0.5f ? 0.5f : rad;
+        int a, b, d, e;
+        if (geom_reserve(g, 4, 6) != 0) return;
+        a = geom_vertex(g, cx - h, cy - h, col); b = geom_vertex(g, cx + h, cy - h, col);
+        d = geom_vertex(g, cx + h, cy + h, col); e = geom_vertex(g, cx - h, cy + h, col);
+        geom_tri(g, a, b, d); geom_tri(g, a, d, e);
+        return;
+    }
+    seg = circle_segments(rad);
+    if (f > 0.0f && rad >= 3.5f) {                               /* a soft edge only where there is room for one: it triples the triangles */
+        clear = col; clear.a = 0.0f;
+        if (geom_reserve(g, (size_t)(2 * seg + 1), (size_t)(9 * seg)) != 0) return;
+        center = geom_vertex(g, cx, cy, col);
+        first_in = (int)g->nv;
+        for (k = 0; k < seg; k++) { float a = (float)k * 6.28318530718f / (float)seg; geom_vertex(g, cx + cosf(a) * rad, cy + sinf(a) * rad, col); }
+        first_out = (int)g->nv;
+        for (k = 0; k < seg; k++) { float a = (float)k * 6.28318530718f / (float)seg; geom_vertex(g, cx + cosf(a) * (rad + f), cy + sinf(a) * (rad + f), clear); }
+        for (k = 0; k < seg; k++) {
+            int n = (k + 1) % seg;
+            geom_tri(g, center, first_in + k, first_in + n);
+            geom_tri(g, first_in + k, first_out + k, first_out + n);
+            geom_tri(g, first_in + k, first_out + n, first_in + n);
+        }
+        return;
+    }
+    if (geom_reserve(g, (size_t)(seg + 1), (size_t)(3 * seg)) != 0) return;
+    center = geom_vertex(g, cx, cy, col);
+    first_in = (int)g->nv;
+    for (k = 0; k < seg; k++) { float a = (float)k * 6.28318530718f / (float)seg; geom_vertex(g, cx + cosf(a) * rad, cy + sinf(a) * rad, col); }
+    for (k = 0; k < seg; k++) geom_tri(g, center, first_in + k, first_in + (k + 1) % seg);
+}
+
+size_t ex_geom_submit(ExRenderer *r, ExGeom *g) {
+    size_t tris;
+    if (!r || !g || g->ni == 0) return 0;
+    SDL_RenderGeometry(r->renderer, NULL, g->v, (int)g->nv, g->idx, (int)g->ni);
+    tris = g->ni / 3;
+    return tris;
+}
+
 void ex_set_clip(ExRenderer *r, int x, int y, int w, int h) {
     if (w < 0) { SDL_SetRenderClipRect(r->renderer, NULL); return; }
     {

@@ -11,6 +11,8 @@
 #include "exhaust_ui.h"
 #include "exhaust_workspace.h"
 
+struct ExGraph;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -36,6 +38,8 @@ typedef struct ExPanelsHost {
     /* what the explorer menu does with a file or folder (EX_FILEOP_*): delete (closes its tabs, by files.trash_mode), new folder (arg is the
      * name, path the folder), copy the path, open with the default program, show in the file manager. 0 on success. */
     int (*file_op)(void *user, int op, const char *path, const char *arg);
+    /* the graph's data, read on the service thread (sub-slice 5a): the receiver owns the graph and frees it (ex_graph_free, then free) */
+    void (*graph_data)(void *user, struct ExGraph *graph);
 } ExPanelsHost;
 
 typedef struct ExPanelsInit {
@@ -79,6 +83,9 @@ void ex_panels_register(ExPanels *p);
 
 /* Actions the application calls itself. */
 void ex_panels_show(ExPanels *p, const char *panel);                /* "files", "search", "bookmarks", "backlinks", ... */
+/* The graph view is open (wanted = 1): the panels read the graph's data now and again whenever the index changes (at most once every 1.5
+ * seconds), and hand it to host.graph_data. wanted = 0 stops that. */
+void ex_panels_graph_wanted(ExPanels *p, int wanted);
 void ex_panels_search_for(ExPanels *p, const char *query);          /* opens Search with this text and runs it */
 void ex_panels_rename_file(ExPanels *p, const char *path);
 /* Renames a note to new_name (no folder, no extension) in its own folder, through the link-safe flow; the link question is asked as
@@ -86,7 +93,8 @@ void ex_panels_rename_file(ExPanels *p, const char *path);
 int ex_panels_rename_to(ExPanels *p, const char *path, const char *new_name);
 void ex_panels_move_file_prompt(ExPanels *p, const char *path);    /* asks for the folder, then for the links */
 void ex_panels_file_menu(ExPanels *p, const char *path);           /* the menu of a file or folder ("" the vault) at a default place */
-void ex_panels_file_menu_at(ExPanels *p, const char *path, float x, float y);   /* ... at a window position, next to the pointer */
+void ex_panels_file_menu_at(ExPanels *p, const char *path, float x, float y);
+void ex_panels_unresolved_menu_at(ExPanels *p, const char *name, float x, float y);   /* a graph node nothing answers to yet: Create note */   /* ... at a window position, next to the pointer */
 int ex_panels_context_menu(ExPanels *p, ExWidget *root, float x, float y);   /* right click on a row of the file explorer */          /* asks for the new name, then for the links */
 /* Reading mode: asks for the note's text with every `query` block replaced by its results; the answer comes through host.query_results. */
 void ex_panels_expand_queries(ExPanels *p, const char *path, const char *text, size_t len);

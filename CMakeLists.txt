@@ -300,7 +300,7 @@ else()
 endif()
 
 # The index: SQLite database in the OS cache folder, the extractor and the indexer thread (sub-slices 4a, 4b).
-add_library(exhaust_index STATIC src/index/db.c src/index/extract.c src/index/props.c src/index/indexer.c src/index/store_extra.c src/index/store_v3.c src/index/links.c src/index/propquery.c src/index/propedit.c src/index/rename.c src/index/search.c src/index/query.c)
+add_library(exhaust_index STATIC src/index/db.c src/index/extract.c src/index/props.c src/index/indexer.c src/index/store_extra.c src/index/store_v3.c src/index/links.c src/index/graph.c src/index/propquery.c src/index/propedit.c src/index/rename.c src/index/search.c src/index/query.c)
 target_include_directories(exhaust_index PUBLIC include PRIVATE src/index)
 target_link_libraries(exhaust_index PUBLIC exhaust_notes exhaust_markdown exhaust_unicode exhaust_find exhaust_ini sqlite3_static yaml_static)
 
@@ -313,6 +313,13 @@ add_library(exhaust_text STATIC src/text/font.c
   src/text/fontdb.c src/text/shape.c src/text/fonts_table.c ${FONTS_C})
 target_include_directories(exhaust_text PUBLIC include PRIVATE src/text)
 target_link_libraries(exhaust_text PUBLIC exhaust_unicode freetype harfbuzz sheenbidi exhaust_platform)
+
+add_library(exhaust_layout STATIC src/graph/layout.c)
+target_include_directories(exhaust_layout PUBLIC include)
+target_link_libraries(exhaust_layout PUBLIC exhaust_buffer SDL3::SDL3-static)
+if(NOT MSVC)
+  target_link_libraries(exhaust_layout PUBLIC m)
+endif()
 
 add_library(exhaust_render STATIC src/render/render.c src/render/atlas.c)
 target_include_directories(exhaust_render PUBLIC include)
@@ -336,9 +343,9 @@ if(EXHAUST_A11Y)
   target_link_libraries(exhaust_a11y PUBLIC accesskit)
 endif()
 
-add_library(exhaust_ui STATIC src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/editor_layout.c src/ui/editor_fold.c src/ui/editor_keys.c src/ui/editor_format.c src/ui/findbar.c src/ui/reading_view.c src/ui/ui.c src/ui/list.c src/ui/icons.c src/ui/service.c src/ui/views.c src/ui/dialogs.c src/ui/panels.c src/ui/fileactions.c src/ui/fileprops.c src/ui/panes.c src/ui/vault_screen.c ${THEME_C})
+add_library(exhaust_ui STATIC src/ui/graphview.c src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/theme.c src/ui/theme_data.c src/ui/editor.c src/ui/editor_layout.c src/ui/editor_fold.c src/ui/editor_keys.c src/ui/editor_format.c src/ui/findbar.c src/ui/reading_view.c src/ui/ui.c src/ui/list.c src/ui/icons.c src/ui/service.c src/ui/views.c src/ui/dialogs.c src/ui/panels.c src/ui/fileactions.c src/ui/fileprops.c src/ui/panes.c src/ui/vault_screen.c ${THEME_C})
 target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
-target_link_libraries(exhaust_ui PUBLIC exhaust_nav exhaust_index exhaust_spell exhaust_settings exhaust_find exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace exhaust_markdown clay_impl)
+target_link_libraries(exhaust_ui PUBLIC exhaust_layout exhaust_nav exhaust_index exhaust_spell exhaust_settings exhaust_find exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace exhaust_markdown clay_impl)
 if(NOT MSVC)
   target_link_libraries(exhaust_ui PUBLIC m)
 endif()
@@ -512,6 +519,20 @@ add_dependencies(test_links gen_vault)
 add_test(NAME links COMMAND test_links ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/links_vault ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/links_sample.txt)
 add_test(NAME unlinked_lookup COMMAND test_links --lookup $<TARGET_FILE:gen_vault>)
 
+add_executable(test_graph tests/test_graph.c)
+target_link_libraries(test_graph PRIVATE exhaust_index exhaust_platform)
+add_dependencies(test_graph gen_vault)
+add_test(NAME graph_data COMMAND test_graph $<TARGET_FILE:gen_vault>)
+
+add_executable(test_graph_layout tests/test_graph_layout.c)
+target_link_libraries(test_graph_layout PRIVATE exhaust_layout)
+add_test(NAME graph_perf COMMAND test_graph_layout)
+
+add_executable(test_graph_frame tests/test_graph_frame.c)
+target_link_libraries(test_graph_frame PRIVATE exhaust_ui exhaust_render)
+add_test(NAME graph_frame COMMAND test_graph_frame)
+set_tests_properties(graph_frame PROPERTIES ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
+
 add_executable(test_props tests/test_props.c)
 target_link_libraries(test_props PRIVATE exhaust_index exhaust_platform)
 add_test(NAME properties COMMAND test_props)
@@ -671,6 +692,12 @@ add_test(NAME renderer_smoke
 set_tests_properties(renderer_smoke PROPERTIES
   ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
 
+add_executable(test_render_geometry tests/test_render_geometry.c)
+target_link_libraries(test_render_geometry PRIVATE exhaust_render)
+add_test(NAME render_geometry COMMAND test_render_geometry)
+set_tests_properties(render_geometry PROPERTIES
+  ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
+
 add_executable(test_text_fit tests/test_text_fit.c)
 target_link_libraries(test_text_fit PRIVATE exhaust_render)
 add_test(NAME text_fit COMMAND test_text_fit)
@@ -678,4 +705,4 @@ set_tests_properties(text_fit PROPERTIES
   ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software")
 
 # Timing tests must not compete with other tests for the processor.
-set_tests_properties(search_perf ui_not_blocked index_cold frame_budget PROPERTIES RUN_SERIAL TRUE)
+set_tests_properties(search_perf ui_not_blocked index_cold frame_budget graph_frame graph_perf graph_data PROPERTIES RUN_SERIAL TRUE)

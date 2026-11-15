@@ -143,6 +143,21 @@ void ex_panels_file_menu_at(ExPanels *p, const char *path, float x, float y) {
     dialog_popup(p, x, y, items, n, menu_chosen, p->dialog_arg_text);
 }
 
+static void create_done(ExPanels *p, int a, void *arg) {
+    char path[720];
+    (void)a;
+    snprintf(path, sizeof path, "%s.md", (const char *)arg);                    /* a copy first: opening the note replaces dialog_arg_text */
+    panels_open_note(p, path, (size_t)-1, 1);                                   /* made now, written when something is typed */
+}
+
+/* The menu of a node of the graph that no note answers to yet. */
+void ex_panels_unresolved_menu_at(ExPanels *p, const char *name, float x, float y) {
+    static const PopupItem items[] = {{"Create note", EX_ICON_NEW_NOTE, 1, 0, 0, 0}};
+    free(p->dialog_arg_text);
+    p->dialog_arg_text = dup_s(name);
+    dialog_popup(p, x, y, items, 1, create_done, p->dialog_arg_text);
+}
+
 void ex_panels_file_menu(ExPanels *p, const char *path) { ex_panels_file_menu_at(p, path, 120.0f, 120.0f); }
 
 /* The context menu: a right click at window position (x, y). Returns 1 if it opened one. */

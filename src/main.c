@@ -9,6 +9,7 @@
 
 #include "exhaust.h"
 #include "exhaust_commands.h"
+#include "exhaust_graphview.h"
 #include "exhaust_fontdb.h"
 #include "exhaust_input.h"
 #include "exhaust_notes.h"
@@ -63,6 +64,8 @@ typedef struct App {
     ExWidget *root, *editor, *tree, *status;     /* editor: the editor of the active tab, or NULL */
     ExFindBar *findbar;
     ExWidget *title;               /* the inline title of the active tab (a child of its editor), or NULL */
+    ExGraphModel *gm;              /* the graph's data and layout, while a graph tab exists */
+    char *graph_note;              /* the note last open in a tab: drawn in the focus color (the graph's own tab is not a note) */
     ExWidget *rb_switcher, *rb_graph, *rb_canvas, *rb_palette, *rb_mode, *rb_left, *rb_right, *rb_theme;   /* the ribbon */
     int main_collapsed, main_prev_width; ExSide main_collapsed_side;   /* app.toggle-main-text-view: the main text view is a handle, and what to give back */
     Uint64 title_warn_until;       /* the bubble under the title that names the characters a file name cannot have */
@@ -104,6 +107,7 @@ typedef struct App {
 
 static char *dup_text(const char *s) { size_t n = strlen(s); char *p = malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
 static void sync_ui(App *a);
+static const char *host_active_path(void *u);
 
 static void set_cursor_shape(int shape) {
     static SDL_Cursor *arrow, *resize;
@@ -344,6 +348,44 @@ static ExWidget *info_label(App *a, const char *text) {
     return l;
 }
 
+/* ---- the graph view (sub-slice 5a) ---- */
+
+static void host_open_note(void *u, const char *path, size_t offset, int new_tab);
+static void follow_note_link(App *a, const char *target, int create);
+static void set_status(App *a, const char *text);
+
+/* A click on a node: a note opens, a name that is not a note yet is made (written when something is typed), other files are a later slice. */
+static void graph_open(void *u, const char *path, int kind, int new_tab) {
+    App *a = u;
+    if (kind == EX_GRAPH_NOTE) host_open_note(a, path, (size_t)-1, new_tab);
+    else if (kind == EX_GRAPH_UNRESOLVED) follow_note_link(a, path, 1);
+    else set_status(a, "Images and other files open in a tab in a later sub-slice.");
+}
+
+static void host_graph_data(void *u, ExGraph *g) {
+    App *a = u;
+    if (!a->gm) a->gm = ex_graphmodel_create();
+    if (a->gm) ex_graphmodel_set_graph(a->gm, g);
+    else { ex_graph_free(g); free(g); }
+}
+
+/* A right click on a node: the menu a note has in the file explorer, or Create note for a name nothing answers to yet. */
+static void graph_context(void *u, const char *path, int kind, float x, float y) {
+    App *a = u;
+    if (!a->panels) return;
+    if (kind == EX_GRAPH_NOTE) ex_panels_file_menu_at(a->panels, path, x, y);
+    else if (kind == EX_GRAPH_UNRESOLVED) ex_panels_unresolved_menu_at(a->panels, path, x, y);
+}
+
+static ExWidget *make_graph(App *a) {
+    ExGraphHandlers h;
+    memset(&h, 0, sizeof h);
+    h.user = a; h.open = graph_open; h.context = graph_context;
+    if (!a->gm) a->gm = ex_graphmodel_create();
+    if (!a->gm) return info_label(a, "The graph cannot be shown: out of memory.");
+    return ex_widget_graph(a->ui, a->gm, "Graph view", &h);
+}
+
 /* What a tab shows. Notes open here (not when the session is restored), so a note that is not on
  * screen costs nothing, and a missing file only shows a message: its tab stays in the session. */
 /* A note of the vault by its name (case-insensitive, without the extension); the link rules of 4a will replace this. */
@@ -425,7 +467,7 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
         ed = ex_widget_editor(a->ui, a->demo_doc, "Welcome");
         return ed;
     }
-    if (strcmp(t->view, "graph") == 0) return info_label(a, "The graph view arrives in a later sub-slice.");
+    if (strcmp(t->view, "graph") == 0) return make_graph(a);
     if (!t->path[0]) return info_label(a, "An empty tab. Open a note from the file explorer, or create one with New note.");
     if (!a->notes) return info_label(a, "Notes cannot be edited because the recovery journal could not be opened.");
     n = note_for_tab(a, t->id);                                                 /* switching between reading and editing keeps the note open */
@@ -823,13 +865,37 @@ static void on_files_feature(const char *id, int enabled, void *user) {
     if (a->left_content) a->left_content->hidden = !enabled;
 }
 
+static void on_graph_feature(const char *id, int enabled, void *user) {
+    App *a = user;
+    (void)id;
+    if (a->rb_graph) a->rb_graph->hidden = !enabled;
+}
+
+/* graph-view.open-graph-view: the graph tab, in the active group; one that is already open comes to the front. */
+static void cmd_open_graph(void *u) {
+    App *a = u;
+    size_t i;
+    ExId t = 0;
+    for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
+        const ExTab *tab = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
+        if (tab && tab->view && !strcmp(tab->view, "graph")) { t = tab->id; break; }
+    }
+    if (t) ex_ws_activate(a->ws, t);
+    else t = ex_ws_new_tab(a->ws, ex_ws_active_group(a->ws), "", "graph");
+    a->focus_tab = t;
+}
+
+static void on_ribbon_graph(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "graph-view.open-graph-view"); }
+
 static void register_features_and_commands(App *a) {
     a->features = ex_features_create(a->settings);
     ex_features_register(a->features, "files", "Files", on_files_feature, a);
+    ex_features_register(a->features, "graph", "Graph view", on_graph_feature, a);
     on_files_feature("files", ex_features_enabled(a->features, "files"), a);
     ex_features_register(a->features, "slash_commands", "Slash commands", NULL, a);
     ex_features_register(a->features, "word_count", "Word count", on_wordcount_feature, a);
     a->commands = ex_commands_create(a->features);
+    ex_commands_bind(a->commands, "graph-view.open-graph-view", cmd_open_graph, NULL, a);
     ex_commands_bind(a->commands, "app.toggle-left-sidebar", cmd_toggle_left, NULL, a);
     ex_commands_bind(a->commands, "app.toggle-right-sidebar", cmd_toggle_right, NULL, a);
     ex_commands_bind(a->commands, "app.toggle-main-text-view", cmd_toggle_main_view, NULL, a);
@@ -1105,6 +1171,16 @@ static void sync_ui(App *a) {
         }
     }
     ex_panes_update(a->panes);
+    {                                                                                /* the graph: read while a graph tab exists, updated once a frame */
+        size_t i, graphs = 0;
+        for (i = 0; i < ex_ws_tab_count(a->ws); i++) { const ExTab *gt = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i)); if (gt && gt->view && !strcmp(gt->view, "graph")) graphs++; }
+        if (a->panels) ex_panels_graph_wanted(a->panels, graphs > 0);
+        if (graphs == 0 && a->gm) { ex_graphmodel_free(a->gm); a->gm = NULL; }
+        {   const char *ap = host_active_path(a);
+            if (ap && (!a->graph_note || strcmp(ap, a->graph_note))) { free(a->graph_note); a->graph_note = dup_text(ap); }
+        }
+        if (a->gm) { ex_graphmodel_set_active(a->gm, a->graph_note); ex_graphmodel_update(a->gm); }
+    }
     g = ex_ws_active_group(a->ws);
     t = ex_ws_group_active(a->ws, g);
     c = t ? ex_panes_content(a->panes, t) : NULL;
@@ -1707,7 +1783,7 @@ int main(int argc, char **argv) {
     /* the ribbon: the actions at the top, the view switches at the bottom; drawn icons, each with its name for screen readers. The
      * graph and canvas stay disabled until those views exist; the settings button comes with the settings screens (sub-slice 7a). */
     app.rb_switcher = ribbon_icon(&app, EX_ICON_SEARCH, "Quick switcher", on_ribbon_switcher, 0);
-    app.rb_graph = ribbon_icon(&app, EX_ICON_GRAPH, "Graph view (not available yet)", NULL, 1);
+    app.rb_graph = ribbon_icon(&app, EX_ICON_GRAPH, "Graph view", on_ribbon_graph, 0);
     app.rb_canvas = ribbon_icon(&app, EX_ICON_CANVAS, "Canvas (not available yet)", NULL, 1);
     app.rb_palette = ribbon_icon(&app, EX_ICON_PALETTE, "Command palette", on_ribbon_palette, 0);
     ex_widget_add(ribbon, app.rb_switcher);
@@ -1743,6 +1819,7 @@ int main(int argc, char **argv) {
     app.left_content = left_content;
     if (app.vault && left_content) ex_explorer_set_vault_handler(left_content, on_vault_button, &app);
     on_files_feature("files", ex_features_enabled(app.features, "files"), &app);
+    on_graph_feature("graph", ex_features_enabled(app.features, "graph"), &app);
     if (app.vault) {
         ExPanelsInit pi;
         memset(&pi, 0, sizeof pi);
@@ -1751,7 +1828,7 @@ int main(int argc, char **argv) {
         pi.host.user = &app;
         pi.host.open_note = host_open_note; pi.host.active_path = host_active_path; pi.host.active_text = host_active_text; pi.host.read_text = host_read_text;
         pi.host.replace_text = host_replace_text; pi.host.select_range = host_select_range; pi.host.move_file = host_move_file; pi.host.file_op = host_file_op; pi.host.message = host_message;
-        pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
+        pi.host.graph_data = host_graph_data; pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
         pi.wake = wake_ui;
         app.panels = ex_panels_create(&pi);
         if (app.panels) {
@@ -1849,7 +1926,8 @@ int main(int argc, char **argv) {
         ExKey key;
         int mods;
         script_step(&app);
-        int timed_out = !SDL_WaitEventTimeout(&e, 100); /* wakes ten times a second for autosave and the watcher */
+        int animating = app.gm && ex_graphmodel_animating(app.gm);        /* the graph's layout is still moving the nodes: a frame every 16 ms */
+        int timed_out = !SDL_WaitEventTimeout(&e, animating ? 16 : 100); /* wakes ten times a second for autosave and the watcher */
         static int idle_ticks;
         if (g_signal) running = 0;
         int woke = timed_out, redraw = !timed_out;     /* an idle wake-up draws only when the caret blinks: nothing else changed */
@@ -1857,7 +1935,9 @@ int main(int argc, char **argv) {
          * for each of the hundreds of mouse-motion and resize events a second made the interface fall seconds behind. */
         for (;;) {
         if (e.type == g_wake_event && !timed_out) woke = 1;
-        if (timed_out) {
+        if (timed_out && animating) {
+            redraw = 1;
+        } else if (timed_out) {
             if (++idle_ticks % 5 == 0) { app.blink_on = !app.blink_on; redraw = 1; }   /* the caret blinks about every half second */
         } else if (e.type == g_wake_event) {
             ExMessage m;
@@ -1897,7 +1977,12 @@ int main(int argc, char **argv) {
                 x *= density; y *= density; /* window coordinates to output pixels */
                 ExWidget *input_root = app.panels && ex_panels_modal(app.panels) ? ex_panels_overlay(app.panels) : app.root;
                 if ((e.type == SDL_EVENT_MOUSE_BUTTON_DOWN || e.type == SDL_EVENT_MOUSE_BUTTON_UP) && e.button.button == SDL_BUTTON_RIGHT) {   /* the context menu of a file or folder */
-                    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && app.panels && input_root == app.root) { ex_panels_pointer(app.panels, app.root, -1, -1, 0); ex_panels_context_menu(app.panels, app.root, x, y); }
+                    if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && app.panels && input_root == app.root) {
+                        ExWidget *gw = ex_ui_widget_at(app.root, x, y);
+                        while (gw && gw->type != EX_WIDGET_GRAPH) gw = gw->parent;
+                        ex_panels_pointer(app.panels, app.root, -1, -1, 0);
+                        if (gw) ex_graphview_context(gw, x, y); else ex_panels_context_menu(app.panels, app.root, x, y);
+                    }
                 } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
                     Uint64 now = SDL_GetTicks();
                     clicks = now - last_click < 400 ? clicks + 1 : 1;
@@ -1909,8 +1994,9 @@ int main(int argc, char **argv) {
                     ex_ui_mouse(app.ui, input_root, EX_MOUSE_UP, x, y, ex_mods_from_sdl(), clicks);
                 } else if (e.motion.state & SDL_BUTTON_LMASK) {
                     ex_ui_mouse(app.ui, input_root, EX_MOUSE_DRAG, x, y, ex_mods_from_sdl(), clicks);
-                } else if (app.panels) {
-                    ex_panels_pointer(app.panels, app.root, x, y, (ex_mods_from_sdl() & EX_MOD_PRIMARY) != 0);
+                } else {
+                    ex_ui_pointer_moved(app.ui, input_root, x, y);                         /* a graph view under the pointer follows the node it is over */
+                    if (app.panels) ex_panels_pointer(app.panels, app.root, x, y, (ex_mods_from_sdl() & EX_MOD_PRIMARY) != 0);
                 }
                 set_cursor_shape(ex_ui_cursor_at(app.ui, app.root, x, y));       /* the resize pointer over a sidebar's edge */
                 break;
@@ -1919,10 +2005,11 @@ int main(int argc, char **argv) {
                 float density = SDL_GetWindowPixelDensity(ex_renderer_window(app.r));
                 ExWidget *wheel_root = app.panels && ex_panels_modal(app.panels) ? ex_panels_overlay(app.panels) : app.root;
                 ExWidget *under = ex_ui_widget_at(wheel_root, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
-                while (under && under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
+                while (under && under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE && under->type != EX_WIDGET_GRAPH) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
                 if (under && under->parent && (under->parent->type == EX_WIDGET_EDITOR || under->parent->type == EX_WIDGET_READING)) under = under->parent;   /* over the title: the note scrolls */
                 if (!under && wheel_root == app.root) under = app.editor;
-                if (under && under->type == EX_WIDGET_TREE) ex_tree_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
+                if (under && under->type == EX_WIDGET_GRAPH) ex_graphview_wheel(under, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);   /* zoom about the pointer */
+                else if (under && under->type == EX_WIDGET_TREE) ex_tree_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 else if (under && under->type == EX_WIDGET_LIST) ex_list_scroll(under, -e.wheel.y * 3.0f * ex_list_row_height(under));
                 else if (under && under->type == EX_WIDGET_READING) ex_reading_scroll(under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 else if (under && under->editor) ex_editor_scroll(under->editor, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
@@ -1980,6 +2067,8 @@ int main(int argc, char **argv) {
     }
     ex_queue_destroy(results);
     stop_showing_diff(&app);
+    ex_graphmodel_free(app.gm);
+    free(app.graph_note);
     ex_findbar_free(app.findbar);
     ex_slash_free(app.slash);
     ex_spell_free(app.spell);
