@@ -33,6 +33,8 @@ void qres_free(QRes *r) {
     free(r);
 }
 
+static void qres_free_payload(void *r) { qres_free((QRes *)r); }
+
 QJob *qjob_new(int kind, unsigned long req) { QJob *j = calloc(1, sizeof *j); if (j) { j->kind = kind; j->req = req; } return j; }
 
 static void qjob_free(void *p) {
@@ -414,7 +416,7 @@ static void service_job(ExWorker *self, const ExMessage *m, void *user) {
     default: break;
     }
     if (j->kind == QJ_OUTLINE || j->kind == QJ_FOOTNOTES || j->kind == QJ_FILEPROPS) { if (!res->ok) res->ok = 1; }
-    ex_worker_send(self, EX_MSG_SERVICE, res, sizeof *res, (void (*)(void *))qres_free);
+    ex_worker_send(self, EX_MSG_SERVICE, res, sizeof *res, qres_free_payload);
 }
 
 QService *qservice_start(const char *index_path, const char *root, ExQueue *results, uint32_t worker_id) {

@@ -353,6 +353,7 @@ int main(void) {
                 CHECK(gs.nodes_drawn <= 4);
                 if (zoom == 3) CHECK(gs.labels_drawn > 0);
             }
+            ex_ui_release(g_ui, gbox);
             ex_widget_free(gbox);
             ex_graphmodel_free(gm);
         }
