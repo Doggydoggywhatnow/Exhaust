@@ -210,7 +210,7 @@ add_custom_command(
   COMMAND gen_tables ${CMAKE_CURRENT_SOURCE_DIR}/docs/formats.md ${SETTINGS_SCHEMA_C} ${COMMAND_TABLE_C}
   DEPENDS gen_tables ${CMAKE_CURRENT_SOURCE_DIR}/docs/formats.md
   COMMENT "Generating the settings and command tables from docs/formats.md")
-add_library(exhaust_settings STATIC src/settings/slash.c src/settings/settings.c src/settings/registry.c src/settings/apply.c ${SETTINGS_SCHEMA_C} ${COMMAND_TABLE_C})
+add_library(exhaust_settings STATIC src/settings/slash.c src/settings/settings.c src/settings/hotkeys.c src/settings/registry.c src/settings/apply.c ${SETTINGS_SCHEMA_C} ${COMMAND_TABLE_C})
 target_include_directories(exhaust_settings PUBLIC include)
 target_link_libraries(exhaust_settings PUBLIC exhaust_workspace exhaust_buffer exhaust_platform SDL3::SDL3-static)
 
@@ -610,6 +610,12 @@ add_test(NAME editing_find COMMAND test_find)
 add_executable(test_edit_format tests/test_edit_format.c)
 target_link_libraries(test_edit_format PRIVATE exhaust_ui exhaust_markdown)
 add_test(NAME editing_format COMMAND test_edit_format)
+add_executable(test_hotkeys_screen tests/test_hotkeys_screen.c)
+target_link_libraries(test_hotkeys_screen PRIVATE exhaust_ui exhaust_settings exhaust_platform)
+add_test(NAME hotkeys_screen COMMAND test_hotkeys_screen)
+add_executable(test_hotkeys tests/test_hotkeys.c)
+target_link_libraries(test_hotkeys PRIVATE exhaust_settings exhaust_platform)
+add_test(NAME hotkeys COMMAND test_hotkeys)
 add_executable(test_settings_pages tests/test_settings_pages.c)
 target_link_libraries(test_settings_pages PRIVATE exhaust_ui exhaust_settings exhaust_platform)
 add_test(NAME settings_pages COMMAND test_settings_pages)

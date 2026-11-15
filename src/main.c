@@ -18,6 +18,7 @@
 #include "exhaust_render.h"
 #include "exhaust_session.h"
 #include "exhaust_settings.h"
+#include "exhaust_hotkeys.h"
 #include "exhaust_settingsview.h"
 #include "exhaust_theme.h"
 #include "exhaust_findbar.h"
@@ -98,6 +99,10 @@ typedef struct App {
     ExPanes *panes;
     ExSession *session;
     ExSettings *settings;
+    ExHotkeys *hotkeys;                      /* hotkeys.ini and the shortcuts (7c) */
+    void (*cap_cb)(void *, const char *);    /* the settings screen is waiting for a key press to make a shortcut of (7c) */
+    void *cap_arg;
+    Uint64 swallow_text_until;               /* the text event that follows a captured key press is not typed anywhere */
     ExFeatures *features;
     ExCommands *commands;
     ExWidget *left_content;
@@ -227,8 +232,23 @@ static void script_step(App *a) {
         e.type = SDL_EVENT_TEXT_INPUT; e.text.text = typed;
         SDL_PushEvent(&e);
     } else if (!strncmp(line, "key ", 4)) {
-        SDL_Keycode k = !strcmp(line + 4, "enter") ? SDLK_RETURN : !strcmp(line + 4, "escape") ? SDLK_ESCAPE : !strcmp(line + 4, "down") ? SDLK_DOWN : !strcmp(line + 4, "tab") ? SDLK_TAB : SDLK_UNKNOWN;
-        e.type = SDL_EVENT_KEY_DOWN; e.key.key = k; e.key.down = true;
+        /* key NAME, or key MODS+NAME with the mods ctrl, shift, alt and gui joined by +: ctrl+alt+j, ctrl+comma, shift+tab. A name is enter, escape, up, down,
+         * left, right, tab, space, comma, period, or one letter or digit. */
+        const char *spec = line + 4, *name = spec, *plus;
+        SDL_Keymod mod = 0;
+        SDL_Keycode k = SDLK_UNKNOWN;
+        while ((plus = strchr(name, '+')) != NULL) {
+            size_t n = (size_t)(plus - name);
+            if (n == 4 && !strncmp(name, "ctrl", 4)) mod |= SDL_KMOD_CTRL;
+            else if (n == 5 && !strncmp(name, "shift", 5)) mod |= SDL_KMOD_SHIFT;
+            else if (n == 3 && !strncmp(name, "alt", 3)) mod |= SDL_KMOD_ALT;
+            else if (n == 3 && !strncmp(name, "gui", 3)) mod |= SDL_KMOD_GUI;
+            name = plus + 1;
+        }
+        k = !strcmp(name, "enter") ? SDLK_RETURN : !strcmp(name, "escape") ? SDLK_ESCAPE : !strcmp(name, "down") ? SDLK_DOWN : !strcmp(name, "up") ? SDLK_UP :
+            !strcmp(name, "left") ? SDLK_LEFT : !strcmp(name, "right") ? SDLK_RIGHT : !strcmp(name, "tab") ? SDLK_TAB : !strcmp(name, "space") ? SDLK_SPACE :
+            !strcmp(name, "comma") ? SDLK_COMMA : !strcmp(name, "period") ? SDLK_PERIOD : (strlen(name) == 1 ? (SDL_Keycode)name[0] : SDLK_UNKNOWN);
+        e.type = SDL_EVENT_KEY_DOWN; e.key.key = k; e.key.mod = mod; e.key.down = true;
         SDL_PushEvent(&e);
     } else if (!strncmp(line, "shot ", 5)) {
         int sw, sh;
@@ -534,6 +554,7 @@ static void settings_choose(void *u, const char *const *labels, size_t n, size_t
     ex_panels_popup(a->panels, x, y, items, n, settings_menu_chosen, a);
 }
 
+static void settings_capture(void *u, void (*done)(void *, const char *), void *arg) { App *a = u; a->cap_cb = done; a->cap_arg = arg; }   /* the next key press goes to the Hotkeys page (7c) */
 static int settings_set_feature(void *u, const char *key, int enabled) { return ex_features_set(((App *)u)->features, key, enabled); }
 
 static void apply_color_scheme(App *a);
@@ -546,7 +567,7 @@ static ExWidget *make_settings(App *a) {
     ExSettingsHost h;
     ExSettingsView *sv;
     memset(&h, 0, sizeof h);
-    h.user = a; h.choose = settings_choose; h.changed = settings_changed; h.version = exhaust_version(); h.set_feature = settings_set_feature;
+    h.user = a; h.choose = settings_choose; h.changed = settings_changed; h.version = exhaust_version(); h.set_feature = settings_set_feature; h.hotkeys = a->hotkeys; h.capture = settings_capture;
     sv = ex_settingsview_create(a->ui, a->settings, &h);
     return sv ? ex_settingsview_widget(sv) : info_label(a, "The settings cannot be shown.");
 }
@@ -1374,51 +1395,67 @@ static void register_features_and_commands(App *a) {
     ex_commands_bind(a->commands, "app.close-current-tab", cmd_close_tab, has_tab, a);
 }
 
-/* Does a key press match a shortcut text from the command table ("Ctrl+N", "Ctrl+Shift+T")? Only
- * letters, digits and single punctuation marks for now; the hotkeys screen (sub-slice 7c) replaces this. */
-static int shortcut_matches(const char *keys, const SDL_KeyboardEvent *k) {
-    int ctrl = 0, shift = 0, alt = 0;
-    const char *p = keys, *last;
-    SDL_Keymod m = k->mod;
-    for (;;) {
-        const char *plus = strchr(p, '+');
-        size_t n = plus && plus[1] ? (size_t)(plus - p) : 0;
-        if (!n) break;
-        if (n == 4 && !strncmp(p, "Ctrl", 4)) ctrl = 1;
-        else if (n == 3 && !strncmp(p, "Mod", 3)) ctrl = 1;
-        else if (n == 5 && !strncmp(p, "Shift", 5)) shift = 1;
-        else if (n == 3 && !strncmp(p, "Alt", 3)) alt = 1;
-        else return 0;
-        p = plus + 1;
+/* A key press as a chord of the hotkeys module (7c). Printable keys are their lower case character; a key that is only a modifier gives 0. */
+static int chord_from_sdl(const SDL_KeyboardEvent *k, ExChord *c) {
+    SDL_Keycode key = k->key;
+    int code = 0;
+    c->mods = 0;
+    if (k->mod & SDL_KMOD_CTRL) c->mods |= EX_HK_CTRL;
+    if (k->mod & SDL_KMOD_SHIFT) c->mods |= EX_HK_SHIFT;
+    if (k->mod & SDL_KMOD_ALT) c->mods |= EX_HK_ALT;
+    if (k->mod & SDL_KMOD_GUI) c->mods |= EX_HK_META;
+    if (key >= SDLK_A && key <= SDLK_Z) code = (int)key;                      /* SDL's letter codes are lower case ascii */
+    else if (key >= SDLK_0 && key <= SDLK_9) code = (int)key;
+    else if (key >= SDLK_F1 && key <= SDLK_F12) code = EX_HK_F1 + (int)(key - SDLK_F1);
+    else switch (key) {
+    case SDLK_RETURN: case SDLK_KP_ENTER: code = EX_HK_ENTER; break;
+    case SDLK_TAB: code = EX_HK_TAB; break;
+    case SDLK_ESCAPE: code = EX_HK_ESCAPE; break;
+    case SDLK_SPACE: code = EX_HK_SPACE; break;
+    case SDLK_BACKSPACE: code = EX_HK_BACKSPACE; break;
+    case SDLK_DELETE: code = EX_HK_DELETE; break;
+    case SDLK_INSERT: code = EX_HK_INSERT; break;
+    case SDLK_HOME: code = EX_HK_HOME; break;
+    case SDLK_END: code = EX_HK_END; break;
+    case SDLK_PAGEUP: code = EX_HK_PAGEUP; break;
+    case SDLK_PAGEDOWN: code = EX_HK_PAGEDOWN; break;
+    case SDLK_LEFT: code = EX_HK_LEFT; break;
+    case SDLK_RIGHT: code = EX_HK_RIGHT; break;
+    case SDLK_UP: code = EX_HK_UP; break;
+    case SDLK_DOWN: code = EX_HK_DOWN; break;
+    case SDLK_COMMA: case SDLK_PERIOD: case SDLK_SLASH: case SDLK_SEMICOLON: case SDLK_APOSTROPHE: case SDLK_LEFTBRACKET: case SDLK_RIGHTBRACKET:
+    case SDLK_BACKSLASH: case SDLK_MINUS: case SDLK_EQUALS: case SDLK_GRAVE: code = (int)key; break;
+    case SDLK_PLUS: code = '+'; break;
+    default: code = 0; break;
     }
-    last = p;
-    if (last[0] == 'F' && last[1] >= '1' && last[1] <= '9' && strlen(last) <= 3) {            /* F1 to F12 */
-        int n = atoi(last + 1);
-        if (n < 1 || n > 12) return 0;
-        return (int)k->key == (int)(SDLK_F1 + (n - 1)) && ((m & SDL_KMOD_CTRL) != 0) == ctrl && ((m & SDL_KMOD_SHIFT) != 0) == shift && ((m & SDL_KMOD_ALT) != 0) == alt;
-    }
-    if (strlen(last) != 1) return 0;
-#ifdef __APPLE__
-    if (((m & SDL_KMOD_GUI) != 0) != ctrl) return 0;
-#else
-    if (((m & SDL_KMOD_CTRL) != 0) != ctrl) return 0;
-#endif
-    if (((m & SDL_KMOD_SHIFT) != 0) != shift || ((m & SDL_KMOD_ALT) != 0) != alt) return 0;
-    {
-        int c = (unsigned char)last[0];
-        if (c >= 'A' && c <= 'Z') c = c - 'A' + 'a';
-        return (int)k->key == c;
-    }
+    c->key = code;
+    return code != 0;
+}
+
+/* Waiting for a key press for the hotkeys screen: Escape with no modifier cancels, a modifier alone is waited out. Returns 1 if the press was taken. */
+static int capture_key(App *a, const SDL_KeyboardEvent *k) {
+    ExChord c;
+    char text[48];
+    void (*fn)(void *, const char *) = a->cap_cb;
+    void *arg = a->cap_arg;
+    if (!fn) return 0;
+    if (!chord_from_sdl(k, &c)) return 1;                                      /* Ctrl, Shift... on their own: keep waiting */
+    a->cap_cb = NULL; a->cap_arg = NULL;
+    a->swallow_text_until = SDL_GetTicks() + 80;
+    if (c.key == EX_HK_ESCAPE && c.mods == 0) fn(arg, NULL);
+    else if (ex_chord_format(&c, text, sizeof text)) fn(arg, text);
+    else fn(arg, NULL);
+    return 1;
 }
 
 static int run_shortcut(App *a, const SDL_KeyboardEvent *k) {
-    size_t i;
-    for (i = 0; i < ex_commands_count(a->commands); i++) {
-        const ExCommandDef *d = ex_commands_at(a->commands, i);
-        if (d->default_keys[0] && ex_commands_available(a->commands, d->id) && shortcut_matches(d->default_keys, k)) {
-            ex_commands_run(a->commands, d->id);
-            return 1;
-        }
+    ExChord c;
+    const char *ids[16];
+    size_t i, n;
+    if (!a->hotkeys || !chord_from_sdl(k, &c)) return 0;
+    n = ex_hotkeys_find(a->hotkeys, &c, ids, 16);
+    for (i = 0; i < n; i++) {                                                  /* the first command of the shortcut that can run now */
+        if (ex_commands_available(a->commands, ids[i])) { ex_commands_run(a->commands, ids[i]); return 1; }
     }
     return 0;
 }
@@ -2121,6 +2158,11 @@ int main(int argc, char **argv) {
             if (vcfg) sprintf(vcfg, "%s/.exhaust", ex_vault_path(app.vault));
         }
         app.settings = ex_settings_open(vcfg, cfg);
+#ifdef __APPLE__
+        app.hotkeys = ex_hotkeys_open(vcfg ? vcfg : cfg, 1);                    /* hotkeys.ini next to settings.ini: the vault's, or the program's with no vault */
+#else
+        app.hotkeys = ex_hotkeys_open(vcfg ? vcfg : cfg, 0);
+#endif
         free(vcfg);
         free(cfg);
         if (!app.settings) { fprintf(stderr, "exhaust: cannot read the settings\n"); return 1; }
@@ -2397,8 +2439,12 @@ int main(int argc, char **argv) {
             ExMessage m;
             while (ex_queue_pop(results, &m))
                 if (m.type == MSG_FONTS_READY) ex_renderer_set_font_db(app.r, (ExFontDb *)m.payload);
+        } else if (e.type == SDL_EVENT_KEY_DOWN && app.cap_cb && capture_key(&app, &e.key)) {
+            redraw = 1;
         } else if (e.type == SDL_EVENT_KEY_DOWN && !(app.panels && ex_panels_modal(app.panels)) && run_shortcut(&app, &e.key)) {
             app.blink_on = 1;
+        } else if (e.type == SDL_EVENT_TEXT_INPUT && SDL_GetTicks() < app.swallow_text_until) {
+            /* the text a captured key press made: not typed anywhere */
         } else if (ex_text_event_decode(&e, &te)) {
             app.blink_on = 1;
             if (te.kind == EX_TEXT_COMMIT) ex_ui_text_input(app.ui, te.text, strlen(te.text));
@@ -2542,6 +2588,7 @@ int main(int argc, char **argv) {
     ex_ws_free(app.ws);
     ex_commands_free(app.commands);
     ex_features_free(app.features);
+    ex_hotkeys_close(app.hotkeys);                 /* waits for the shortcut writes that are queued */
     ex_settings_close(app.settings);               /* waits for the settings writes that are queued */
     ex_vault_close(app.vault);
     free(g_first_folder);

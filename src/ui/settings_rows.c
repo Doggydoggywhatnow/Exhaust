@@ -177,7 +177,7 @@ static const ExSettingsRow rows[] = {
 
 static const struct { const char *id, *name, *group; } pages[] = {
     { "general", "General", "Options" }, { "appearance", "Appearance", "Options" }, { "interface", "Interface", "Options" }, { "editor", "Editor", "Options" },
-    { "files", "Files and links", "Options" }, { "keychain", "Keychain", "Options" }, { "features", "Core plugins", "Options" },
+    { "files", "Files and links", "Options" }, { "hotkeys", "Hotkeys", "Options" }, { "keychain", "Keychain", "Options" }, { "features", "Core plugins", "Options" },
     { "backlinks", "Backlinks", "Core plugins" }, { "canvas", "Canvas", "Core plugins" }, { "command_palette", "Command palette", "Core plugins" },
     { "daily_notes", "Daily notes", "Core plugins" }, { "file_recovery", "File recovery", "Core plugins" }, { "note_composer", "Note composer", "Core plugins" },
     { "page_preview", "Page preview", "Core plugins" }, { "quick_switcher", "Quick switcher", "Core plugins" }, { "sync", "Sync", "Core plugins" },

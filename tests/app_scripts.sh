@@ -360,4 +360,26 @@ grep -q "Home.md" "$dsession" || { echo "FAILED: the earlier session did not hol
 EXHAUST_SCRIPT="$work/default_file.script" $lim "$exe" "$vault" >"$work/default_file3.log" 2>&1
 if ! grep -q "Home.md" "$dsession" && ! grep -q "Alpha.md" "$dsession"; then echo "ok: default_file = empty starts without the last session's notes"; else echo "FAILED: default_file = empty"; fail=1; fi
 
+# hotkeys (7c): the default shortcut of Open settings (Ctrl+,) opens the settings tab; with a hotkeys.ini that gives the command another shortcut
+# the old one does nothing and the new one works; the Hotkeys page's file is the one the program reads
+vault="$work/hotkeys_run"; rm -rf "$vault"; mkdir -p "$vault/.exhaust"
+printf '# Welcome\n' > "$vault/Home.md"
+printf 'wait 600\nkey ctrl+comma\nwait 600\nmove 21 604\ndown 21 604\nup 21 604\nwait 1500\nquit\n' > "$work/hk_default.script"
+printf 'wait 600\nkey ctrl+comma\nwait 300\nkey ctrl+alt+j\nwait 600\nmove 21 604\ndown 21 604\nup 21 604\nwait 1500\nquit\n' > "$work/hk_custom.script"
+export EXHAUST_OPEN=Home.md
+EXHAUST_SCRIPT="$work/hk_default.script" $lim "$exe" "$vault" >"$work/hk_default.log" 2>&1
+hsession=$(find "$work" -name session.ini -newer "$work/hk_default.script" | head -1)
+if [ -n "$hsession" ] && grep -q "view = settings" "$hsession"; then echo "ok: Ctrl+, opens the settings (the default shortcut)"; else echo "FAILED: the default shortcut Ctrl+,"; fail=1; fi
+rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"
+printf '[hotkeys]\napp.open-settings = Ctrl+Alt+J\n' > "$vault/.exhaust/hotkeys.ini"
+printf 'wait 600\nkey ctrl+comma\nwait 600\nmove 21 604\ndown 21 604\nup 21 604\nwait 1500\nquit\n' > "$work/hk_old.script"
+EXHAUST_SCRIPT="$work/hk_old.script" $lim "$exe" "$vault" >"$work/hk_old.log" 2>&1
+hsession=$(find "$work" -name session.ini -newer "$work/hk_old.script" | head -1)
+if [ -n "$hsession" ] && ! grep -q "view = settings" "$hsession"; then echo "ok: a shortcut that was taken away does nothing"; else echo "FAILED: the old shortcut still works"; fail=1; fi
+rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"
+EXHAUST_SCRIPT="$work/hk_custom.script" $lim "$exe" "$vault" >"$work/hk_custom.log" 2>&1
+hsession=$(find "$work" -name session.ini -newer "$work/hk_custom.script" | head -1)
+if [ -n "$hsession" ] && grep -q "view = settings" "$hsession"; then echo "ok: the shortcut from hotkeys.ini opens the settings"; else echo "FAILED: the shortcut from hotkeys.ini"; fail=1; fi
+unset EXHAUST_OPEN
+
 exit $fail

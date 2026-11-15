@@ -9,6 +9,7 @@
 #define EXHAUST_SETTINGSVIEW_H
 
 #include <stddef.h>
+#include "exhaust_hotkeys.h"
 #include "exhaust_settings.h"
 #include "exhaust_ui.h"
 
@@ -46,6 +47,10 @@ typedef struct ExSettingsHost {
     void (*changed)(void *user, const char *section, const char *key);
     /* A feature switch of the Core plugins page: the application turns the feature on or off (menus, panels and commands follow) and writes the key. May be NULL: the key is written directly. Returns 0, or -1 if refused. */
     int (*set_feature)(void *user, const char *key, int enabled);
+    /* The Hotkeys page (7c): the shortcuts, and a way to wait for the next key press the user makes (the "+" button): the application calls
+     * done(arg, text) with the shortcut as text, or NULL if the user pressed Escape. Both may be NULL: the page then has no shortcuts to show. */
+    ExHotkeys *hotkeys;
+    void (*capture)(void *user, void (*done)(void *arg, const char *shortcut), void *arg);
 } ExSettingsHost;
 
 typedef struct ExSettingsView ExSettingsView;
