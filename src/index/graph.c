@@ -255,9 +255,8 @@ typedef struct PathSet { char **v; size_t n; } PathSet;
 static int cmp_cstr(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
 
 /* The paths a query finds, sorted; 0 on success, -1 if it does not parse, -2 if the search failed. */
-static int found_paths(ExIndex *r, const char *root, const char *query, PathSet *out) {
-    char err[200];
-    ExSearch *q = ex_search_parse(query, err, sizeof err);
+static int found_paths(ExIndex *r, const char *root, const char *query, PathSet *out, char *err, size_t errcap) {
+    ExSearch *q = ex_search_parse(query, err, errcap);
     ExSearchOptions so;
     ExSearchResult *res = NULL;
     size_t n = 0, i;
@@ -277,12 +276,23 @@ static int found_paths(ExIndex *r, const char *root, const char *query, PathSet 
 static void pathset_free(PathSet *s) { size_t i; for (i = 0; i < s->n; i++) free(s->v[i]); free(s->v); s->v = NULL; s->n = 0; }
 static int pathset_has(const PathSet *s, const char *p) { return s->n && bsearch(&p, s->v, s->n, sizeof *s->v, cmp_cstr) != NULL; }
 
-int ex_graph_apply_options(ExIndex *r, const char *root, const ExGraphOptions *o, ExGraph *g, unsigned *bad) {
+/* Adds a line about a query that did not parse to msg. */
+static void add_msg(char *msg, size_t cap, const char *who, const char *query, const char *err) {
+    size_t n;
+    if (!msg || !cap) return;
+    n = strlen(msg);
+    if (n && n + 1 < cap) msg[n++] = '\n';
+    snprintf(msg + n, cap - n, "%s \"%.40s\" does not work: %s", who, query, err[0] ? err : "it cannot be read as a search");
+}
+
+int ex_graph_apply_options(ExIndex *r, const char *root, const ExGraphOptions *o, ExGraph *g, unsigned *bad, char *msg, size_t msgcap) {
+    char perr[200];
     size_t i, w, n = g->n;
     unsigned char *keep;
     uint32_t *remap;
     int gi, rc = -1;
     if (bad) *bad = 0;
+    if (msg && msgcap) msg[0] = 0;
     if (!g->nodes || n == 0) return 0;
     keep = malloc(n);
     remap = malloc(n * sizeof *remap);
@@ -291,9 +301,9 @@ int ex_graph_apply_options(ExIndex *r, const char *root, const ExGraphOptions *o
     for (i = 0; i < n; i++) g->nodes[i].group = 0;
     if (o->search[0]) {
         PathSet ps;
-        int e = found_paths(r, root, o->search, &ps);
+        int e = found_paths(r, root, o->search, &ps, perr, sizeof perr);
         if (e == -2) goto done;
-        if (e == -1) { if (bad) *bad |= 1u; }
+        if (e == -1) { if (bad) *bad |= 1u; add_msg(msg, msgcap, "The search", o->search, perr); }
         else {
             unsigned char *linked = calloc(n, 1);
             if (!linked) { pathset_free(&ps); goto done; }
@@ -308,9 +318,9 @@ int ex_graph_apply_options(ExIndex *r, const char *root, const ExGraphOptions *o
         PathSet ps;
         int e;
         if (!o->groups[gi].query[0]) continue;
-        e = found_paths(r, root, o->groups[gi].query, &ps);
+        e = found_paths(r, root, o->groups[gi].query, &ps, perr, sizeof perr);
         if (e == -2) goto done;
-        if (e == -1) { if (bad) *bad |= 2u << gi; continue; }
+        if (e == -1) { char who[24]; if (bad) *bad |= 2u << gi; snprintf(who, sizeof who, "Group %d", gi + 1); add_msg(msg, msgcap, who, o->groups[gi].query, perr); continue; }
         for (i = 0; i < n; i++) if (g->nodes[i].kind == EX_GRAPH_NOTE && !g->nodes[i].group && pathset_has(&ps, g->nodes[i].path)) g->nodes[i].group = (uint8_t)(gi + 1);
         pathset_free(&ps);
     }

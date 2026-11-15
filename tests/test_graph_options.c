@@ -59,10 +59,11 @@ static ExIndex *g_r;
 static const char *g_root;
 
 /* Reads the whole graph and applies the options, as the service does. */
+static char g_msg[220];
 static int load(const ExGraphOptions *o, ExGraph *g, unsigned *bad) {
     memset(g, 0, sizeof *g);
     CHECK(ex_graph_load(g_r, g) == 0);
-    return ex_graph_apply_options(g_r, g_root, o, g, bad);
+    return ex_graph_apply_options(g_r, g_root, o, g, bad, g_msg, sizeof g_msg);
 }
 
 static void data(void) {
@@ -87,7 +88,7 @@ static void data(void) {
     if (!w || !g_r) return;
 
     ex_graphopts_defaults(&o);
-    CHECK(load(&o, &g, &bad) == 0 && bad == 0);                                   /* defaults: nothing removed, nothing in a group */
+    CHECK(load(&o, &g, &bad) == 0 && bad == 0 && g_msg[0] == 0);                  /* defaults: nothing removed, nothing in a group, nothing to say */
     n0 = g.n;
     CHECK(n0 == 6 && has(&g, "A.md") && has(&g, "Folder/B.md") && has(&g, "C.md") && has(&g, "D.md") && has(&g, "pic.png") && has(&g, "Missing"));
     CHECK(group_of(&g, "A.md") == 0);
@@ -159,6 +160,8 @@ static void data(void) {
     snprintf(o.groups[1].query, sizeof o.groups[1].query, "\"unclosed");
     CHECK(load(&o, &g, &bad) == 0);
     CHECK((bad & 1u) && (bad & 4u) && g.n == 6);                                  /* search is bit 0, group 2 is bit 2: the whole graph is shown */
+    CHECK(strstr(g_msg, "The search \"tag:(\" does not work: ") && strstr(g_msg, "\nGroup 2 \"") && strchr(g_msg, '\n'));   /* one line for each, saying why */
+    CHECK(g_msg[0] != 0 && strlen(g_msg) > 40);
     ex_graph_free(&g);
 
     ex_index_close(g_r); ex_index_close(w);
@@ -336,6 +339,26 @@ static void display(void) {
     frame(ui, r, root);
     ex_graphview_stats(gw, &b);
     CHECK(b.triangles == tri0);
+
+    /* with a node hovered the lines at it get their heads too (they are drawn in a pass of their own): one more triangle for every line, in both directions */
+    {
+        float hx, hy;
+        size_t off_tri, on_tri;
+        CHECK(ex_graphview_node_screen(gw, 2, &hx, &hy));
+        ex_graphview_hover(gw, hx, hy, 1);
+        frame(ui, r, root);
+        ex_graphview_stats(gw, &b);
+        CHECK(b.hover == 2);
+        off_tri = b.triangles;
+        o.arrows = 1; ex_graphmodel_set_options(m, &o);
+        frame(ui, r, root);
+        ex_graphview_stats(gw, &b);
+        on_tri = b.triangles;
+        CHECK(on_tri == off_tri + b.edges_drawn);                                  /* hovered lines (4 of the 4: node 2 touches two, the others are the rest) all have one */
+        o.arrows = 0; ex_graphmodel_set_options(m, &o);
+        ex_graphview_hover(gw, -50.0f, -50.0f, 0);
+        frame(ui, r, root);
+    }
 
     /* thickness, node size, text fade */
     o.link_thickness = 3.0f; o.node_size = 2.0f; o.text_fade = -2.0f;

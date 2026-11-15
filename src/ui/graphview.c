@@ -29,6 +29,7 @@ struct ExGraphModel {
     uint64_t gen;
     int have_xy;
     uint32_t *adj_off, *adj;                 /* the neighbours of every node (a link either way) */
+    uint8_t *adj_dir;                        /* for each entry of adj: 1 if the link goes from the node to the neighbour, 0 if it comes to the node */
     float minx, maxx, miny, maxy;
     float cs, gx0, gy0;                      /* the grid: cell size and the corner it starts at */
     int gw, gh;
@@ -50,7 +51,7 @@ static void model_clear_graph(ExGraphModel *m) {
     ex_layout_free(m->layout);
     m->layout = NULL;
     if (m->g) { ex_graph_free(m->g); free(m->g); m->g = NULL; }
-    free(m->adj_off); free(m->adj); m->adj_off = m->adj = NULL;
+    free(m->adj_off); free(m->adj); free(m->adj_dir); m->adj_off = m->adj = NULL; m->adj_dir = NULL;
     free(m->cell_start); free(m->cell_items); m->cell_start = m->cell_items = NULL; m->cell_cap = 0;
     m->xy = NULL; m->have_xy = 0; m->gw = m->gh = 0;
 }
@@ -83,13 +84,14 @@ static void build_adjacency(ExGraphModel *m) {
     size_t i, *fill = calloc(g->n + 1, sizeof *fill);
     m->adj_off = calloc(g->n + 2, sizeof *m->adj_off);
     m->adj = malloc((2 * g->ne + 1) * sizeof *m->adj);
-    if (!fill || !m->adj_off || !m->adj) { free(fill); free(m->adj_off); free(m->adj); m->adj_off = m->adj = NULL; return; }
+    m->adj_dir = malloc((2 * g->ne + 1) * sizeof *m->adj_dir);
+    if (!fill || !m->adj_off || !m->adj || !m->adj_dir) { free(fill); free(m->adj_off); free(m->adj); free(m->adj_dir); m->adj_off = m->adj = NULL; m->adj_dir = NULL; return; }
     for (i = 0; i < g->ne; i++) { m->adj_off[g->edges[i].from + 1]++; m->adj_off[g->edges[i].to + 1]++; }
     for (i = 0; i < g->n; i++) m->adj_off[i + 1] += m->adj_off[i];
     for (i = 0; i < g->ne; i++) {
         uint32_t a = g->edges[i].from, b = g->edges[i].to;
-        m->adj[m->adj_off[a] + fill[a]++] = b;
-        m->adj[m->adj_off[b] + fill[b]++] = a;
+        m->adj_dir[m->adj_off[a] + fill[a]] = 1; m->adj[m->adj_off[a] + fill[a]++] = b;
+        m->adj_dir[m->adj_off[b] + fill[b]] = 0; m->adj[m->adj_off[b] + fill[b]++] = a;
     }
     free(fill);
 }
@@ -122,7 +124,7 @@ void ex_graphmodel_set_graph(ExGraphModel *m, ExGraph *g) {
     ex_layout_free(m->layout);
     m->layout = NULL;
     if (m->g) { ex_graph_free(m->g); free(m->g); }
-    free(m->adj_off); free(m->adj); m->adj_off = m->adj = NULL;
+    free(m->adj_off); free(m->adj); free(m->adj_dir); m->adj_off = m->adj = NULL; m->adj_dir = NULL;
     m->g = g;
     m->layout = l;
     apply_params(m);
@@ -454,6 +456,12 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
             float nx, ny;
             nx = v->sxy[2 * nb]; ny = v->sxy[2 * nb + 1];
             ex_geom_line(v->geom, hx, hy, nx, ny, lw * 1.5f, c_focus);
+            if (m->opts.arrows && m->adj_dir) {                                     /* the head at the end the link points to, at the rim of that circle */
+                int out = m->adj_dir[i];
+                float tx = out ? nx : hx, ty = out ? ny : hy, fx = out ? hx : nx, fy = out ? hy : ny, dl = hypotf(tx - fx, ty - fy);
+                float rr = out ? radius_of(rk, g->nodes[nb].degree) : radius_of(rk, g->nodes[v->hover].degree) * 1.15f, hs = (float)ex_px(r, 6.0f) * (0.6f + 0.4f * m->opts.link_thickness);
+                if (dl > rr + hs * 0.5f) ex_geom_arrow(v->geom, tx - (tx - fx) / dl * rr, ty - (ty - fy) / dl * rr, tx - fx, ty - fy, hs, c_focus);
+            }
             edges++;
         }
         for (i = o; i < e; i++) {

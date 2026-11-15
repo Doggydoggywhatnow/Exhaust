@@ -46,9 +46,10 @@ void ex_graph_free(ExGraph *g);
 /* Applies the filters and groups of the options (sub-slice 5b) to a graph just read: the notes a search finds (the attachments and unresolved
  * names they link to stay), the toggles for orphans, unresolved names and attachments, and the group of every note. Removes nodes and
  * the edges that touch them, and counts degrees again. A query that does not parse is ignored (-1 for it) and the rest is applied: *bad
- * (may be NULL) gets 1 for the search, or 2 to 7 for group 1 to 6, as a bit set. Runs the search engine, so call it on the service thread.
+ * (may be NULL) gets 1 for the search, or 2 to 7 for group 1 to 6, as a bit set, and msg (may be NULL) gets one line for each such query saying why it
+ * did not parse (\n between the lines, cut to msgcap). Runs the search engine, so call it on the service thread.
  * Returns 0, or -1 on a failed search. */
-int ex_graph_apply_options(ExIndex *r, const char *vault_root, const ExGraphOptions *o, ExGraph *g, unsigned *bad);
+int ex_graph_apply_options(ExIndex *r, const char *vault_root, const ExGraphOptions *o, ExGraph *g, unsigned *bad, char *msg, size_t msgcap);
 /* The name to show for a node: the file name without a folder and without ".md" (a pointer into the node's path). */
 const char *ex_graph_label(const ExGraphNode *n, size_t *len);
 

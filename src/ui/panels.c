@@ -159,6 +159,8 @@ ExWidget *ex_panels_overlay(ExPanels *p) { return p->overlay ? p->overlay : p->p
 int ex_panels_modal(const ExPanels *p) { return p->overlay != NULL; }
 int ex_panels_index_ready(const ExPanels *p) { return p->index_ready; }
 
+static void graph_msg_ok(ExPanels *p, int button, void *arg) { (void)p; (void)button; (void)arg; }
+
 void ex_panels_graph_options(ExPanels *p, const ExGraphOptions *o) {
     if (!p || !o) return;
     p->graph_opts = *o;
@@ -399,7 +401,13 @@ void ex_panels_update(ExPanels *p) {
             case QJ_PLAN: handle_plan(p, r); break;
             case QJ_REWRITE: if (r->req == p->req_rewrite) finish_rename(p, r); break;
             case QJ_PREVIEW: preview_result(p, r); break;
-            case QJ_GRAPH: if (r->req == p->graph_req && r->ok && r->graph && p->in.host.graph_data) { p->in.host.graph_data(p->in.host.user, r->graph); r->graph = NULL; } break;
+            case QJ_GRAPH:
+                if (r->req == p->graph_req && r->ok && r->graph && p->in.host.graph_data) {
+                    p->in.host.graph_data(p->in.host.user, r->graph); r->graph = NULL;
+                    if (strcmp(p->graph_msg, r->summary)) { snprintf(p->graph_msg, sizeof p->graph_msg, "%s", r->summary); p->graph_msg_at = now_ms(); }
+                    if (!r->summary[0]) p->graph_msg_shown[0] = 0;                  /* the queries work again: tell again if one breaks */
+                }
+                break;
             case QJ_EXPAND: if (r->ok && r->text && p->in.host.query_results) p->in.host.query_results(p->in.host.user, r->summary, r->text); break;
             default: views_result(p, r); break;
             }
@@ -428,6 +436,18 @@ void ex_panels_update(ExPanels *p) {
         mark_index_views_stale(p);
         p->snapshot_stale = 1;
         p->graph_stale = 1;
+    }
+    if (p->graph_msg[0] && strcmp(p->graph_msg, p->graph_msg_shown) && now - p->graph_msg_at >= 1200) {   /* a query that does not parse, and the user has stopped typing */
+        char text[520], *q;
+        size_t col = 0, last_space = 0, i;
+        snprintf(p->graph_msg_shown, sizeof p->graph_msg_shown, "%s", p->graph_msg);
+        snprintf(text, sizeof text, "%s\nThe graph is shown without it.", p->graph_msg);
+        for (q = text, i = 0; q[i]; i++) {                                   /* lines of at most about 60 characters, so the dialog never cuts one off */
+            if (q[i] == '\n') { col = 0; last_space = 0; continue; }
+            if (q[i] == ' ') last_space = i;
+            if (++col > 68 && last_space) { q[last_space] = '\n'; col = i - last_space; last_space = 0; }
+        }
+        dialog_confirm(p, "Graph filter", text, "OK", NULL, NULL, graph_msg_ok, NULL);
     }
     if (p->graph_wanted && p->graph_stale && p->index_ready && (p->graph_sent_at == 0 || now - p->graph_sent_at >= 1500)) {
         QJob *j = qjob_new(QJ_GRAPH, p->graph_req = ++p->next_req);

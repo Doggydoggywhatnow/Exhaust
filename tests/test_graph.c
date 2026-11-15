@@ -132,7 +132,7 @@ static void big(const char *tool) {
         snprintf(o.groups[1].query, sizeof o.groups[1].query, "tag:#x");
         o.show_orphans = 0;
         t0 = SDL_GetTicksNS();
-        CHECK(ex_graph_apply_options(r, root, &o, &g, &bad) == 0 && bad == 0);
+        CHECK(ex_graph_apply_options(r, root, &o, &g, &bad, NULL, 0) == 0 && bad == 0);
         t1 = SDL_GetTicksNS();
         printf("graph filter (a search, two groups, no orphans) on %zu nodes: %zu nodes and %zu edges left, %.0f ms\n", n0, g.n, g.ne, (double)(t1 - t0) / 1e6);
         CHECK(g.n > 0 && g.n < n0 && g.ne < ne0);

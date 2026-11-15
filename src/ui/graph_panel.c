@@ -98,6 +98,7 @@ static void show_sections(ExGraphPanel *p) {
     for (i = 0; i < NSEC; i++) {
         p->body[i]->hidden = !p->open_sec[i];
         p->head[i]->selected = p->open_sec[i];
+        p->head[i]->icon = p->open_sec[i] ? EX_ICON_CHEVRON_DOWN : EX_ICON_CHEVRON_RIGHT;          /* the chevron shows whether it is open */
         snprintf(name, sizeof name, "%s, %s", titles[i], p->open_sec[i] ? "expanded" : "collapsed");
         set_name(p->head[i], name);
     }
@@ -226,7 +227,7 @@ static ExWidget *slider_row(ExGraphPanel *p, int i) {
 static ExWidget *section(ExGraphPanel *p, int i, const char *title) {
     ExWidget *b = ex_widget_button(p->ui, title, on_head, p), *body = ex_widget_box(p->ui, 1, title);
     if (!b || !body) return NULL;
-    b->width = ex_size_grow(); b->bold = 1; b->menu_item = 1; b->submenu = 1; b->bg_token = EX_COLOR_SURFACE; b->border_token = -1;
+    b->width = ex_size_grow(); b->bold = 1; b->menu_item = 1; b->submenu = 0; b->bg_token = EX_COLOR_SURFACE; b->border_token = -1;
     body->width = ex_size_grow(); body->gap = 0.75f; body->pad_x = 0.5f;
     p->head[i] = b; p->body[i] = body;
     ex_widget_add(p->panel, b);
