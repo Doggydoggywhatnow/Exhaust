@@ -640,7 +640,11 @@ void ex_ui_layout(ExUi *ui, ExWidget *root, float width, float height) {
                 if (e->type == EX_WIDGET_READING && e->reading) {
                     ex_readingview_set_viewport(e->reading, e->x, e->y, e->w, e->h);
                     ex_readingview_set_head(e->reading, e->first_child ? e->first_child->h : 0);      /* a child (the inline title) sits above the page and scrolls with it */
-                    if (e->first_child) { e->first_child->x = e->x; e->first_child->w = e->w; e->first_child->y = e->y - ex_readingview_scroll_y(e->reading); }
+                    if (e->first_child) {
+                        float cx, cw;
+                        ex_readingview_column(e->reading, &cx, &cw);
+                        e->first_child->x = e->x + (cw > 0 ? cx : 0); e->first_child->w = cw > 0 ? cw : e->w; e->first_child->y = e->y - ex_readingview_scroll_y(e->reading);
+                    }
                 }
                 if (e->type == EX_WIDGET_EDITOR && e->editor) {
                     ExFont *f = ex_ui_font(ui, e->font_token, e->bold);

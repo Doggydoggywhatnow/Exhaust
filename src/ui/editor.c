@@ -192,6 +192,8 @@ static int line_px(const ExEditor *e, ExRenderer *r) { return ex_px(r, e->size);
 static int gutter_px(ExRenderer *r) { return ex_px(r, 14); }                  /* room for the fold marker */
 static int pad_px(ExRenderer *r) { return gutter_px(r) + ex_px(r, 8); }       /* from the left edge to the text */
 
+int ex_editor_text_inset(ExRenderer *r) { return pad_px(r); }
+
 static int line_height_px(const ExEditor *e, ExRenderer *r) {
     ExFontMetrics m;
     int lh;

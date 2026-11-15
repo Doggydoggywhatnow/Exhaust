@@ -15,6 +15,7 @@ void ex_readingview_free(ExReadingView *v);
 void ex_readingview_set_text(ExReadingView *v, const char *text, size_t len);
 void ex_readingview_set_link_handler(ExReadingView *v, ExReadingLinkFn fn, void *user);
 void ex_readingview_set_viewport(ExReadingView *v, float x, float y, float w, float h);
+void ex_readingview_column(const ExReadingView *v, float *x, float *w);   /* left offset and width for a header whose text lines up with the page (after a layout; w is 0 before) */
 void ex_readingview_set_head(ExReadingView *v, float px);   /* room above the first block for a header widget that scrolls with the page */
 void ex_readingview_scroll(ExReadingView *v, float dy);
 float ex_readingview_scroll_y(const ExReadingView *v);

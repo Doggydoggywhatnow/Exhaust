@@ -148,6 +148,8 @@ void ex_editor_caret_rect(ExEditor *e, ExRenderer *r, float *x, float *y, float 
 float ex_editor_scroll_y(const ExEditor *e);
 /* A header of this height (pixels) sits above the first row and scrolls with the text (the inline title): the scroll position counts it. */
 void ex_editor_set_head(ExEditor *e, float px);
+/* Pixels from an editor's left edge to its text. */
+int ex_editor_text_inset(ExRenderer *r);
 void ex_editor_set_mode(ExEditor *e, ExEditorMode mode);
 /* Soft wrap: a long line continues on the next row at the width of the viewport (default off; the note editors turn it on). */
 void ex_editor_set_wrap(ExEditor *e, int on);
