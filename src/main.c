@@ -440,6 +440,7 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
         char *txt = ex_buffer_text(ex_doc_buffer(ex_note_doc(n)), &tl);
         ExWidget *rv = txt ? ex_widget_reading(a->ui, txt, tl, t->path) : NULL;
         if (rv) {
+            make_title(a, rv, t->id);
             ex_reading_set_link_handler(rv, on_reading_link, a);
             if (a->panels) ex_panels_expand_queries(a->panels, t->path, txt, tl);
             if (!note_for_tab(a, t->id)) remember_tab_note(a, t->id, n);
@@ -1056,7 +1057,7 @@ static void sync_title(App *a) {
     for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
         ExId tid = ex_ws_tab_at(a->ws, i);
         ExWidget *c = ex_panes_content(a->panes, tid);
-        Title *t = c && c->type == EX_WIDGET_EDITOR && c->first_child ? c->first_child->owned : NULL;
+        Title *t = c && (c->type == EX_WIDGET_EDITOR || c->type == EX_WIDGET_READING) && c->first_child ? c->first_child->owned : NULL;
         const ExTab *tab = ex_ws_tab(a->ws, tid);
         ExNote *note = note_for_tab(a, tid);
         int focused, show;
@@ -1119,7 +1120,7 @@ static void sync_ui(App *a) {
         }
     }
     a->note = t ? note_for_tab(a, t) : NULL;
-    a->title = a->editor && a->editor->first_child ? a->editor->first_child : NULL;
+    a->title = c && (c->type == EX_WIDGET_EDITOR || c->type == EX_WIDGET_READING) && c->first_child ? c->first_child : NULL;
     sync_title(a);
     if (a->rb_left) a->rb_left->selected = ex_ws_sidebar_visible(a->ws, EX_SIDE_LEFT);          /* pressed while the sidebar shows */
     if (a->rb_right) a->rb_right->selected = ex_ws_sidebar_visible(a->ws, EX_SIDE_RIGHT);
@@ -1919,7 +1920,7 @@ int main(int argc, char **argv) {
                 ExWidget *wheel_root = app.panels && ex_panels_modal(app.panels) ? ex_panels_overlay(app.panels) : app.root;
                 ExWidget *under = ex_ui_widget_at(wheel_root, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
                 while (under && under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
-                if (under && under->parent && under->parent->type == EX_WIDGET_EDITOR) under = under->parent;   /* over the title: the note scrolls */
+                if (under && under->parent && (under->parent->type == EX_WIDGET_EDITOR || under->parent->type == EX_WIDGET_READING)) under = under->parent;   /* over the title: the note scrolls */
                 if (!under && wheel_root == app.root) under = app.editor;
                 if (under && under->type == EX_WIDGET_TREE) ex_tree_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 else if (under && under->type == EX_WIDGET_LIST) ex_list_scroll(under, -e.wheel.y * 3.0f * ex_list_row_height(under));

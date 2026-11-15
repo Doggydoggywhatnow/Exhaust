@@ -30,6 +30,7 @@ struct ExReadingView {
     ExReading *model;
     char *plain;
     float vx, vy, vw, vh, scroll;
+    float head;                  /* height of a header widget (the inline title) above the first block: it scrolls with the page */
     float laid_w, laid_scale, content_h;
     int dirty;
     Op *ops; size_t nops, capops;      /* backgrounds first (in `back`), then foreground */
@@ -120,6 +121,7 @@ static void clamp_scroll(ExReadingView *v) {
     if (v->scroll > max) v->scroll = max;
     if (v->scroll < 0) v->scroll = 0;
 }
+void ex_readingview_set_head(ExReadingView *v, float px) { if (px < 0) px = 0; if (px != v->head) { v->head = px; v->dirty = 1; } }
 void ex_readingview_scroll(ExReadingView *v, float dy) { v->scroll += dy; clamp_scroll(v); }
 void ex_readingview_set_scroll(ExReadingView *v, float y) { v->scroll = y; clamp_scroll(v); }
 
@@ -279,7 +281,7 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
     if (col_w < 120) col_w = 120;
     x0 = pad + (avail_w - 2 * pad - col_w) / 2.0f;
     if (x0 < pad) x0 = pad;
-    L.y = pad;
+    L.y = pad + v->head;
     for (i = 0; i < nb; i++) {
         const ExRBlock *b = blk(v, i);
         float indent = (float)b->list_depth * em * 1.6f + (float)b->nframes * em * 1.0f, top = L.y, gap, bar_w = 3.0f * scale;

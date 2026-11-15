@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 
 #include "exhaust_ui.h"
+#include "reading_view.h"
 
 static int failures;
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "%s:%d: check failed: %s\n", __FILE__, __LINE__, #c); failures++; } } while (0)
@@ -62,6 +63,38 @@ int main(void) {
     title->hidden = 1;                                            /* no title (not a Markdown note): the text starts at the top */
     ex_ui_layout(ui, root, 600, 400);
     CHECK(caret_y(ed, r) < y0);
+
+    {   /* the reading view too (ISSUES 25): the title is above the page and scrolls with it */
+        ExDoc *rdoc = ex_doc_create("Title", 5);
+        ExWidget *rv, *rt, *root2 = ex_widget_box(ui, 1, "root2");
+        char page[4000];
+        size_t pn = 0;
+        float h0;
+        for (i = 0; i < 100; i++) pn += (size_t)snprintf(page + pn, sizeof page - pn, "paragraph %zu\n\n", i);      /* a page much taller than the view */
+        root2->width = ex_size_grow(); root2->height = ex_size_grow();
+        rv = ex_widget_reading(ui, page, pn, "page");
+        rt = ex_widget_editor(ui, rdoc, "title");
+        rt->width = ex_size_grow(); rt->height = ex_size_token(EX_SIZE_SPACING, 7.0f);
+        ex_widget_add(rv, rt);
+        ex_widget_add(root2, rv);
+        ex_ui_layout(ui, root2, 600, 400);
+        ex_ui_draw(ui, root2, 1);                                 /* the page is laid out when it is drawn */
+        h0 = ex_readingview_content_height(rv->reading);
+        CHECK(rt->h > 20.0f && rt->y == rv->y && rt->w == rv->w);
+        ex_reading_scroll(rv, 30.0f);
+        ex_ui_layout(ui, root2, 600, 400);
+        CHECK(rt->y == rv->y - 30.0f);
+        CHECK(ex_ui_widget_at(root2, rv->x + 10, rv->y + 5) == rt);
+        ex_reading_scroll(rv, rt->h);
+        ex_ui_layout(ui, root2, 600, 400);
+        CHECK(ex_ui_widget_at(root2, rv->x + 10, rv->y + 5) == rv);
+        rt->hidden = 1;                                           /* no title: the page is shorter by the title's height */
+        ex_ui_layout(ui, root2, 600, 400);
+        ex_ui_draw(ui, root2, 1);
+        CHECK(ex_readingview_content_height(rv->reading) < h0);
+        ex_widget_free(root2);
+        ex_doc_free(rdoc);
+    }
 
     ex_widget_free(root);
     ex_doc_free(doc); ex_doc_free(tdoc);

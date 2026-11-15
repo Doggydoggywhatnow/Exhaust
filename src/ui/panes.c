@@ -24,7 +24,6 @@ struct ExPanes {
     ExPanesHooks hooks;
     void *user;
     ExWidget *root;
-    ExWidget *header;            /* shown between the tab strip and the content of the active group (not owned) */
     GroupWidgets *groups; size_t ngroups, capgroups;
     Cached *cache; size_t ncache, capcache;
     unsigned long built_layout;
@@ -393,28 +392,10 @@ static void drop_stale_content(ExPanes *p) {
     }
 }
 
-/* The header sits in the active group, between its tab strip and its content. */
-static void place_header(ExPanes *p) {
-    size_t i;
-    ExId ag = ex_ws_active_group(p->ws);
-    if (!p->header) return;
-    if (p->header->parent) ex_widget_remove(p->header->parent, p->header);
-    for (i = 0; i < p->ngroups; i++) {
-        if (p->groups[i].group != ag) continue;
-        ex_widget_remove(p->groups[i].box, p->groups[i].content);
-        ex_widget_add(p->groups[i].box, p->header);
-        ex_widget_add(p->groups[i].box, p->groups[i].content);
-        return;
-    }
-}
-
-void ex_panes_set_header(ExPanes *p, ExWidget *header) { p->header = header; place_header(p); }
-
 static void rebuild(ExPanes *p) {
     ExWidget *old, *next;
     size_t i;
     ExId main_root = ex_ws_window_root(p->ws, ex_ws_main_window(p->ws));
-    if (p->header && p->header->parent) { ex_ui_release(p->ui, p->header); ex_widget_remove(p->header->parent, p->header); }   /* the header is not freed with the groups */
     for (i = 0; i < p->ncache; i++)                      /* keep the contents out of the tree that is freed */
         if (p->cache[i].w->parent) ex_widget_remove(p->cache[i].w->parent, p->cache[i].w);
     drop_stale_content(p);
@@ -431,7 +412,6 @@ static void rebuild(ExPanes *p) {
     }
     p->built_layout = ex_ws_layout_revision(p->ws);
     p->shown_active = ex_ws_active_group(p->ws);
-    place_header(p);
 }
 
 static void refresh_active(ExPanes *p) {
@@ -444,7 +424,6 @@ static void refresh_active(ExPanes *p) {
             if (c->on_mouse == tab_mouse) c->text_token = c->selected && is_active ? EX_COLOR_TEXT : EX_COLOR_TEXT_MUTED;
     }
     p->shown_active = ag;
-    place_header(p);
 }
 
 void ex_panes_update(ExPanes *p) {
@@ -470,7 +449,6 @@ ExWidget *ex_panes_root(ExPanes *p) { return p->root; }
 void ex_panes_free(ExPanes *p) {
     size_t i;
     if (!p) return;
-    if (p->header && p->header->parent) ex_widget_remove(p->header->parent, p->header);      /* its owner frees it */
     for (i = 0; i < p->ncache; i++) {            /* detach so freeing the tree does not free them twice */
         if (p->cache[i].w->parent) ex_widget_remove(p->cache[i].w->parent, p->cache[i].w);
         if (p->hooks.content_closed) p->hooks.content_closed(p, p->cache[i].tab, p->cache[i].w, p->user);
