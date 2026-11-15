@@ -281,6 +281,7 @@ Two registries exist from sub-slice 2d, and every feature uses them from the sta
 ### Size, safety and quality gates
 
 - **Size budget**: the core install (without the optional PDF and media add-on) is at most 25 MB, checked in CI.
+- **Size, measured after slice 5g (2026-11-15):** a Release install is 9,556 KB (about 9.3 MB, 16 MB under the budget): the program 9,448 KB, the rest (licences, fonts, other data) about 108 KB. Next check: after 6e-v.
 - **Sanitizers**: a CI job builds and tests with AddressSanitizer and UndefinedBehaviorSanitizer.
 - **Fuzzing**: libFuzzer targets for the Markdown tokenizer, frontmatter, HTML subset, canvas JSON, base expressions and importers.
 - **Hardening**: builds use `-fstack-protector-strong` and `-D_FORTIFY_SOURCE=2` where the compiler supports them.
