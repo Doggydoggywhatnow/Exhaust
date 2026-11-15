@@ -41,6 +41,8 @@ void ex_graphmodel_set_active(ExGraphModel *m, const char *path);
 int ex_graphmodel_animating(const ExGraphModel *m);     /* the layout is still moving the nodes: draw every frame */
 /* The layout's temperature (1 at a cold start, falling to 0): for the tests, which check that a graph read again after a save restarts it gently. */
 float ex_graphmodel_temperature(const ExGraphModel *m);
+/* The temperature the current layout started at: not a moving number, so a test can read it at any time. */
+float ex_graphmodel_start_temperature(const ExGraphModel *m);
 size_t ex_graphmodel_node_count(const ExGraphModel *m);
 size_t ex_graphmodel_edge_count(const ExGraphModel *m);
 const ExGraph *ex_graphmodel_graph(const ExGraphModel *m);

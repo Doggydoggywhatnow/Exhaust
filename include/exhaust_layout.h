@@ -26,6 +26,7 @@ typedef struct ExLayoutStats {
     unsigned long interactions;      /* repulsion terms of the last step: a node against a node or against a group of them */
     float alpha;                     /* the temperature: 1 at the start, falls each step, the layout rests below 0.001 */
     int settled;                     /* 1 once it has cooled and stopped stepping (ex_layout_reheat wakes it) */
+    float start_alpha;               /* the temperature it started at (1 cold; less when it started from an earlier layout): fixed at creation, for the tests */
 } ExLayoutStats;
 
 /* Starts the layout of g. prev_g and prev_xy (n_prev * 2 floats, from ex_layout_positions of an earlier layout) are optional: a node

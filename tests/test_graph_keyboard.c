@@ -297,10 +297,10 @@ static void keys(void) {
         ex_graphmodel_update(m);
         CHECK(!ex_graphmodel_animating(m) && ex_graphmodel_temperature(m) < 0.002f);
         ex_graphmodel_set_graph(m, build(names, 11, more, 13));                              /* one new link, the same notes */
-        CHECK(ex_graphmodel_temperature(m) > 0.05f && ex_graphmodel_temperature(m) < 0.12f);
+        CHECK(ex_graphmodel_start_temperature(m) > 0.05f && ex_graphmodel_start_temperature(m) < 0.12f);          /* the start, not the live value: a fast machine cools it before we look */
         wait_model(m);
         ex_graphmodel_set_graph(m, build(names2, 12, links, 12));                            /* a new note */
-        CHECK(ex_graphmodel_temperature(m) > 0.2f);
+        CHECK(ex_graphmodel_start_temperature(m) > 0.25f);
     }
 
     ex_ui_release(ui, root);

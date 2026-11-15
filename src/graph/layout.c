@@ -187,7 +187,7 @@ struct ExLayout {
     float *x, *y, *vx, *vy;          /* the worker's own */
     float *xy;                       /* scratch for the quadtree: x and y interleaved */
     QTree tree;
-    float alpha;
+    float alpha, start_alpha;
     uint32_t rng;
     Pub pub[3];
     int back, front;                 /* back: the worker writes it; front: the UI reads it */
@@ -344,6 +344,7 @@ ExLayout *ex_layout_create(const ExGraph *g, const ExGraph *prev_g, const float 
     }
     l->alpha = kept > 0 ? (kept == n ? 0.08f : 0.3f) : 1.0f;      /* every node kept its place (only links changed): a gentle nudge, so a save does not shake the picture (ISSUES 31) */
     SDL_SetAtomicInt(&l->alpha_milli, (int)(l->alpha * 1000000.0f));
+    l->start_alpha = l->alpha;
     SDL_SetAtomicInt(&l->p_center, 0); SDL_SetAtomicInt(&l->p_charge, (int)(CHARGE * 1000.0f)); SDL_SetAtomicInt(&l->p_strength, 1000); SDL_SetAtomicInt(&l->p_distance, (int)(LINK_DISTANCE * 1000.0f));
 
     /* all three buffers hold the start, so the UI has something valid to read before the first step */
@@ -408,4 +409,5 @@ void ex_layout_stats(const ExLayout *l, ExLayoutStats *out) {
     out->interactions = (unsigned long)SDL_GetAtomicInt((SDL_AtomicInt *)&l->interactions);
     out->alpha = (float)SDL_GetAtomicInt((SDL_AtomicInt *)&l->alpha_milli) / 1000000.0f;
     out->settled = SDL_GetAtomicInt((SDL_AtomicInt *)&l->settled);
+    out->start_alpha = l->start_alpha;
 }

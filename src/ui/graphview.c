@@ -215,6 +215,7 @@ int ex_graphmodel_update(ExGraphModel *m) {
 }
 
 int ex_graphmodel_animating(const ExGraphModel *m) { return m && m->animating; }
+float ex_graphmodel_start_temperature(const ExGraphModel *m) { ExLayoutStats st; if (!m || !m->layout) return 0.0f; ex_layout_stats(m->layout, &st); return st.start_alpha; }
 float ex_graphmodel_temperature(const ExGraphModel *m) { ExLayoutStats st; if (!m || !m->layout) return 0.0f; ex_layout_stats(m->layout, &st); return st.alpha; }
 size_t ex_graphmodel_node_count(const ExGraphModel *m) { return m && m->g ? m->g->n : 0; }
 size_t ex_graphmodel_edge_count(const ExGraphModel *m) { return m && m->g ? m->g->ne : 0; }
