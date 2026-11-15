@@ -576,7 +576,7 @@ Rules:
 | `[tab.<id>]` `group` | int | `0` (the split it is in) | 0.1.0 |
 | `[tab.<id>]` `cursor_line`, `cursor_column` | int | `0` | 0.1.0; `cursor_line` counts from 0, `cursor_column` is the byte offset in that line (from 0); both are clamped to the text on restore and never land inside a character |
 | `[tab.<id>]` `scroll_y` | float (pixels at 100% zoom, one decimal) | `0` | 0.1.0 |
-| `[graph]` | keys of the graph settings, plus `open` (bool) | the last state | 0.1.0 |
+| `[graph]` | keys of the graph settings, plus `open` (bool) | the last state | 0.1.0. **No keys exist yet:** 5a saves only that a graph tab is open (as a tab with view `graph`); pan and zoom are not saved. 5b adds the keys of its display options, filters, groups and forces here first. |
 | `[search]` `text` | string | empty | 0.1.0 |
 
 **Layout tree (added with sub-slice 2c, since 0.1.0).** The window's panes form a tree of *groups* (a strip of tabs with one active tab) and *splits* (a row or a column of groups and splits). Ids are positive integers, written in values as `g<id>` for a group and `s<id>` for a split.
