@@ -55,6 +55,7 @@ Found by hand-testing the AppImage built from `dev` after sub-slice 4d (2026-11-
 
 | 43 | open (found in 5e) | A tab strip that is narrower than its tabs is clipped, not scrolled or shrunk: in the right sidebar (200 px at its narrowest) two or three tabs do not fit, and the main panes have the same limit. | Scroll the strip, shrink the tabs, or a chevron menu of the hidden ones. `long_names` tests a sidebar group with one tab for this reason. |
 | 44 | open (found in 5e) | `graph-view.open-graph-view` cannot target the right sidebar, and the tab's right-click menu has no *Move to right sidebar*: the pane menu, the commands (no default keys) and dragging a tab do it. A reading view rebuilds its whole page 200 ms after an edit elsewhere; not timed on a very large note. | Add a setting or a second command for the graph; add the entries to the tab menu; time the refresh on the 6000-line note of `frame_budget`. |
+| 45 | open (found in 5f) | The table commands do not work on a table inside a block quote (`> | a | b |`) or a list item (an indented table): such a line is not read as part of a table. Cell widths are counted in code points, so a table with wide characters (CJK, emoji) looks misaligned after a column command. | Read the prefix of the lines (`> `, list indentation) and keep it on every line written; use a display width for the cells. |
 
 ## Fixed
 

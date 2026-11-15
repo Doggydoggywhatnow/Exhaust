@@ -960,6 +960,39 @@ static void cmd_fmt_insert_code_block(void *u) { format_cmd(u, EX_FMT_CODE_BLOCK
 static void cmd_fmt_insert_callout(void *u) { format_cmd(u, EX_FMT_CALLOUT); }
 static void cmd_fmt_insert_math_block(void *u) { format_cmd(u, EX_FMT_MATH_BLOCK); }
 static void cmd_fmt_insert_table(void *u) { format_cmd(u, EX_FMT_TABLE); }
+/* The table commands (5f): each is available only where the caret is in a table and the command applies there. */
+static void table_cmd(App *a, ExTableCmd c) { if (a->editor && a->editor->editor) ex_editor_table(a->editor->editor, c); }
+static int table_can(App *a, ExTableCmd c) { return a->editor && a->editor->editor && ex_editor_table_can(a->editor->editor, c); }
+static void cmd_tbl_add_col_left(void *u) { table_cmd(u, EX_TBL_COL_LEFT); }
+static int can_tbl_add_col_left(void *u) { return table_can(u, EX_TBL_COL_LEFT); }
+static void cmd_tbl_add_col_right(void *u) { table_cmd(u, EX_TBL_COL_RIGHT); }
+static int can_tbl_add_col_right(void *u) { return table_can(u, EX_TBL_COL_RIGHT); }
+static void cmd_tbl_add_row_above(void *u) { table_cmd(u, EX_TBL_ROW_ABOVE); }
+static int can_tbl_add_row_above(void *u) { return table_can(u, EX_TBL_ROW_ABOVE); }
+static void cmd_tbl_add_row_below(void *u) { table_cmd(u, EX_TBL_ROW_BELOW); }
+static int can_tbl_add_row_below(void *u) { return table_can(u, EX_TBL_ROW_BELOW); }
+static void cmd_tbl_align_center(void *u) { table_cmd(u, EX_TBL_ALIGN_CENTER); }
+static int can_tbl_align_center(void *u) { return table_can(u, EX_TBL_ALIGN_CENTER); }
+static void cmd_tbl_align_left(void *u) { table_cmd(u, EX_TBL_ALIGN_LEFT); }
+static int can_tbl_align_left(void *u) { return table_can(u, EX_TBL_ALIGN_LEFT); }
+static void cmd_tbl_align_right(void *u) { table_cmd(u, EX_TBL_ALIGN_RIGHT); }
+static int can_tbl_align_right(void *u) { return table_can(u, EX_TBL_ALIGN_RIGHT); }
+static void cmd_tbl_delete_col(void *u) { table_cmd(u, EX_TBL_DEL_COL); }
+static int can_tbl_delete_col(void *u) { return table_can(u, EX_TBL_DEL_COL); }
+static void cmd_tbl_delete_row(void *u) { table_cmd(u, EX_TBL_DEL_ROW); }
+static int can_tbl_delete_row(void *u) { return table_can(u, EX_TBL_DEL_ROW); }
+static void cmd_tbl_dup_col(void *u) { table_cmd(u, EX_TBL_DUP_COL); }
+static int can_tbl_dup_col(void *u) { return table_can(u, EX_TBL_DUP_COL); }
+static void cmd_tbl_dup_row(void *u) { table_cmd(u, EX_TBL_DUP_ROW); }
+static int can_tbl_dup_row(void *u) { return table_can(u, EX_TBL_DUP_ROW); }
+static void cmd_tbl_move_col_left(void *u) { table_cmd(u, EX_TBL_MOVE_COL_LEFT); }
+static int can_tbl_move_col_left(void *u) { return table_can(u, EX_TBL_MOVE_COL_LEFT); }
+static void cmd_tbl_move_col_right(void *u) { table_cmd(u, EX_TBL_MOVE_COL_RIGHT); }
+static int can_tbl_move_col_right(void *u) { return table_can(u, EX_TBL_MOVE_COL_RIGHT); }
+static void cmd_tbl_move_row_down(void *u) { table_cmd(u, EX_TBL_MOVE_ROW_DOWN); }
+static int can_tbl_move_row_down(void *u) { return table_can(u, EX_TBL_MOVE_ROW_DOWN); }
+static void cmd_tbl_move_row_up(void *u) { table_cmd(u, EX_TBL_MOVE_ROW_UP); }
+static int can_tbl_move_row_up(void *u) { return table_can(u, EX_TBL_MOVE_ROW_UP); }
 static void cmd_fmt_insert_footnote(void *u) { format_cmd(u, EX_FMT_FOOTNOTE); }
 static void cmd_fmt_insert_markdown_link(void *u) { format_cmd(u, EX_FMT_MD_LINK); }
 static void cmd_fmt_add_internal_link(void *u) { format_cmd(u, EX_FMT_INTERNAL_LINK); }
@@ -1232,6 +1265,21 @@ static void register_features_and_commands(App *a) {
     ex_commands_bind(a->commands, "editor.insert-callout", cmd_fmt_insert_callout, has_editor, a);
     ex_commands_bind(a->commands, "editor.insert-math-block", cmd_fmt_insert_math_block, has_editor, a);
     ex_commands_bind(a->commands, "editor.insert-table", cmd_fmt_insert_table, has_editor, a);
+    ex_commands_bind(a->commands, "table.add-column-to-the-left", cmd_tbl_add_col_left, can_tbl_add_col_left, a);
+    ex_commands_bind(a->commands, "table.add-column-to-the-right", cmd_tbl_add_col_right, can_tbl_add_col_right, a);
+    ex_commands_bind(a->commands, "table.add-row-above", cmd_tbl_add_row_above, can_tbl_add_row_above, a);
+    ex_commands_bind(a->commands, "table.add-row-below", cmd_tbl_add_row_below, can_tbl_add_row_below, a);
+    ex_commands_bind(a->commands, "table.align-center", cmd_tbl_align_center, can_tbl_align_center, a);
+    ex_commands_bind(a->commands, "table.align-left", cmd_tbl_align_left, can_tbl_align_left, a);
+    ex_commands_bind(a->commands, "table.align-right", cmd_tbl_align_right, can_tbl_align_right, a);
+    ex_commands_bind(a->commands, "table.delete-column", cmd_tbl_delete_col, can_tbl_delete_col, a);
+    ex_commands_bind(a->commands, "table.delete-row", cmd_tbl_delete_row, can_tbl_delete_row, a);
+    ex_commands_bind(a->commands, "table.duplicate-column", cmd_tbl_dup_col, can_tbl_dup_col, a);
+    ex_commands_bind(a->commands, "table.duplicate-row", cmd_tbl_dup_row, can_tbl_dup_row, a);
+    ex_commands_bind(a->commands, "table.move-column-left", cmd_tbl_move_col_left, can_tbl_move_col_left, a);
+    ex_commands_bind(a->commands, "table.move-column-right", cmd_tbl_move_col_right, can_tbl_move_col_right, a);
+    ex_commands_bind(a->commands, "table.move-row-down", cmd_tbl_move_row_down, can_tbl_move_row_down, a);
+    ex_commands_bind(a->commands, "table.move-row-up", cmd_tbl_move_row_up, can_tbl_move_row_up, a);
     ex_commands_bind(a->commands, "editor.insert-footnote", cmd_fmt_insert_footnote, has_editor, a);
     ex_commands_bind(a->commands, "editor.insert-markdown-link", cmd_fmt_insert_markdown_link, has_editor, a);
     ex_commands_bind(a->commands, "editor.add-internal-link", cmd_fmt_add_internal_link, has_editor, a);

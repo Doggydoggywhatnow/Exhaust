@@ -817,6 +817,16 @@ Everything is in the `exhaust` table. A function that needs a permission fails w
 
 Event names for `exhaust.events.on`: `vault-open`, `file-open`, `file-save`, `file-rename`, `editor-change`. Since: 0.1.0.
 
+## Table editing
+
+The 15 `table.*` commands (and `editor.insert-table`) of the Commands table work on the Markdown table the primary caret is in. Since: 0.1.0. They are *available* (not greyed in the palette or the slash menu) only where they apply, and each is one text edit, so one undo step.
+
+- *What is a table.* A header row, then a delimiter row with the same number of cells (each cell dashes with an optional colon at either end), then the rows after it, up to a blank line, a line without an unescaped `|`, or a line that starts another block (a quote `>`, a code fence, a heading). The outer pipes are optional; `\|` is a pipe inside a cell. A table inside a fenced code block, or in a quote or a list item, is not edited (the quote and list cases are ISSUES 45).
+- *Where the caret is.* The column is the cell the caret is in (a caret on a pipe belongs to the cell on its left); the row is the line. The header and the delimiter row are not body rows.
+- *Availability.* All commands need a caret in a table. `table.add-row-above`, `table.delete-row` and `table.duplicate-row` need a body row; `table.move-row-up` a body row that is not the first, `table.move-row-down` one that is not the last; `table.add-row-below` works from any row (from the header or the delimiter row it adds the first body row); `table.move-column-left` and `-right` need a column on that side; `table.delete-column` needs more than one column; the `table.align-*` commands need a delimiter cell in the caret's column.
+- *What changes.* Only the table's lines. The column commands (add, delete, duplicate, move) write the whole table again with every column as wide as its widest cell (at least 3), the outer pipes added, and cells aligned by their column's alignment; a cell's text is copied unchanged. The row commands add, copy, swap or remove whole lines; a new row is written with the column widths, a copied or swapped row keeps its text exactly, and the other lines are not touched. The align commands change only the caret's delimiter cell (`:---`, `:-:`, `---:`; its width is kept, at least 3), and do nothing (no undo step) when it already has that alignment. A row with more cells than the header keeps them: the table is given that many columns, so no cell's text is lost. Line breaks (CRLF or LF) and the text before and after the table are kept. A width is counted in code points, so wide characters can look misaligned.
+- *The caret* goes to the start of the cell the command is about (the new, copied or moved cell or row; the same column of the next row after a delete).
+
 ## Slash commands
 
 The slash menu opens when you type `/` at the start of a line or after a blank space. It lists every command registered with the `editor` flag, in command palette order, matched with the same fuzzy matching as the command palette (`scf` finds *Save current file*). `Esc` or `Space` closes it. The list itself is therefore the set of editor commands in the command registry; it is not a separate list.

@@ -321,4 +321,26 @@ PY
 )
 if [ "${changed:--1}" -gt 30 ] 2>/dev/null; then echo "ok: the reading view showed the edit made in the editor of the same note ($changed pixels changed)"; else echo "FAILED: the reading view did not show the edit ($changed)"; fail=1; fi
 
+# a table command from the slash menu (5f): with the caret in the last cell, "Table: Add row below" adds an empty row under it, and the typed text lands in it
+vault="$work/table_slash"; rm -rf "$vault"; mkdir -p "$vault/.exhaust"
+printf '[features]\nslash_commands = true\n' > "$vault/.exhaust/settings.ini"
+printf '# Tbl\n\n| Name | Qty |\n| :--- | --: |\n| a    | 1   |\n| bb   | 22  |\n\nafter\n' > "$vault/Table.md"
+printf '%s\n' 'wait 1000
+move 404 311
+down 404 311
+up 404 311
+wait 300
+text /
+text tableaddrowbelow
+wait 400
+key enter
+wait 600
+text X
+wait 2200
+quit' > "$work/table_slash.script"
+export EXHAUST_OPEN=Table.md
+EXHAUST_SCRIPT="$work/table_slash.script" $lim "$exe" "$vault" >"$work/table_slash.log" 2>&1
+unset EXHAUST_OPEN
+if grep -qF '|      |    X |' "$vault/Table.md" && grep -qF '| bb   | 22  |' "$vault/Table.md" && grep -q '^after$' "$vault/Table.md" && ! grep -q '/table' "$vault/Table.md"; then echo "ok: the slash menu's Table: Add row below added a row and the typing went into it"; else echo "FAILED: table command from the slash menu"; cat "$vault/Table.md"; fail=1; fi
+
 exit $fail

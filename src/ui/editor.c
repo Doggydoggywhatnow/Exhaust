@@ -1343,6 +1343,13 @@ void ex_editor_format(ExEditor *e, ExFormat f) {
     e->last_vertical = 0;
 }
 
+void ex_editor_table(ExEditor *e, ExTableCmd c) {
+    if (e->readonly) return;
+    ex_doc_table(e->doc, c);
+    e->last_vertical = 0;
+}
+int ex_editor_table_can(ExEditor *e, ExTableCmd c) { return !e->readonly && ex_doc_table_can(e->doc, c); }
+
 void ex_editor_perform(ExEditor *e, ExRenderer *r, ExEditAction act, int extend) {
     switch (act) {
     case EX_ACT_LEFT: move_horizontal(e, r, -1, 0, extend); break;

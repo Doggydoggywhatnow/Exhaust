@@ -182,6 +182,22 @@ int ex_doc_format(ExDoc *d, ExFormat f, const ExFormatOptions *opt);
 void ex_editor_format(ExEditor *e, ExFormat f);
 void ex_editor_set_indent(ExEditor *e, int use_tabs, int indent_width);
 
+/* Table editing (sub-slice 5f): the table.* commands. Each works on the Markdown table the primary caret is in, is one text edit (one undo
+ * step) that touches only the table's lines, and puts the caret in the cell it concerns. ex_doc_table returns 1 if the text changed (0 when
+ * there is no table at the caret, the command does not apply, or it would change nothing); ex_doc_table_can says whether the command applies
+ * here (a caret in a table; not the header or delimiter row for the row commands, not the first column for move left, ...). */
+typedef enum ExTableCmd {
+    EX_TBL_COL_LEFT, EX_TBL_COL_RIGHT, EX_TBL_ROW_ABOVE, EX_TBL_ROW_BELOW,
+    EX_TBL_ALIGN_LEFT, EX_TBL_ALIGN_CENTER, EX_TBL_ALIGN_RIGHT,
+    EX_TBL_DEL_COL, EX_TBL_DEL_ROW, EX_TBL_DUP_COL, EX_TBL_DUP_ROW,
+    EX_TBL_MOVE_COL_LEFT, EX_TBL_MOVE_COL_RIGHT, EX_TBL_MOVE_ROW_DOWN, EX_TBL_MOVE_ROW_UP,
+    EX_TBL_COUNT
+} ExTableCmd;
+int ex_doc_table(ExDoc *d, ExTableCmd c);
+int ex_doc_table_can(ExDoc *d, ExTableCmd c);
+void ex_editor_table(ExEditor *e, ExTableCmd c);
+int ex_editor_table_can(ExEditor *e, ExTableCmd c);
+
 /* Folding of headings and list items (sub-slice 3c), in source mode and live preview. A heading folds the lines up to
  * the next heading of the same or a higher level, a list item its continuation lines and nested items. Folds are a
  * view of the text: the text is never changed, a caret that lands in hidden text opens the fold, and the folded
