@@ -138,6 +138,7 @@ PDFs open in a tab and embed in notes (needs the optional PDF library).
 - **Tabs, splits and pop-out windows**: drag to rearrange, stack tabs, link panes so they follow each other, pin tabs.
 - **Pane header** *(5d)*: under the tabs, each pane shows its title, back and forward arrows that step through what the pane showed, a reading and editing switch and a three-dot menu, as in `screenshots/graph-view.webp`.
 - **Sidebars** left and right, collapsible, with a ribbon of shortcuts.
+- **Views in the right sidebar** *(5e)*: pin a note, which you can edit there, or the graph to the right sidebar, and widen it across the window (`screenshots/graph-view.webp`, `wide-right-sidebar.webp`).
 - **Status bar**.
 - **Workspaces**: save and restore whole layouts for journaling, reading or writing.
 - **Drag and drop** files and text.
@@ -277,7 +278,7 @@ Each sub-slice is finished, tested and committed before the next. The detailed s
 2. **2a** vaults, file tree and file actions; **2b** file watching, saving and note names; **2c** tabs, splits, sidebars and drag and drop; **2d** settings file, registries and platform layer; **2e** vault manager and `tools/gen_vault`.
 3. **3a** tokenizer, callouts and HTML subset; **3b** source mode and live preview; **3c** reading mode and folding; **3d** find, rectangular selection, shortcuts and slash commands; **3e** spell check and word count.
 4. **4a** i index schema and indexer; ii links, backlinks and page preview; iii tags and properties; iv link-safe rename. **4b** i search engine and operators; ii saved queries and query blocks; iii quick switcher and command palette; iv outline, bookmarks, random note and footnotes.
-5. **5a** Barnes-Hut layout and rendering; **5b** filters, groups, forces and display; **5c** local graph, animation and keyboard route; **5d** pane header, navigation history and pane menu.
+5. **5a** Barnes-Hut layout and rendering; **5b** filters, groups, forces and display; **5c** local graph, animation and keyboard route; **5d** pane header, navigation history and pane menu; **5e** views in the right sidebar.
 6. **6a** canvas. **6b** i expression engine; ii base core; iii layouts. **6c** i images including SVG; ii audio; iii libmpv loader; iv PDFium loader and PDF viewer; v embed syntax. **6d** i math; ii Mermaid flowchart and sequence; iii Mermaid class, state, ER, pie and gantt. **6e** i daily notes, templates and dates; ii unique notes and note composer; iii slides; iv format converter and PDF export; v importers and stubs.
 7. **7a** settings framework and Options pages; **7b** built-in feature pages; **7c** hotkeys; **7d** themes and style snippets; **7e** workspaces and file recovery; **7f** status bar, ribbon, high contrast and zoom.
 8. **8a** Vim mode; **8b** Lua runtime and plugin permissions; **8c** labeled stubs.
