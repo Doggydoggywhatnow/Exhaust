@@ -277,6 +277,34 @@ static void wait_model(ExGraphModel *m) {
     ex_graphmodel_update(m);
 }
 
+/* 5g: the Link force slider matters over its whole range. The picture of a ring at three values of the slider (through the model, which
+ * applies the curve of formats.md) has clearly different link lengths: each lower value gives links at least 20% longer. */
+static double mean_edge_at(float strength) {
+    ExGraphModel *m = ex_graphmodel_create();
+    ExGraphOptions o = *ex_graphmodel_options(m);
+    const ExGraph *g;
+    const float *xy;
+    double sum = 0;
+    size_t i;
+    o.link_strength = strength;
+    ex_graphmodel_set_options(m, &o);
+    ex_graphmodel_set_graph(m, ring_graph());
+    wait_model(m);
+    g = ex_graphmodel_graph(m); xy = ex_graphmodel_positions(m);
+    for (i = 0; i < g->ne; i++) { uint32_t a2 = g->edges[i].from, b2 = g->edges[i].to; sum += hypot(xy[2 * a2] - xy[2 * b2], xy[2 * a2 + 1] - xy[2 * b2 + 1]); }
+    sum /= (double)g->ne;
+    ex_graphmodel_free(m);
+    return sum;
+}
+
+static void link_slider(void) {
+    double full = mean_edge_at(1.0f), high = mean_edge_at(0.75f), mid = mean_edge_at(0.5f), low = mean_edge_at(0.25f);
+    printf("graph_options link force slider: 1 -> %.1f, 0.75 -> %.1f, 0.5 -> %.1f, 0.25 -> %.1f\n", full, high, mid, low);
+    CHECK(high > full * 1.2);
+    CHECK(mid > high * 1.2);
+    CHECK(low > mid * 1.2);
+}
+
 static void frame(ExUi *ui, ExRenderer *r, ExWidget *root) {
     ex_ui_layout(ui, root, W, H);
     ex_renderer_clear(r, (ExColor){0, 0, 0, 255});
@@ -508,6 +536,7 @@ static void keys_and_panel(void) {
 int main(void) {
     data();
     forces();
+    link_slider();
     display();
     keys_and_panel();
     if (failures) { fprintf(stderr, "graph_options: %d failure(s)\n", failures); return 1; }

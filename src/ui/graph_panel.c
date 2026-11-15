@@ -7,7 +7,7 @@
 #include "exhaust_graphpanel.h"
 
 #define NSEC 4
-#define NSLIDER 8
+#define NSLIDER 9
 
 enum { SEC_FILTERS, SEC_GROUPS, SEC_DISPLAY, SEC_FORCES };
 
@@ -15,9 +15,9 @@ typedef struct SliderDef { const char *name; float min, max, step; } SliderDef;
 static const SliderDef sliders[NSLIDER] = {
     {"Text fade threshold", -3.0f, 3.0f, 0.1f}, {"Node size", 0.3f, 3.0f, 0.1f}, {"Link thickness", 0.3f, 4.0f, 0.1f},
     {"Center force", 0.0f, 1.0f, 0.05f}, {"Repel force", 0.0f, 20.0f, 0.5f}, {"Link force", 0.0f, 1.0f, 0.05f}, {"Link distance", 10.0f, 200.0f, 5.0f},
-    {"Depth", 1.0f, 5.0f, 1.0f}
+    {"Depth", 1.0f, 5.0f, 1.0f}, {"Text size", 0.5f, 3.0f, 0.1f}
 };
-enum { S_FADE, S_NODE, S_LINK, S_CENTER, S_REPEL, S_LINKF, S_DIST, S_DEPTH };
+enum { S_FADE, S_NODE, S_LINK, S_CENTER, S_REPEL, S_LINKF, S_DIST, S_DEPTH, S_TEXT };
 
 static const int slot_token[6] = {EX_COLOR_ACCENT, EX_COLOR_SUCCESS, EX_COLOR_WARNING, EX_COLOR_ERROR, EX_COLOR_TAG, EX_COLOR_LINK};
 static const char *slot_name[6] = {"accent", "green", "yellow", "red", "tag", "link"};
@@ -115,7 +115,7 @@ static void show_all(ExGraphPanel *p) {
     ex_slider_set_value(p->slider[S_FADE], p->o.text_fade); ex_slider_set_value(p->slider[S_NODE], p->o.node_size);
     ex_slider_set_value(p->slider[S_LINK], p->o.link_thickness); ex_slider_set_value(p->slider[S_CENTER], p->o.center);
     ex_slider_set_value(p->slider[S_REPEL], p->o.repel); ex_slider_set_value(p->slider[S_LINKF], p->o.link_strength);
-    ex_slider_set_value(p->slider[S_DIST], p->o.link_distance);
+    ex_slider_set_value(p->slider[S_DIST], p->o.link_distance); ex_slider_set_value(p->slider[S_TEXT], p->o.text_size);
     if (p->slider[S_DEPTH]) ex_slider_set_value(p->slider[S_DEPTH], (float)p->o.local_depth);
     for (i = 0; i < NSLIDER; i++) if (p->slider[i]) show_value(p, i, ex_slider_value(p->slider[i]));
     for (i = 0; i < EX_GRAPH_MAX_GROUPS; i++) show_group_color(p, i);
@@ -154,6 +154,7 @@ static void on_slider(ExWidget *w, float v, void *u) {
     if (i == NSLIDER) return;
     switch (i) {
     case S_FADE: p->o.text_fade = v; break;
+    case S_TEXT: p->o.text_size = v; break;
     case S_NODE: p->o.node_size = v; break;
     case S_LINK: p->o.link_thickness = v; break;
     case S_CENTER: p->o.center = v; break;
@@ -317,7 +318,7 @@ ExGraphPanel *ex_graphpanel_create(ExUi *ui, ExWidget *graph, ExGraphModel *m, i
     body = section(p, SEC_DISPLAY, "Display");
     p->b_arrows = toggle(p, on_arrows);
     ex_widget_add(body, row(p, "Arrows", p->b_arrows));
-    ex_widget_add(body, slider_row(p, S_FADE)); ex_widget_add(body, slider_row(p, S_NODE)); ex_widget_add(body, slider_row(p, S_LINK));
+    ex_widget_add(body, slider_row(p, S_FADE)); ex_widget_add(body, slider_row(p, S_TEXT)); ex_widget_add(body, slider_row(p, S_NODE)); ex_widget_add(body, slider_row(p, S_LINK));
 
     body = section(p, SEC_FORCES, "Forces");
     ex_widget_add(body, slider_row(p, S_CENTER)); ex_widget_add(body, slider_row(p, S_REPEL)); ex_widget_add(body, slider_row(p, S_LINKF)); ex_widget_add(body, slider_row(p, S_DIST));

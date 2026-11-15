@@ -17,7 +17,11 @@
 #define MAX_LABELS 150
 #define LABEL_CANDIDATES 800     /* with more nodes than this on screen, no labels: the picture is too dense to read */
 #define ZOOM_MIN 0.01f
-#define ZOOM_MAX 8.0f
+#define ZOOM_MAX 200.0f           /* 5a stopped at 8; 5g goes deeper, with the circles and the labels growing */
+#define LABEL_GROW_MAX 6.0f       /* a label grows with the zoom up to this many times its size */
+#define DRAG_PX 5.0f              /* a press that moves further than this (in device-independent pixels) is a drag */
+#define KEY_PULL_PX 40.0f         /* Alt+arrow pulls the selected node this far, for KEY_PULL_MS */
+#define KEY_PULL_MS 400
 #define FADED 0.22f              /* the alpha of what is not near the hovered node */
 
 /* ---- the model ---- */
@@ -102,7 +106,7 @@ static void build_adjacency(ExGraphModel *m) {
 static void apply_params(ExGraphModel *m) {
     ExLayoutParams p;
     if (!m->layout) return;
-    p.center = m->opts.center; p.charge = -3.0f * m->opts.repel; p.link_strength = m->opts.link_strength; p.link_distance = m->opts.link_distance;
+    p.center = m->opts.center; p.charge = -3.0f * m->opts.repel; p.link_strength = powf(m->opts.link_strength, 5.0f);     /* the slider's value to the fourth power: the length of a link goes with the logarithm of the strength (5g, formats.md) */ p.link_distance = m->opts.link_distance;
     ex_layout_set_params(m->layout, &p);
 }
 
@@ -214,6 +218,7 @@ int ex_graphmodel_update(ExGraphModel *m) {
     return changed;
 }
 
+void ex_graphmodel_drag(ExGraphModel *m, int node, float x, float y) { if (m && m->layout) ex_layout_pull(m->layout, node, x, y); }
 int ex_graphmodel_animating(const ExGraphModel *m) { return m && m->animating; }
 float ex_graphmodel_start_temperature(const ExGraphModel *m) { ExLayoutStats st; if (!m || !m->layout) return 0.0f; ex_layout_stats(m->layout, &st); return st.start_alpha; }
 float ex_graphmodel_temperature(const ExGraphModel *m) { ExLayoutStats st; if (!m || !m->layout) return 0.0f; ex_layout_stats(m->layout, &st); return st.alpha; }
@@ -240,6 +245,10 @@ typedef struct View {
     uint32_t *vis;                           /* the nodes in view this frame */
     size_t vis_cap, nvis;
     int pressed, moved;
+    int grab, dragging;                      /* the node a press landed on (-1: none), and whether it is being dragged now (5g) */
+    float grab_dx, grab_dy;                  /* from the pointer to the node, in layout units, at the press: the node does not jump to the pointer */
+    int kb_pull;                             /* an Alt+arrow pull is running */
+    Uint64 kb_until;
     float press_x, press_y, press_cx, press_cy;
     ExGraphViewStats stats;
     void *extra; void (*free_extra)(void *); void (*tick)(void *, int64_t);   /* the gear panel's state (5b), freed with the view, and what it does once a frame */
@@ -256,6 +265,7 @@ static View *view_of(const ExWidget *w) { return w && w->type == EX_WIDGET_GRAPH
 static void view_free(void *p) {
     View *v = p;
     if (!v) return;
+    if (v->dragging || v->kb_pull) ex_graphmodel_drag(v->m, -1, 0, 0);               /* never leave a node pulled by a view that is gone */
     ex_geom_free(v->geom);
     if (v->free_extra) v->free_extra(v->extra);
     free(v->mark); free(v->vis); free(v->sxy);
@@ -269,7 +279,6 @@ static float radius_k(const ExUi *ui, const View *v) {
     float base = (float)ex_theme_size(t, EX_SIZE_SPACING) * ex_renderer_scale(ex_ui_renderer((ExUi *)ui)) * NODE_BASE;
     float zf = sqrtf(v->zoom);
     if (zf < 0.7f) zf = 0.7f;
-    if (zf > 1.8f) zf = 1.8f;
     return base * zf * v->m->opts.node_size;
 }
 static float radius_of(float rk, uint32_t degree) { return rk * (0.85f + 0.3f * sqrtf((float)degree)); }
@@ -485,6 +494,8 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
     if (!v) return;
     if (v->tick) v->tick(v->extra, (int64_t)SDL_GetTicks());
     anim_step(v);
+    if (v->kb_pull && SDL_GetTicks() >= v->kb_until) { v->kb_pull = 0; ex_graphmodel_drag(v->m, -1, 0, 0); }
+    if (v->grab >= 0 && (!v->m->g || (size_t)v->grab >= v->m->g->n)) { v->grab = -1; v->dragging = 0; }      /* the graph was read again: the node is gone */
     m = v->m; t = ex_ui_theme(ui); r = ex_ui_renderer(ui); g = m->g;
     memset(&v->stats, 0, sizeof v->stats);
     v->stats.hover = v->hover; v->stats.selected = v->selected; v->stats.following = v->following;
@@ -592,13 +603,17 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
     v->stats.triangles = ex_geom_submit(r, v->geom);
     { ExGeomStats gs; ex_geom_stats(v->geom, &gs); v->stats.geom_grows = gs.grows; }
     v->stats.nodes_drawn = nodes; v->stats.edges_drawn = edges;
-    v->stats.zoom = v->zoom;
+    v->stats.zoom = v->zoom; v->stats.dragging = v->dragging || v->kb_pull;
     v->stats.line_px = lw; v->stats.node_px = node_radius(ui, v, 1); v->stats.label_zoom = LABEL_ZOOM * exp2f(m->opts.text_fade);
 
     /* labels: above the zoom threshold, the busiest first, none on top of another; the hovered and selected node always have one */
     {
         ExFont *f = ex_ui_font(ui, EX_FONT_TOKEN_INTERFACE, 0);
-        float lz = LABEL_ZOOM * exp2f(m->opts.text_fade), size = ex_ui_base_size(ui) * 0.8f, alpha = clampf((v->zoom - lz) / (lz * 0.5f), 0.0f, 1.0f);
+        float lz = LABEL_ZOOM * exp2f(m->opts.text_fade), alpha = clampf((v->zoom - lz) / (lz * 0.5f), 0.0f, 1.0f);
+        float grow = v->zoom > lz ? exp2f(roundf(log2f(sqrtf(v->zoom / lz)) * 4.0f) / 4.0f) : 1.0f;     /* past the zoom where labels appear they grow with it, in steps of a quarter octave */
+        float mult = (grow > LABEL_GROW_MAX ? LABEL_GROW_MAX : grow) * m->opts.text_size, size;
+        if (mult > 8.0f) mult = 8.0f;                                                                   /* never a label that fills the pane, whatever the two settings say */
+        size = ex_ui_base_size(ui) * 0.8f * mult;
         Rect placed[MAX_LABELS + 2];
         size_t np = 0, shown = 0, nc = 0, nlab;
         Cand *cand = NULL;
@@ -620,7 +635,7 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
             nlab = nc + 2;
             for (k = 0; k < nlab && shown < MAX_LABELS; k++) {
                 int idx, force = 0;
-                float sx, sy, tw, lx, ly, maxw = 160.0f * ex_renderer_scale(r);
+                float sx, sy, tw, lx, ly, maxw = 160.0f * ex_renderer_scale(r) * (size / (ex_ui_base_size(ui) * 0.8f));
                 char buf[300];
                 const char *lab;
                 size_t llen, fl;
@@ -651,7 +666,7 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w) {
             }
         }
         free(cand);
-        v->stats.labels_drawn = shown;
+        v->stats.labels_drawn = shown; v->stats.label_px = size;
     }
 }
 
@@ -703,20 +718,33 @@ static int mouse_hook(ExWidget *w, ExMouse kind, float x, float y, ExWidget *und
     View *v = user;
     if (kind == EX_MOUSE_DOWN) {
         if (under != w) return 0;                                                  /* a press on the gear or its panel is theirs */
-        v->pressed = 1; v->moved = 0;
+        v->pressed = 1; v->moved = 0; v->dragging = 0;
         v->press_x = x; v->press_y = y; v->press_cx = v->cx; v->press_cy = v->cy;
+        v->grab = ex_graphview_node_at(w, x, y);                                    /* a press on a node can become a drag of it; on empty space, a pan */
+        if (v->grab >= 0 && v->m->have_xy) {
+            float lx, ly;
+            to_layout(v, w, x, y, &lx, &ly);
+            v->grab_dx = v->m->xy[2 * v->grab] - lx; v->grab_dy = v->m->xy[2 * v->grab + 1] - ly;
+        } else v->grab = -1;
         ex_ui_set_focus(v->ui, w);
         return 1;
     }
     if (!v->pressed) return 0;
     if (kind == EX_MOUSE_DRAG) {
-        float dx = x - v->press_x, dy = y - v->press_y;
-        if (!v->moved && dx * dx + dy * dy > 25.0f * ex_renderer_scale(ex_ui_renderer(v->ui)) * ex_renderer_scale(ex_ui_renderer(v->ui))) v->moved = 1;
-        if (v->moved) { v->cx = v->press_cx - dx / v->zoom; v->cy = v->press_cy - dy / v->zoom; v->following = 0; }
+        float dx = x - v->press_x, dy = y - v->press_y, sc = ex_renderer_scale(ex_ui_renderer(v->ui));
+        if (!v->moved && dx * dx + dy * dy > DRAG_PX * DRAG_PX * sc * sc) v->moved = 1;
+        if (v->moved && v->grab >= 0 && v->grab < (int)(v->m->g ? v->m->g->n : 0)) {   /* the node follows the pointer, held back by the layout's forces */
+            float lx, ly;
+            if (!v->dragging) { v->dragging = 1; v->following = 0; if (v->kb_pull) v->kb_pull = 0; }
+            to_layout(v, w, x, y, &lx, &ly);                                        /* from the view as it is now: several drag events can arrive before a frame */
+            ex_graphmodel_drag(v->m, v->grab, lx + v->grab_dx, ly + v->grab_dy);
+        } else if (v->moved) { v->cx = v->press_cx - dx / v->zoom; v->cy = v->press_cy - dy / v->zoom; v->following = 0; }
         return 1;
     }
-    /* released: a press that did not move is a click */
+    /* released: a press that did not move is a click; a dragged node is let go */
     v->pressed = 0;
+    if (v->dragging) { v->dragging = 0; ex_graphmodel_drag(v->m, -1, 0, 0); v->grab = -1; return 1; }
+    v->grab = -1;
     if (!v->moved) open_node(v, ex_graphview_node_at(w, x, y), 0);
     return 1;
 }
@@ -757,6 +785,15 @@ static int key_hook(ExWidget *w, ExKey key, int mods, void *user) {
         float dx = key == EX_KEY_LEFT ? -1.0f : key == EX_KEY_RIGHT ? 1.0f : 0.0f, dy = key == EX_KEY_UP ? -1.0f : key == EX_KEY_DOWN ? 1.0f : 0.0f;
         int n = select_dir(v, w, dx, dy);
         if (n >= 0) select_node(v, n);
+        return 1;
+    }
+    if ((mods & EX_MOD_ALT) && v->selected >= 0 && v->m->have_xy && (size_t)v->selected < g->n &&
+        (key == EX_KEY_LEFT || key == EX_KEY_RIGHT || key == EX_KEY_UP || key == EX_KEY_DOWN)) {       /* Alt+arrow: pull the selected node that way (5g) */
+        float d = KEY_PULL_PX * ex_renderer_scale(ex_ui_renderer(v->ui)) / v->zoom;
+        float tx = v->m->xy[2 * v->selected] + (key == EX_KEY_LEFT ? -d : key == EX_KEY_RIGHT ? d : 0.0f);
+        float ty = v->m->xy[2 * v->selected + 1] + (key == EX_KEY_UP ? -d : key == EX_KEY_DOWN ? d : 0.0f);
+        ex_graphmodel_drag(v->m, v->selected, tx, ty);
+        v->kb_pull = 1; v->kb_until = SDL_GetTicks() + KEY_PULL_MS;
         return 1;
     }
     switch (key) {
@@ -812,7 +849,7 @@ ExWidget *ex_widget_graph(ExUi *ui, ExGraphModel *m, const char *name, const ExG
     if (!w) return NULL;
     v = calloc(1, sizeof *v);
     if (!v) { ex_widget_free(w); return NULL; }
-    v->ui = ui; v->m = m; v->zoom = 1.0f; v->following = 1; v->hover = v->selected = v->mark_for = -1;
+    v->ui = ui; v->m = m; v->zoom = 1.0f; v->following = 1; v->hover = v->selected = v->mark_for = v->grab = -1;
     if (h) v->h = *h;
     w->type = EX_WIDGET_GRAPH;
     w->width = ex_size_grow(); w->height = ex_size_grow();

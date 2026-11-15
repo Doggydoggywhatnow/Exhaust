@@ -14,6 +14,9 @@
 #define ALPHA_DECAY 0.0228f          /* 1 - 0.001^(1/300): from 1 to the minimum in about 300 steps */
 #define VELOCITY_DECAY 0.6f
 #define MAX_DEPTH 40
+#define PULL_K 0.5f                 /* the dragged node's spring to the pointer, per step: a share of the distance added to its velocity (5g) */
+#define DRAG_ALPHA 0.25f            /* the temperature the layout is held at while a node is dragged */
+#define DROP_ALPHA 0.3f             /* and the one it is warmed to when the node is let go */
 
 /* ---- a quadtree over the points ---- */
 
@@ -194,6 +197,8 @@ struct ExLayout {
     uint64_t gen;
     SDL_AtomicInt latest;            /* the buffer last published (low two bits) and, in bit 2, that the UI has not taken it yet */
     SDL_AtomicInt stop, reheat, settled, iterations, interactions, alpha_milli;
+    SDL_AtomicInt pull_node, pull_x, pull_y;                    /* the node being dragged (-1: none) and where the pointer pulls it, in thousandths of a layout unit (5g) */
+    int was_pulling;                 /* the worker's: a node was being dragged at the last step */
     SDL_AtomicInt p_center, p_charge, p_strength, p_distance;   /* the parameters (5b), in thousandths: the UI sets them, the worker reads them each step */
 };
 
@@ -236,6 +241,13 @@ static void step(ExLayout *l) {
         l->vx[s] += dx * (1.0f - b); l->vy[s] += dy * (1.0f - b);
     }
     if (grav > 0.0f) for (i = 0; i < n; i++) { l->vx[i] -= l->x[i] * grav * l->alpha; l->vy[i] -= l->y[i] * grav * l->alpha; }   /* the pull to the middle */
+    {                                                                      /* the pointer's spring on the dragged node: not scaled by the temperature, so it wins over a cooling layout, but finite: the node's links still hold it back */
+        int pn = SDL_GetAtomicInt(&l->pull_node);
+        if (pn >= 0 && pn < n) {
+            l->vx[pn] += ((float)SDL_GetAtomicInt(&l->pull_x) / 1000.0f - l->x[pn]) * PULL_K;
+            l->vy[pn] += ((float)SDL_GetAtomicInt(&l->pull_y) / 1000.0f - l->y[pn]) * PULL_K;
+        }
+    }
     for (i = 0; i < n; i++) { l->x[i] += l->vx[i] *= VELOCITY_DECAY; l->y[i] += l->vy[i] *= VELOCITY_DECAY; cx += l->x[i]; cy += l->y[i]; }
     if (n > 0) { cx /= (float)n; cy /= (float)n; for (i = 0; i < n; i++) { l->x[i] -= cx; l->y[i] -= cy; } }   /* the centre of mass stays at the origin */
     SDL_SetAtomicInt(&l->interactions, (int)inter);
@@ -249,6 +261,15 @@ static void run(ExWorker *w, const ExMessage *m, void *user) {
     (void)w; (void)m;
     while (!SDL_GetAtomicInt(&l->stop)) {
         if (SDL_SetAtomicInt(&l->reheat, 0)) { if (l->alpha < 0.5f) l->alpha = 0.5f; SDL_SetAtomicInt(&l->settled, 0); }
+        if (SDL_GetAtomicInt(&l->pull_node) >= 0) {                        /* a node is being dragged: keep the layout warm and running */
+            if (l->alpha < DRAG_ALPHA) l->alpha = DRAG_ALPHA;
+            SDL_SetAtomicInt(&l->settled, 0);
+            l->was_pulling = 1;
+        } else if (l->was_pulling) {                                       /* let go: warm it so the node settles where the forces hold it */
+            l->was_pulling = 0;
+            if (l->alpha < DROP_ALPHA) l->alpha = DROP_ALPHA;
+            SDL_SetAtomicInt(&l->settled, 0);
+        }
         if (l->alpha < ALPHA_MIN) {
             if (!SDL_GetAtomicInt(&l->settled)) { publish(l); SDL_SetAtomicInt(&l->settled, 1); }
             SDL_Delay(20);
@@ -344,6 +365,7 @@ ExLayout *ex_layout_create(const ExGraph *g, const ExGraph *prev_g, const float 
     }
     l->alpha = kept > 0 ? (kept == n ? 0.08f : 0.3f) : 1.0f;      /* every node kept its place (only links changed): a gentle nudge, so a save does not shake the picture (ISSUES 31) */
     SDL_SetAtomicInt(&l->alpha_milli, (int)(l->alpha * 1000000.0f));
+    SDL_SetAtomicInt(&l->pull_node, -1);
     l->start_alpha = l->alpha;
     SDL_SetAtomicInt(&l->p_center, 0); SDL_SetAtomicInt(&l->p_charge, (int)(CHARGE * 1000.0f)); SDL_SetAtomicInt(&l->p_strength, 1000); SDL_SetAtomicInt(&l->p_distance, (int)(LINK_DISTANCE * 1000.0f));
 
@@ -391,6 +413,15 @@ const float *ex_layout_positions(ExLayout *l, uint64_t *generation) {
 int ex_layout_front_consistent(const ExLayout *l) { return l->pub[l->front].gen_a == l->pub[l->front].gen_b; }
 
 void ex_layout_reheat(ExLayout *l) { SDL_SetAtomicInt(&l->reheat, 1); }
+
+void ex_layout_pull(ExLayout *l, int node, float x, float y) {
+    if (!l) return;
+    if (node < 0 || node >= l->n) { SDL_SetAtomicInt(&l->pull_node, -1); return; }
+    if (x > 1.0e6f) x = 1.0e6f; else if (x < -1.0e6f) x = -1.0e6f;
+    if (y > 1.0e6f) y = 1.0e6f; else if (y < -1.0e6f) y = -1.0e6f;
+    SDL_SetAtomicInt(&l->pull_x, (int)(x * 1000.0f)); SDL_SetAtomicInt(&l->pull_y, (int)(y * 1000.0f));
+    SDL_SetAtomicInt(&l->pull_node, node);                               /* last: the target is in place when the node is named */
+}
 
 void ex_layout_set_params(ExLayout *l, const ExLayoutParams *p) {
     if (!l || !p) return;

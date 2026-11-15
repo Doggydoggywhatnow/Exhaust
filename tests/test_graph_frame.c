@@ -149,10 +149,11 @@ int main(void) {
     free(summary);
 
     /* frames at three zoom levels: fit, zoomed in a little, zoomed in a lot (few nodes on screen, labels) */
-    for (zoom_case = 0; zoom_case < 3; zoom_case++) {
+    for (zoom_case = 0; zoom_case < 4; zoom_case++) {
         size_t k;
         if (zoom_case == 1) for (k = 0; k < 6; k++) ex_graphview_wheel(gw, 1.0f, W / 2.0f, H / 2.0f);
         if (zoom_case == 2) for (k = 0; k < 34; k++) ex_graphview_wheel(gw, 1.0f, W / 2.0f, H / 2.0f);
+        if (zoom_case == 3) for (k = 0; k < 80; k++) ex_graphview_wheel(gw, 1.0f, W / 2.0f, H / 2.0f);          /* the deepest zoom (5g): the circles and labels are big, few nodes are on screen */
         frame(ui, r, root);                                                                 /* the first frame at a new zoom may build things */
         ex_graphview_stats(gw, &st);
         raster_total = 0;
@@ -165,6 +166,11 @@ int main(void) {
         printf("zoom case %d: zoom %.2f, %zu nodes and %zu edges drawn, %zu labels, %zu triangles\n", zoom_case, st2.zoom, st2.nodes_drawn, st2.edges_drawn, st2.labels_drawn, st2.triangles);
         CHECK(st2.geom_grows == st.geom_grows);                                             /* no allocation in a steady frame */
         CHECK(st2.triangles < 120000);                                                      /* the work handed to the renderer is bounded: 5,000 nodes and 20,000 lines */
+        if (zoom_case == 3) {
+            CHECK(st2.zoom >= 100.0f); CHECK(st2.nodes_drawn < 60);
+            ex_graphview_wheel(gw, -(float)(log(200.0 / 6.89) / log(1.12)), W / 2.0f, H / 2.0f);   /* back out to where case 2 was, for the hit tests below */
+            frame(ui, r, root);
+        }
         if (zoom_case == 2) {
             CHECK(st2.nodes_drawn < 500);                                                    /* only what is on screen is drawn */
             CHECK(st2.labels_drawn > 0 && st2.labels_drawn <= 150);                          /* labels, but not for everything */
@@ -221,10 +227,12 @@ int main(void) {
             float bx, by, ax2, ay2;
             ex_graphview_node_screen(gw, node, &bx, &by);
             ex_graphview_stats(gw, &before);
-            ex_ui_mouse(ui, root, EX_MOUSE_DOWN, 400, 300, 0, 1);
-            ex_ui_mouse(ui, root, EX_MOUSE_DRAG, 440, 330, 0, 1);
-            ex_ui_mouse(ui, root, EX_MOUSE_DRAG, 480, 360, 0, 1);
-            ex_ui_mouse(ui, root, EX_MOUSE_UP, 480, 360, 0, 1);
+            float ex0 = 400, ey0 = 300, tx, ty;
+            for (ty = 40; ty < 560; ty += 7) for (tx = 40; tx < 740; tx += 11) if (ex_graphview_node_at(gw, tx, ty) < 0 && ex_graphview_node_at(gw, ex0, ey0) >= 0) { ex0 = tx; ey0 = ty; ty = 9999; break; }   /* a press on a node drags it (5g): pan from empty space */
+            ex_ui_mouse(ui, root, EX_MOUSE_DOWN, ex0, ey0, 0, 1);
+            ex_ui_mouse(ui, root, EX_MOUSE_DRAG, ex0 + 40, ey0 + 30, 0, 1);
+            ex_ui_mouse(ui, root, EX_MOUSE_DRAG, ex0 + 80, ey0 + 60, 0, 1);
+            ex_ui_mouse(ui, root, EX_MOUSE_UP, ex0 + 80, ey0 + 60, 0, 1);
             frame(ui, r, root);
             ex_graphview_stats(gw, &after);
             CHECK(got.opened == 0);                                                         /* a drag is not a click */

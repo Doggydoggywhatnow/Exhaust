@@ -24,7 +24,7 @@ typedef struct ExGraphOptions {
     float center, repel, link_strength, link_distance;
     /* display (change the drawing) */
     int arrows;
-    float text_fade, node_size, link_thickness;
+    float text_fade, node_size, link_thickness, text_size;
 } ExGraphOptions;
 
 void ex_graphopts_defaults(ExGraphOptions *o);

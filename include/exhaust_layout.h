@@ -47,6 +47,12 @@ int ex_layout_front_consistent(const ExLayout *l);
  * effect at the next step and wake a layout that has settled. */
 typedef struct ExLayoutParams { float center, charge, link_strength, link_distance; } ExLayoutParams;
 void ex_layout_set_params(ExLayout *l, const ExLayoutParams *p);
+/* Dragging (5g): the pointer pulls `node` towards (x, y), in layout units, with a spring (a share of the distance added to its velocity at
+ * each step, not scaled by the temperature, so it wins over a cooling layout but is finite: the node's links, the repulsion and the pull to
+ * the middle keep acting on it). While a node is pulled the layout is held at a temperature of at least 0.25 and does not settle; when
+ * node is -1 (or out of range) the pull ends and the layout is warmed to 0.3 so the node settles where the forces hold it. Call it as often as
+ * the pointer moves; the last target stays until the pull ends. UI thread; never blocks. */
+void ex_layout_pull(ExLayout *l, int node, float x, float y);
 void ex_layout_reheat(ExLayout *l);      /* wakes a settled layout (after a change of forces), at a middling temperature */
 void ex_layout_stats(const ExLayout *l, ExLayoutStats *out);
 

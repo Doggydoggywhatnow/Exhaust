@@ -7,9 +7,11 @@
  *
  * View. A graph widget draws only what is on screen (the grid says which nodes) into one geometry buffer per frame, finds the node under
  * the pointer through the same grid, and keeps its own zoom, centre, hover and selection. It follows the layout (fits the whole graph
- * in the view) until the user pans or zooms. Mouse: drag pans, the wheel zooms about the pointer, a click opens the note, a right click
- * asks for a menu. Keyboard (the widget takes the focus with a click or Tab): arrow keys pan, + and - zoom, 0 fits the graph, Page Down
- * and Page Up step through the nodes, Enter opens the selected node, Escape clears the selection. */
+ * in the view) until the user pans or zooms. Mouse: a press on empty space and a drag pans, a press on a node and a drag pulls that node (5g: it goes towards
+ * the pointer but its links and the other forces keep acting on it), the wheel zooms about the pointer, a click opens the note, a right
+ * click asks for a menu. Keyboard (the widget takes the focus with a click or Tab): arrow keys pan, + and - zoom, 0 fits the graph, Page Down
+ * and Page Up step through the nodes, Alt and an arrow pulls the selected node (5g), Enter opens the selected node, Escape clears the
+ * selection. */
 #ifndef EXHAUST_GRAPHVIEW_H
 #define EXHAUST_GRAPHVIEW_H
 #include "exhaust_graph.h"
@@ -43,6 +45,8 @@ int ex_graphmodel_animating(const ExGraphModel *m);     /* the layout is still m
 float ex_graphmodel_temperature(const ExGraphModel *m);
 /* The temperature the current layout started at: not a moving number, so a test can read it at any time. */
 float ex_graphmodel_start_temperature(const ExGraphModel *m);
+/* Dragging a node (5g): the layout pulls `node` towards (x, y) in layout units; node < 0 lets go (the layout warms and the node settles where the forces hold it). */
+void ex_graphmodel_drag(ExGraphModel *m, int node, float x, float y);
 size_t ex_graphmodel_node_count(const ExGraphModel *m);
 size_t ex_graphmodel_edge_count(const ExGraphModel *m);
 const ExGraph *ex_graphmodel_graph(const ExGraphModel *m);
@@ -84,7 +88,8 @@ void ex_graphview_context(ExWidget *w, float x, float y);
  * rectangle, and a node's centre in window pixels. */
 typedef struct ExGraphViewStats {
     size_t nodes_drawn, edges_drawn, labels_drawn, triangles, geom_grows; float zoom; int hover, selected, following;
-    float line_px, node_px, label_zoom;      /* the width of a line, the radius of a node with one link, and the zoom above which labels show (5b) */
+    float line_px, node_px, label_zoom;
+    float label_px; int dragging;       /* 5g: the size labels are drawn at, and 1 while a node is being dragged (mouse or Alt+arrow) */
 } ExGraphViewStats;
 void ex_graphview_stats(const ExWidget *w, ExGraphViewStats *out);
 int ex_graphview_node_at(ExWidget *w, float x, float y);                  /* the node under a window position, or -1 */
