@@ -194,7 +194,7 @@ down 326 50
 up 326 50
 wait 800
 quit' Home.md
-hsession=$(find "$work/data" -name session.ini -newer "$work/history_walk.script" | head -1)
+hsession=$(find "$work" -name session.ini -newer "$work/history_walk.script" | head -1)
 if [ -n "$hsession" ] && grep -q "history_pos = 0" "$hsession" && grep -q "history_0 = Home.md|note|" "$hsession" && grep -q "history_1 = |graph|" "$hsession"; then echo "ok: back in the pane header walked from the graph to the note, and the history is saved"; else echo "FAILED: the pane history (back from the graph)"; fail=1; fi
 vault="$work/history_walk"
 printf '%s\n' 'wait 1000
@@ -219,7 +219,7 @@ down 790 80
 up 790 80
 wait 800
 quit' Home.md
-msession=$(find "$work/data" -name session.ini -newer "$work/menu_right.script" | head -1)
+msession=$(find "$work" -name session.ini -newer "$work/menu_right.script" | head -1)
 groups=$(grep -c '^\[group\.' "$msession" 2>/dev/null)
 if [ "${groups:-0}" -ge 2 ] 2>/dev/null; then echo "ok: Open to the right in the pane menu made a second pane"; else echo "FAILED: the pane menu's Open to the right ($groups panes)"; fail=1; fi
 run menu_bookmark 'wait 1000
@@ -243,7 +243,7 @@ down 790 248
 up 790 248
 wait 800
 quit' Home.md
-csession=$(find "$work/data" -name session.ini -newer "$work/menu_close.script" | head -1)
+csession=$(find "$work" -name session.ini -newer "$work/menu_close.script" | head -1)
 if [ -n "$csession" ] && ! grep -q "path = Home.md" "$csession"; then echo "ok: Close in the pane menu closed the tab"; else echo "FAILED: the pane menu's Close"; fail=1; fi
 
 exit $fail
