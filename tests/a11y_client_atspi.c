@@ -111,8 +111,10 @@ int main(int argc, char **argv) {
     nm = atspi_accessible_get_name(win, NULL);
     printf("found the window \"%s\"\n", nm ? nm : "");
     g_free(nm);
+    /* The tree reaches the bus a moment after the window does (the program sends it when the screen reader attaches): wait for the button, then for the focus. */
+    for (tries = 0, button = NULL; tries < 20 && !button; tries++) { button = find_named(win, press, ATSPI_ROLE_PUSH_BUTTON, 0); if (!button) sleep(1); }
     /* the widget that has the focus, by name */
-    focused = find_focused(win, 0);
+    for (tries = 0, focused = NULL; tries < 10 && !focused; tries++) { focused = find_focused(win, 0); if (!focused) sleep(1); }
     if (!focused) { fprintf(stderr, "no widget has the keyboard focus\n"); failed = 1; }
     else {
         nm = atspi_accessible_get_name(focused, NULL);
@@ -122,7 +124,6 @@ int main(int argc, char **argv) {
         g_object_unref(focused);
     }
     /* a press reaches a button */
-    button = find_named(win, press, ATSPI_ROLE_PUSH_BUTTON, 0);
     if (!button) { fprintf(stderr, "no button named \"%s\"\n", press); failed = 1; }
     else {
         AtspiAction *act = atspi_accessible_get_action_iface(button);
