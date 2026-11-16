@@ -90,7 +90,7 @@ int main(void) {
     w = ex_watcher_start(ROOT, NULL, excl, 2, 50);
     CHECK(w != NULL);
     if (w) {
-#ifdef __linux__
+#if defined(__linux__) || defined(_WIN32) || defined(__APPLE__)       /* inotify, ReadDirectoryChangesW (7i), FSEvents (7i) */
         CHECK(!ex_watcher_is_polling(w));
         put("native.md", "native event\n");
         CHECK(wait_for_path(w, "native.md", 3000, &forbidden_seen, NULL));
@@ -101,7 +101,7 @@ int main(void) {
         put("newfolder/inside.md", "folders created later are watched too\n");
         CHECK(wait_for_path(w, "newfolder/inside.md", 3000, &forbidden_seen, NULL));
 #else
-        CHECK(ex_watcher_is_polling(w));                          /* no native backend yet: it polls and says so */
+        CHECK(ex_watcher_is_polling(w));                          /* no native backend on this system: it polls and says so */
 #endif
         ex_watcher_stop(w);
     }

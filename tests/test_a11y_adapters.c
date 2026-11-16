@@ -23,6 +23,7 @@ int main(void) {
     ExTheme theme;
     ExRenderer *r;
     ExUi *ui;
+    ExDoc *doc;
     ExWidget *root, *ok, *cancel, *hidden, *off, *ed, *label;
     ExA11yAdapter *ad, *real;
     ExA11yActionReq req;
@@ -39,7 +40,7 @@ int main(void) {
     hidden = ex_widget_button(ui, "Hidden", on_press, NULL); hidden->hidden = 1;
     off = ex_widget_button(ui, "Off", on_press, NULL); off->disabled = 1;
     label = ex_widget_label(ui, "Just text");
-    { ExDoc *d = ex_doc_create("note text", 9); ed = ex_widget_editor(ui, d, "Note text"); }
+    doc = ex_doc_create("note text", 9); ed = ex_widget_editor(ui, doc, "Note text");
     ex_widget_add(root, ok); ex_widget_add(root, cancel); ex_widget_add(root, hidden); ex_widget_add(root, off); ex_widget_add(root, label); ex_widget_add(root, ed);
     ex_ui_layout(ui, root, 400, 300);
 
@@ -93,6 +94,7 @@ int main(void) {
     ex_a11y_adapter_free(real); ex_a11y_adapter_free(ad);
     ex_a11y_adapter_free(NULL);
     ex_widget_free(root);
+    ex_doc_free(doc);
     ex_ui_free(ui); ex_theme_free(&theme); ex_renderer_destroy(r);
     if (failures) { fprintf(stderr, "a11y_adapters: %d failed\n", failures); return 1; }
     printf("a11y_adapters: ok\n");

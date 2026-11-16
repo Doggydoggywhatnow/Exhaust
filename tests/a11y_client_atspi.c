@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 /* A screen reader's side of the Linux accessibility interface (AT-SPI), for the CI job that runs Exhaust with the real adapter (sub-slice 7h): it finds
  * the application on the accessibility bus, its window and its root, the widget that has the keyboard focus (by name), presses the Settings button
  * through the action interface, and sees the settings page appear. Exits 0 when all of that worked, else 1 with what was missing on stderr.
