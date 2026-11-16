@@ -559,6 +559,7 @@ static void finish_edit(View *v, ExWidget *w) {
     }
     free(text);
     ex_ui_set_focus(v->ui, w);
+    ex_ui_release(v->ui, v->edit);
     ex_widget_remove(w, v->edit);
     ex_widget_free(v->edit);
     ex_doc_free(v->edit_doc);
@@ -1314,6 +1315,17 @@ static void start_move(View *v) {
     for (k = 0; k < v->nmv; k++) { v->mv_x[k] = v->c->nodes[v->mv[k]].x; v->mv_y[k] = v->c->nodes[v->mv[k]].y; }
 }
 
+/* The side of a card an edge dropped on it at (X, Y) enters by: the side nearest to the point, or, near the middle of the card, the side that faces the card it comes from. */
+static int drop_side(const ExCanvas *c, int to, double X, double Y, int from) {
+    const ExCanvasNode *n = &c->nodes[to];
+    double w = n->w > 1 ? n->w : 1, h = n->h > 1 ? n->h : 1, dx = (X - (n->x + n->w / 2)) / w, dy = (Y - (n->y + n->h / 2)) / h;
+    if (fabs(dx) < 0.2 && fabs(dy) < 0.2 && from >= 0 && (size_t)from < c->n) {
+        const ExCanvasNode *f = &c->nodes[from];
+        return ex_canvas_nearest_side(n, f->x + f->w / 2, f->y + f->h / 2);
+    }
+    return ex_canvas_nearest_side(n, X, Y);
+}
+
 static int handle_at(const View *v, const ExWidget *w, int idx, float sx, float sy) {
     const ExCanvasNode *n = &v->c->nodes[idx];
     float x0, y0, x1, y1, band = HANDLE_PX * ex_renderer_scale(ex_ui_renderer(v->ui));
@@ -1468,11 +1480,11 @@ static int mouse_hook(ExWidget *w, ExMouse kind, float x, float y, ExWidget *und
         else if (mode == MODE_EDGE && v->c) {
             int to = pick_card(v, w, x, y);
             if (moved) {
-                if (to >= 0 && to != v->edge_from && v->c->nodes[to].kind != EX_CN_GROUP + 99) {
+                if (to >= 0 && to != v->edge_from && 1) {
                     double X, Y;
                     int side, k;
                     to_canvas(v, w, x, y, &X, &Y);
-                    side = ex_canvas_nearest_side(&v->c->nodes[to], X, Y);
+                    side = drop_side(v->c, to, X, Y, v->edge_from);
                     k = ex_canvas_add_edge(v->c, (size_t)v->edge_from, v->edge_side, (size_t)to, side);
                     if (k >= 0) { clear_selection(v); v->c->edges[k].sel = 1; touch(v); commit(v); }
                 } else if (to < 0) {                                                  /* dropped on empty space: a new text card there, joined */
@@ -1481,9 +1493,8 @@ static int mouse_hook(ExWidget *w, ExMouse kind, float x, float y, ExWidget *und
                     to_canvas(v, w, x, y, &X, &Y);
                     idx = add_card(v, w, EX_CN_TEXT, X, Y, 260, 120, 1);
                     if (idx >= 0) {
-                        side = ex_canvas_nearest_side(&v->c->nodes[v->edge_from], v->c->nodes[idx].x + v->c->nodes[idx].w / 2, v->c->nodes[idx].y + v->c->nodes[idx].h / 2);
-                        side = side;
-                        k = ex_canvas_add_edge(v->c, (size_t)v->edge_from, v->edge_side, (size_t)idx, (v->edge_side + 2) % 4);
+                        side = drop_side(v->c, idx, v->c->nodes[idx].x + v->c->nodes[idx].w / 2, v->c->nodes[idx].y + v->c->nodes[idx].h / 2, v->edge_from);
+                        k = ex_canvas_add_edge(v->c, (size_t)v->edge_from, v->edge_side, (size_t)idx, side);
                         (void)k;
                         touch(v); commit(v);
                         begin_edit(v, w, idx);
