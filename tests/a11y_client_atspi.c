@@ -55,6 +55,20 @@ static AtspiAccessible *find_focused(AtspiAccessible *a, int depth) {
     return NULL;
 }
 
+/* What is on the bus, for the log when something is missing. */
+static void dump(AtspiAccessible *a, int depth) {
+    gint n, i;
+    gchar *nm = atspi_accessible_get_name(a, NULL), *rn = atspi_accessible_get_role_name(a, NULL);
+    printf("%*s[%s] \"%s\"\n", depth * 2, "", rn ? rn : "?", nm ? nm : "");
+    g_free(nm); g_free(rn);
+    if (depth >= 4) return;
+    n = atspi_accessible_get_child_count(a, NULL);
+    for (i = 0; i < n && i < 12; i++) {
+        AtspiAccessible *c = atspi_accessible_get_child_at_index(a, i, NULL);
+        if (c) { dump(c, depth + 1); g_object_unref(c); }
+    }
+}
+
 static AtspiAccessible *find_app(void) {
     AtspiAccessible *desktop = atspi_get_desktop(0);
     gint n = atspi_accessible_get_child_count(desktop, NULL), i;
@@ -87,7 +101,13 @@ int main(int argc, char **argv) {
         }
         if (!win) sleep(1);
     }
-    if (!win) { fprintf(stderr, "the application has no window\n"); return 1; }
+    if (!win) {
+        AtspiAccessible *desktop = atspi_get_desktop(0);
+        fprintf(stderr, "the application has no window; what the bus shows:\n");
+        dump(desktop, 0);
+        fflush(stdout);
+        return 1;
+    }
     nm = atspi_accessible_get_name(win, NULL);
     printf("found the window \"%s\"\n", nm ? nm : "");
     g_free(nm);
