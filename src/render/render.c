@@ -69,6 +69,7 @@ SDL_Window *ex_renderer_window(ExRenderer *r) { return r->window; }
 ExFontLib *ex_renderer_fonts(ExRenderer *r) { return r->fonts; }
 
 void ex_renderer_set_font_db(ExRenderer *r, ExFontDb *db) { ex_fontlib_set_db(r->fonts, db, 1); }
+void ex_renderer_set_font_db_shared(ExRenderer *r, struct ExFontDb *db) { ex_fontlib_set_db(r->fonts, db, 0); }
 
 void ex_renderer_size(ExRenderer *r, int *w, int *h) {
     int ww = 0, hh = 0;

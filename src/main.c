@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <signal.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -16,6 +17,7 @@
 #include "exhaust_input.h"
 #include "exhaust_notes.h"
 #include "exhaust_panes.h"
+#include "exhaust_popwin.h"
 #include "exhaust_platform.h"
 #include "exhaust_render.h"
 #include "exhaust_session.h"
@@ -80,6 +82,11 @@ typedef struct App {
     ExRibbon *ribbon;                        /* the ribbon (7f) */
     ExWidget *ribbon_line, *rb_graph, *rb_mode, *rb_left, *rb_right;   /* the line beside it, and the buttons the program keeps track of */
     ExStatusBar *sbar;                       /* the status bar (7f) */
+    /* pop-out windows (7g): r, ui, root and panes are those of the window the code is working for (the main window unless an event or a frame of a pop-out is being handled) */
+    ExPopWin *pops[8]; size_t npops;
+    ExPopWin *cur_pop;                       /* the pop-out window the code is working for, or NULL */
+    ExRenderer *main_r; ExUi *main_ui; ExWidget *main_root; ExPanes *main_panes; ExPanels *saved_panels;
+    ExFontDb *fontdb;                        /* the main window's font database, shared with the pop-outs */
     char sb_mode[16]; int sb_save, sb_poll;  /* what the bar shows now, so it is only touched when something changes */
     void (*sel_chosen)(void *, size_t);      /* the choice a settings select is waiting for (7a) */
     void *sel_arg;
@@ -135,6 +142,7 @@ typedef struct App {
 
 static char *dup_text(const char *s) { size_t n = strlen(s); char *p = malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
 static void sync_ui(App *a);
+static ExUi *ui_of(App *a, const ExWidget *w);
 static const char *host_active_path(void *u);
 
 static void set_cursor_shape(int shape) {
@@ -205,7 +213,7 @@ static void relayout_and_draw(App *a) {
 /* ---- a developer's aid: EXHAUST_SCRIPT=file feeds scripted input to the real program (see tools/run_script.sh) ----
  * One command a line: wait MS | move X Y | down X Y | up X Y | rdown X Y | text STRING | key enter|escape|down|tab | shot FILE.ppm | quit.
  * The commands become SDL events, so they take the same path as a person's input. */
-typedef struct Script { char *text; char *next; Uint64 until; int button_down; int active; } Script;
+typedef struct Script { char *text; char *next; Uint64 until; int button_down; int active; int window; } Script;     /* window: 0 the main window, n the n-th pop-out (7g) */
 static Script g_script;
 
 static void script_start(void) {
@@ -214,6 +222,27 @@ static void script_start(void) {
     g_script.text = ex_platform_read_file(f, NULL);
     g_script.next = g_script.text;
     g_script.active = g_script.text != NULL;
+}
+
+static void script_shot(App *a, const char *file);
+
+static Uint32 script_window_id(App *a) {
+    int n = g_script.window;
+    return n > 0 && (size_t)n <= a->npops ? ex_popwin_sdl_id(a->pops[n - 1]) : 0;
+}
+
+/* The events of the script carry the id of the window they are for, as a person's input does. */
+static void script_push(App *a, SDL_Event *e) {
+    Uint32 id = script_window_id(a);
+    switch (e->type) {
+    case SDL_EVENT_MOUSE_MOTION: e->motion.windowID = id; break;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN: case SDL_EVENT_MOUSE_BUTTON_UP: e->button.windowID = id; break;
+    case SDL_EVENT_MOUSE_WHEEL: e->wheel.windowID = id; break;
+    case SDL_EVENT_TEXT_INPUT: e->text.windowID = id; break;
+    case SDL_EVENT_KEY_DOWN: e->key.windowID = id; break;
+    default: break;
+    }
+    SDL_PushEvent(e);
 }
 
 static void script_step(App *a) {
@@ -229,23 +258,23 @@ static void script_step(App *a) {
     if (!strncmp(line, "wait ", 5)) g_script.until = SDL_GetTicks() + (Uint64)atoi(line + 5);
     else if (!strncmp(line, "move ", 5) && sscanf(line + 5, "%f %f", &x, &y) == 2) {
         e.type = SDL_EVENT_MOUSE_MOTION; e.motion.x = x; e.motion.y = y; e.motion.state = g_script.button_down ? SDL_BUTTON_LMASK : 0;
-        SDL_PushEvent(&e);
+        script_push(a, &e);
     } else if ((!strncmp(line, "down ", 5) || !strncmp(line, "rdown ", 6)) && sscanf(line + (line[0] == 'r' ? 6 : 5), "%f %f", &x, &y) == 2) {
         e.type = SDL_EVENT_MOUSE_BUTTON_DOWN; e.button.button = line[0] == 'r' ? SDL_BUTTON_RIGHT : SDL_BUTTON_LEFT; e.button.x = x; e.button.y = y; e.button.clicks = 1;
         g_script.button_down = line[0] != 'r';
-        SDL_PushEvent(&e);
+        script_push(a, &e);
     } else if (!strncmp(line, "up ", 3) && sscanf(line + 3, "%f %f", &x, &y) == 2) {
         e.type = SDL_EVENT_MOUSE_BUTTON_UP; e.button.button = SDL_BUTTON_LEFT; e.button.x = x; e.button.y = y;
         g_script.button_down = 0;
-        SDL_PushEvent(&e);
+        script_push(a, &e);
     } else if (!strncmp(line, "wheel ", 6) && sscanf(line + 6, "%f %f %f", &x, &y, &e.wheel.y) == 3) {      /* wheel X Y DY: DY < 0 scrolls down */
         e.type = SDL_EVENT_MOUSE_WHEEL; e.wheel.mouse_x = x; e.wheel.mouse_y = y;
-        SDL_PushEvent(&e);
+        script_push(a, &e);
     } else if (!strncmp(line, "text ", 5)) {
         static char typed[256];
         snprintf(typed, sizeof typed, "%s", line + 5);
         e.type = SDL_EVENT_TEXT_INPUT; e.text.text = typed;
-        SDL_PushEvent(&e);
+        script_push(a, &e);
     } else if (!strncmp(line, "key ", 4)) {
         /* key NAME, or key MODS+NAME with the mods ctrl, shift, alt, gui and mod (Ctrl, or Cmd on a Mac) joined by +: ctrl+alt+j, mod+comma, shift+tab. A name is enter, escape, up, down,
          * left, right, tab, space, comma, period, or one letter or digit. */
@@ -271,16 +300,16 @@ static void script_step(App *a) {
             !strcmp(name, "left") ? SDLK_LEFT : !strcmp(name, "right") ? SDLK_RIGHT : !strcmp(name, "tab") ? SDLK_TAB : !strcmp(name, "space") ? SDLK_SPACE :
             !strcmp(name, "comma") ? SDLK_COMMA : !strcmp(name, "period") ? SDLK_PERIOD : (strlen(name) == 1 ? (SDL_Keycode)name[0] : SDLK_UNKNOWN);
         e.type = SDL_EVENT_KEY_DOWN; e.key.key = k; e.key.mod = mod; e.key.down = true;
-        SDL_PushEvent(&e);
+        script_push(a, &e);
+    } else if (!strncmp(line, "window ", 7)) {                                   /* window N: the next events and shots are for the main window (0) or the N-th pop-out (7g) */
+        g_script.window = atoi(line + 7);
+    } else if (!strncmp(line, "closewindow ", 12)) {                             /* closewindow N: the close button of the N-th pop-out */
+        SDL_Event c;
+        memset(&c, 0, sizeof c);
+        c.type = SDL_EVENT_WINDOW_CLOSE_REQUESTED; c.window.windowID = a->npops >= (size_t)atoi(line + 12) && atoi(line + 12) > 0 ? ex_popwin_sdl_id(a->pops[atoi(line + 12) - 1]) : 0;
+        SDL_PushEvent(&c);
     } else if (!strncmp(line, "shot ", 5)) {
-        int sw, sh;
-        uint8_t *px;
-        FILE *f;
-        relayout_and_draw(a);
-        px = ex_renderer_read_rgb(a->r, &sw, &sh);
-        f = px ? fopen(line + 5, "wb") : NULL;
-        if (f) { fprintf(f, "P6\n%d %d\n255\n", sw, sh); fwrite(px, 1, (size_t)sw * (size_t)sh * 3, f); fclose(f); }
-        free(px);
+        script_shot(a, line + 5);
     } else if (!strcmp(line, "quit")) { SDL_Event q; memset(&q, 0, sizeof q); q.type = SDL_EVENT_QUIT; SDL_PushEvent(&q); }
 }
 
@@ -829,6 +858,9 @@ static void cmd_toggle_mode(void *u) {
     if (a->editor && a->editor->editor && !a->diff_doc) ex_editor_set_mode(a->editor->editor, editor_mode_for(next));
 }
 static void capture_tab_state(App *a);
+static ExId new_popout(App *a, ExId tab);
+static void enter_tab_window(App *a, ExId tab);
+static void leave_pop(App *a);
 static void cmd_toggle_reading(void *u) {
     App *a = u;
     ExId tab = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
@@ -841,12 +873,14 @@ static void cmd_toggle_reading(void *u) {
     capture_tab_state(a);
     ex_ws_set_tab_mode(a->ws, tab, next);
     t = ex_ws_tab(a->ws, tab);
+    enter_tab_window(a, tab);                                       /* the new content is made for the window that shows the tab (7g) */
     w = make_content(a->panes, t, a);
     if (w) {
         if (a->findbar) ex_findbar_target_closed(a->findbar, ex_panes_content(a->panes, tab));
         ex_panes_replace_content(a->panes, tab, w);
         a->focus_tab = tab;
     }
+    leave_pop(a);
 }
 
 /* ---- the pane header: history and the pane menu (sub-slice 5d) ---- */
@@ -941,7 +975,7 @@ static void pane_menu_chosen(ExPanels *pn, int id, void *arg) {
         if (ng) show_place(a, ng, path, view, t->cursor_line, t->cursor_column, t->scroll_y);
         break;
     }
-    case PM_WINDOW: set_status(a, "Opening a tab in a new window is not available yet."); break;
+    case PM_WINDOW: new_popout(a, t->id); break;                                       /* a window of its own (7g) */
     case PM_COPY: if (path[0]) { host_file_op(a, EX_FILEOP_COPY_REL, path, NULL); set_status(a, "Path copied."); } break;
     case PM_SHOW: reveal_in_explorer(a, path); break;
     case PM_BOOKMARK: if (a->panels && path[0]) ex_panels_bookmark_note(a->panels, path); break;
@@ -1429,7 +1463,10 @@ static void ribbon_choose(App *a, size_t selected) {
 
 /* The interface zoom from the settings: at once, whoever changed the setting (a command, the slider on the Appearance page, the file). */
 static void apply_zoom(App *a) {
-    ex_renderer_set_zoom(a->r, (float)ex_zoom_clamp(ex_settings_get_int(a->settings, "interface", "zoom_percent")) / 100.0f);
+    size_t i;
+    float z = (float)ex_zoom_clamp(ex_settings_get_int(a->settings, "interface", "zoom_percent")) / 100.0f;
+    ex_renderer_set_zoom(a->main_r ? a->main_r : a->r, z);
+    for (i = 0; i < a->npops; i++) ex_renderer_set_zoom(ex_popwin_renderer(a->pops[i]), z);
 }
 static void set_zoom(App *a, int percent) {
     ex_settings_set_int(a->settings, "interface", "zoom_percent", percent);        /* written at once */
@@ -1440,15 +1477,6 @@ static void cmd_zoom_out(void *u) { App *a = u; set_zoom(a, ex_zoom_step(ex_sett
 static void cmd_zoom_reset(void *u) { set_zoom(u, 100); }
 
 /* ---- workspaces (7e): saved layouts ---- */
-
-/* Pop-out windows cannot be opened as operating-system windows yet: their tabs come back to the main window (as they would when such a
- * window is closed), so no tab is ever out of reach. */
-static void fold_popouts(ExWorkspace *ws) {
-    while (ex_ws_window_count(ws) > 1) {
-        ExId w = ex_ws_window_at(ws, 0) == ex_ws_main_window(ws) ? ex_ws_window_at(ws, 1) : ex_ws_window_at(ws, 0);
-        if (ex_ws_close_window(ws, w) != 0) break;
-    }
-}
 
 static int has_layouts(void *u) { App *a = u; return a->layouts != NULL && a->vault != NULL && a->panels != NULL; }
 static int has_saved_layouts(void *u) { App *a = u; return has_layouts(u) && ex_layouts_count(a->layouts) > 0; }
@@ -1498,7 +1526,6 @@ static void layout_load_index(size_t index, void *arg) {
     snprintf(msg, sizeof msg, "%s", name);
     stop_showing_diff(a);
     if (ex_layouts_load(a->layouts, msg, a->ws, layout_note_exists, a) == 0) {
-        fold_popouts(a->ws);
         snprintf(msg, sizeof msg, "Loaded the layout \"%s\".", name);
         set_status(a, msg);
     } else set_status(a, "That layout could not be read. The tabs stay as they are.");
@@ -1968,7 +1995,7 @@ static void sync_ui(App *a) {
     if (a->rb_mode) { const ExTab *rt = t ? ex_ws_tab(a->ws, t) : NULL; a->rb_mode->selected = rt && rt->mode && !strcmp(rt->mode, "source"); }
     if (a->sel_path && a->note && a->editor && !strcmp(ex_note_path(a->note), a->sel_path)) {      /* a link or a search result opened this note at a place */
         ex_editor_select(a->editor->editor, a->r, a->sel_offset, a->sel_offset);
-        ex_ui_set_focus(a->ui, a->editor);
+        ex_ui_set_focus(ui_of(a, a->editor), a->editor);
         free(a->sel_path); a->sel_path = NULL;
     } else if (a->sel_path && a->note && !a->editor && !strcmp(ex_note_path(a->note), a->sel_path)) { free(a->sel_path); a->sel_path = NULL; }
     update_wordcount(a);
@@ -1976,7 +2003,7 @@ static void sync_ui(App *a) {
     if (a->findbar && ex_findbar_is_open(a->findbar)) { if (a->editor) ex_findbar_set_target(a->findbar, a->editor); ex_findbar_update(a->findbar); }
     if (a->diff_doc && a->banner_kind == BANNER_HISTORY && a->note != a->banner_note) { stop_showing_diff(a); free(a->hist_old); a->hist_old = NULL; banner_for_note(a, a->note); }   /* another tab: the comparison ends */
     if (a->note != a->banner_note && !a->diff_doc) banner_for_note(a, a->note);
-    if (a->focus_tab && a->focus_tab == t && a->editor) { if (!(a->title && !a->title->hidden && a->note && !ex_note_exists_on_disk(a->note))) ex_ui_set_focus(a->ui, a->editor); a->focus_tab = 0; }   /* a new note keeps the focus on its title */
+    if (a->focus_tab && a->focus_tab == t && a->editor) { if (!(a->title && !a->title->hidden && a->note && !ex_note_exists_on_disk(a->note))) ex_ui_set_focus(ui_of(a, a->editor), a->editor); a->focus_tab = 0; }   /* a new note keeps the focus on its title */
     else if (a->focus_tab && !ex_ws_tab(a->ws, a->focus_tab)) a->focus_tab = 0;
 }
 
@@ -1993,6 +2020,175 @@ static void capture_tab_state(App *a) {
         ex_editor_get_state(c->editor, &line, &col, &sc);
         ex_ws_set_tab_state(a->ws, t, line, col, sc);
     }
+}
+
+/* ---- pop-out windows (7g) ---- */
+
+/* The panes' callbacks, for the main window and for a pop-out (a pop-out has no pane menu yet: it would open in the main window). */
+static ExPopWin *find_pop(App *a, ExId window);
+/* A new pop-out window gets the size of a new window (7f) and a place a little off from the main window's. */
+static ExId new_popout(App *a, ExId tab) {
+    int x = 0, y = 0;
+    ExId w = ex_ws_popout(a->ws, tab);
+    if (!w || find_pop(a, w)) return w;
+    SDL_GetWindowPosition(ex_renderer_window(a->main_r), &x, &y);
+    ex_ws_window_set_rect(a->ws, w, x + 40, y + 40, ex_window_size_clamp(ex_settings_get_int(a->settings, "appearance", "window_width")), ex_window_size_clamp(ex_settings_get_int(a->settings, "appearance", "window_height")), 0);
+    return w;
+}
+static void pane_popout(ExPanes *p, ExId tab, void *u) { (void)p; new_popout(u, tab); }   /* a tab was dragged out of the window: it has a window of its own */
+
+static void fill_pane_hooks(App *a, ExPanesHooks *h, int popout) {
+    memset(h, 0, sizeof *h);
+    h->make_content = make_content;
+    h->content_closed = content_closed;
+    h->tab_shown = tab_shown;
+    h->new_tab = a->vault ? new_empty_tab : NULL;
+    h->drop_file = drop_file;
+    h->popout = pane_popout;
+    h->navigate = pane_navigate; h->toggle_reading = pane_toggle_reading;
+    h->pane_menu = popout ? NULL : pane_menu;
+}
+
+static ExPopWin *find_pop(App *a, ExId window) {
+    size_t i;
+    for (i = 0; i < a->npops; i++) if (ex_popwin_window(a->pops[i]) == window) return a->pops[i];
+    return NULL;
+}
+
+static ExPopWin *pop_by_sdl_id(App *a, Uint32 id) {
+    size_t i;
+    for (i = 0; id && i < a->npops; i++) if (ex_popwin_sdl_id(a->pops[i]) == id) return a->pops[i];
+    return NULL;
+}
+
+/* The pop-out window an event is for, or NULL for the main window (and for events of no window). */
+static ExPopWin *pop_for_event(App *a, const SDL_Event *e) {
+    Uint32 id = 0;
+    switch (e->type) {
+    case SDL_EVENT_KEY_DOWN: case SDL_EVENT_KEY_UP: id = e->key.windowID; break;
+    case SDL_EVENT_TEXT_INPUT: id = e->text.windowID; break;
+    case SDL_EVENT_TEXT_EDITING: id = e->edit.windowID; break;
+    case SDL_EVENT_MOUSE_MOTION: id = e->motion.windowID; break;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN: case SDL_EVENT_MOUSE_BUTTON_UP: id = e->button.windowID; break;
+    case SDL_EVENT_MOUSE_WHEEL: id = e->wheel.windowID; break;
+    case SDL_EVENT_DROP_FILE: case SDL_EVENT_DROP_TEXT: id = e->drop.windowID; break;
+    default: if (e->type >= SDL_EVENT_WINDOW_FIRST && e->type <= SDL_EVENT_WINDOW_LAST) id = e->window.windowID; break;
+    }
+    return pop_by_sdl_id(a, id);
+}
+
+/* The code that handles an event or draws a frame works on a->r, a->ui, a->root and a->panes. For a pop-out they are its own, and the panels (a dialog or
+ * a preview that would open in the main window) are left out until leave_pop. */
+static void leave_pop(App *a) {
+    if (!a->cur_pop) return;
+    a->r = a->main_r; a->ui = a->main_ui; a->root = a->main_root; a->panes = a->main_panes;
+    a->panels = a->saved_panels; a->saved_panels = NULL;
+    a->cur_pop = NULL;
+}
+static void enter_pop(App *a, ExPopWin *pw) {
+    if (a->cur_pop == pw) return;
+    leave_pop(a);
+    a->saved_panels = a->panels; a->panels = NULL;
+    a->r = ex_popwin_renderer(pw); a->ui = ex_popwin_ui(pw); a->root = ex_popwin_root(pw); a->panes = ex_popwin_panes(pw);
+    a->cur_pop = pw;
+}
+
+/* The pop-out window a widget is in, or NULL when it is in the main window. */
+static ExPopWin *pop_of_widget(App *a, const ExWidget *w) {
+    size_t i;
+    while (w && w->parent) w = w->parent;
+    for (i = 0; w && i < a->npops; i++) if (ex_popwin_root(a->pops[i]) == w) return a->pops[i];
+    return NULL;
+}
+static ExUi *ui_of(App *a, const ExWidget *w) { ExPopWin *pw = pop_of_widget(a, w); return pw ? ex_popwin_ui(pw) : a->main_ui; }
+
+static void enter_tab_window(App *a, ExId tab) {
+    const ExTab *t = ex_ws_tab(a->ws, tab);
+    ExPopWin *pw = t ? find_pop(a, ex_ws_window_of_node(a->ws, t->group)) : NULL;
+    if (pw) enter_pop(a, pw);
+}
+
+static void create_pop(App *a, ExId window) {
+    ExPanesHooks h;
+    ExPopWin *pw;
+    int x = 0, y = 0, w = 0, hh = 0, max = 0;
+    size_t i;
+    if (a->npops >= 8) return;
+    ex_ws_window_get_rect(a->ws, window, &x, &y, &w, &hh, &max);
+    if (w <= 0 || hh <= 0) {                                                       /* a window that has no size of its own: the size of a new window (7f) */
+        w = ex_window_size_clamp(ex_settings_get_int(a->settings, "appearance", "window_width"));
+        hh = ex_window_size_clamp(ex_settings_get_int(a->settings, "appearance", "window_height"));
+        x = y = INT_MIN;
+    }
+    fill_pane_hooks(a, &h, 1);
+    pw = ex_popwin_create(a->ws, window, &a->theme, ex_ui_base_size(a->main_ui), (float)ex_zoom_clamp(ex_settings_get_int(a->settings, "interface", "zoom_percent")) / 100.0f, &h, a, x, y, w, hh, "Exhaust");
+    if (!pw) return;
+    a->pops[a->npops++] = pw;
+    ex_panes_link(a->main_panes, ex_popwin_panes(pw), 1);
+    ex_panes_link(ex_popwin_panes(pw), a->main_panes, 1);
+    for (i = 0; i + 1 < a->npops; i++) { ex_panes_link(ex_popwin_panes(a->pops[i]), ex_popwin_panes(pw), 1); ex_panes_link(ex_popwin_panes(pw), ex_popwin_panes(a->pops[i]), 1); }
+    if (a->fontdb) ex_popwin_set_font_db(pw, a->fontdb);
+    ex_text_input_start(ex_renderer_window(ex_popwin_renderer(pw)));
+}
+
+static void destroy_pop(App *a, ExPopWin *pw) {
+    size_t i, k;
+    if (a->cur_pop == pw) leave_pop(a);
+    for (i = 0; i < a->npops; i++) if (a->pops[i] == pw) break;
+    if (i == a->npops) return;
+    for (k = 0; k < a->npops; k++) if (k != i) ex_panes_link(ex_popwin_panes(a->pops[k]), ex_popwin_panes(pw), 0);
+    ex_panes_link(a->main_panes, ex_popwin_panes(pw), 0);
+    if (a->editor && pop_of_widget(a, a->editor) == pw) a->editor = NULL;
+    if (a->title && pop_of_widget(a, a->title) == pw) a->title = NULL;
+    a->pops[i] = a->pops[--a->npops];
+    ex_popwin_free(pw);
+}
+
+/* Once a pass: a window for every pop-out of the workspace, none for one that is gone, and the place and size of each in the workspace (and so the session). */
+static void sync_windows(App *a) {
+    size_t i;
+    for (i = 0; i < ex_ws_window_count(a->ws); i++) {
+        ExId w = ex_ws_window_at(a->ws, i);
+        if (w != ex_ws_main_window(a->ws) && !find_pop(a, w)) create_pop(a, w);
+    }
+    for (i = 0; i < a->npops;) {
+        ExPopWin *pw = a->pops[i];
+        int found = 0, x, y, w, h, ox, oy, ow, oh, om;
+        size_t k;
+        for (k = 0; k < ex_ws_window_count(a->ws); k++) if (ex_ws_window_at(a->ws, k) == ex_popwin_window(pw)) found = 1;
+        if (!found) { destroy_pop(a, pw); continue; }                              /* i now holds the one that took its place */
+        ex_popwin_get_rect(pw, &x, &y, &w, &h);
+        ex_ws_window_get_rect(a->ws, ex_popwin_window(pw), &ox, &oy, &ow, &oh, &om);
+        if (x != ox || y != oy || w != ow || h != oh) ex_ws_window_set_rect(a->ws, ex_popwin_window(pw), x, y, w, h, 0);
+        i++;
+    }
+}
+
+/* One frame of every pop-out window. */
+static void draw_pops(App *a) {
+    size_t i;
+    for (i = 0; i < a->npops; i++) {
+        enter_pop(a, a->pops[i]);
+        ex_panes_set_header_visible(a->panes, ex_settings_get_bool(a->settings, "interface", "show_tab_title_bar"));
+        ex_popwin_frame(a->pops[i], a->blink_on);
+        leave_pop(a);
+    }
+}
+
+static void script_shot(App *a, const char *file) {
+    int sw, sh;
+    uint8_t *px;
+    FILE *f;
+    ExPopWin *pw = g_script.window > 0 && (size_t)g_script.window <= a->npops ? a->pops[g_script.window - 1] : NULL;
+    ExRenderer *r;
+    if (g_script.window > 0 && !pw) return;                                   /* a window that is not there: no picture (not the main window's) */
+    if (pw) { enter_pop(a, pw); ex_popwin_frame(pw, a->blink_on); r = ex_popwin_renderer(pw); }
+    else { relayout_and_draw(a); r = a->r; }
+    px = ex_renderer_read_rgb(r, &sw, &sh);
+    f = px ? fopen(file, "wb") : NULL;
+    if (f) { fprintf(f, "P6\n%d %d\n255\n", sw, sh); fwrite(px, 1, (size_t)sw * (size_t)sh * 3, f); fclose(f); }
+    free(px);
+    leave_pop(a);
 }
 
 /* Notes events: saves, failures, outside changes. */
@@ -2078,7 +2274,7 @@ static int host_replace_text(void *u, const char *path, const char *text, size_t
 
 static void host_select_range(void *u, size_t from, size_t to) {
     App *a = u;
-    if (a->editor && a->editor->editor) { ex_editor_select(a->editor->editor, a->r, from, to); ex_ui_set_focus(a->ui, a->editor); }
+    if (a->editor && a->editor->editor) { ex_editor_select(a->editor->editor, a->r, from, to); ex_ui_set_focus(ui_of(a, a->editor), a->editor); }
 }
 
 static unsigned long host_active_version(void *u) {
@@ -2509,7 +2705,6 @@ int main(int argc, char **argv) {
             loaded = app.session && !fresh ? ex_session_load(app.session, app.ws) : 0;
         }
         (void)loaded;
-        fold_popouts(app.ws);
     } else {
         ex_ws_new_tab(app.ws, 0, "", "welcome");   /* no vault: one tab with the welcome text */
     }
@@ -2522,20 +2717,16 @@ int main(int argc, char **argv) {
     }
     app.spell = ex_spell_create_en_us();                                    /* English (US), built in; the words you added come from the vault */
     load_custom_words(&app);
-    memset(&hooks, 0, sizeof hooks);
-    hooks.make_content = make_content;
-    hooks.content_closed = content_closed;
-    hooks.tab_shown = tab_shown;
-    hooks.new_tab = app.vault ? new_empty_tab : NULL;
-    hooks.drop_file = drop_file;
-    hooks.navigate = pane_navigate; hooks.toggle_reading = pane_toggle_reading; hooks.pane_menu = pane_menu;
+    fill_pane_hooks(&app, &hooks, 0);
     app.panes = ex_panes_create(app.ui, app.ws, &hooks, &app);
+    app.main_r = app.r; app.main_ui = app.ui; app.main_panes = app.panes;
 
     /* window: ribbon | left sidebar | banner above the panes | right sidebar, and a status line */
     app.root = ex_widget_box(app.ui, 1, "Exhaust");
     app.root->role = EX_ROLE_WINDOW;
     app.root->width = ex_size_grow(); app.root->height = ex_size_grow();
     app.root->bg_token = EX_COLOR_BACKGROUND;
+    app.main_root = app.root;
     row = ex_widget_box(app.ui, 0, "workspace");
     row->width = ex_size_grow(); row->height = ex_size_grow();
     {   /* the ribbon: the actions at the top, the view switches at the bottom (src/ui/ribbon.c); the buttons are commands, and the settings choose which show (7f) */
@@ -2673,7 +2864,9 @@ int main(int argc, char **argv) {
         snprintf(full, sizeof full, "%s/%s", ex_vault_path(app.vault), rel ? rel : "");
         if (rel && rel[0] && ex_platform_file_exists(full)) open_path(&app, 0, rel);
     }
+    sync_windows(&app);                                                                        /* the pop-out windows of the last session (7g) */
     relayout_and_draw(&app);
+    draw_pops(&app);
     while (running) {
         ExTextEvent te;
         ExKey key;
@@ -2687,6 +2880,8 @@ int main(int argc, char **argv) {
         /* Every event that is waiting is handled before the next frame: a frame waits for the screen (vsync), so one frame
          * for each of the hundreds of mouse-motion and resize events a second made the interface fall seconds behind. */
         for (;;) {
+        ExPopWin *tw = timed_out ? NULL : pop_for_event(&app, &e);         /* the pop-out window this event is for (7g) */
+        if (tw && e.type != SDL_EVENT_KEY_DOWN) enter_pop(&app, tw);         /* a shortcut works on the program, the rest of a key press goes to the window's own focus */
         if (e.type == g_wake_event && !timed_out) woke = 1;
         if (timed_out && animating) {
             redraw = 1;
@@ -2696,7 +2891,12 @@ int main(int argc, char **argv) {
         } else if (e.type == g_wake_event) {
             ExMessage m;
             while (ex_queue_pop(results, &m))
-                if (m.type == MSG_FONTS_READY) ex_renderer_set_font_db(app.r, (ExFontDb *)m.payload);
+                if (m.type == MSG_FONTS_READY) {
+                    size_t pi;
+                    app.fontdb = (ExFontDb *)m.payload;
+                    ex_renderer_set_font_db(app.main_r, app.fontdb);
+                    for (pi = 0; pi < app.npops; pi++) ex_popwin_set_font_db(app.pops[pi], app.fontdb);      /* the pop-outs use the same database, which the main window owns */
+                }
         } else if (e.type == SDL_EVENT_KEY_DOWN && app.cap_cb && capture_key(&app, &e.key)) {
             redraw = 1;
         } else if (e.type == SDL_EVENT_KEY_DOWN && !(app.panels && ex_panels_modal(app.panels)) && run_shortcut(&app, &e.key)) {
@@ -2709,11 +2909,16 @@ int main(int argc, char **argv) {
             else if (app.editor && app.editor->editor) ex_editor_set_composition(app.editor->editor, te.text);
         } else if (ex_key_from_sdl(&e, &key, &mods)) {
             app.blink_on = 1;
+            if (tw) enter_pop(&app, tw);
             ex_ui_key(app.ui, key, mods);
         } else {
             app.blink_on = 1;
             switch (e.type) {
             case SDL_EVENT_QUIT: running = 0; break;
+            case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+                if (tw) { ExId wid = ex_popwin_window(tw); leave_pop(&app); ex_ws_close_window(app.ws, wid); }   /* the close button of a pop-out: its tabs go back to the main window */
+                else running = 0;                                                                              /* of the main window: the program ends */
+                break;
             case SDL_EVENT_WINDOW_FOCUS_LOST:
                 if (app.notes) ex_notes_flush(app.notes); /* saving on focus loss */
                 break;
@@ -2765,7 +2970,7 @@ int main(int argc, char **argv) {
                 ExWidget *under = ex_ui_widget_at(wheel_root, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
                 while (under && !under->scrollable && (under->no_wheel || (under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE && under->type != EX_WIDGET_GRAPH))) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
                 if (under && under->parent && (under->parent->type == EX_WIDGET_EDITOR || under->parent->type == EX_WIDGET_READING)) under = under->parent;   /* over the title: the note scrolls */
-                if (!under && wheel_root == app.root) under = app.editor;
+                if (!under && wheel_root == app.root && app.editor && pop_of_widget(&app, app.editor) == app.cur_pop) under = app.editor;
                 if (under && under->scrollable) ex_ui_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));                       /* a scroll box: the settings screens (7a) */
                 else if (under && under->type == EX_WIDGET_GRAPH) ex_graphview_wheel(under, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);   /* zoom about the pointer */
                 else if (under && under->type == EX_WIDGET_TREE) ex_tree_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
@@ -2777,6 +2982,7 @@ int main(int argc, char **argv) {
             default: break;
             }
         }
+        leave_pop(&app);
         if (timed_out || !running || !SDL_PollEvent(&e)) break;
         }
         if (app.notes) { ex_notes_tick(app.notes); handle_note_events(&app); }
@@ -2784,16 +2990,20 @@ int main(int argc, char **argv) {
             capture_tab_state(&app);
             if (app.session) ex_session_tick(app.session, app.ws, (int64_t)SDL_GetTicks());
         }
+        sync_windows(&app);                                                                    /* the windows of the workspace (7g) */
         if (app.panels) ex_panels_update(app.panels);
         if (redraw || app.title_warn_until || (app.panels && ex_panels_overlay(app.panels)) || ex_ws_revision(app.ws) != g_drawn_revision) {
             g_drawn_revision = ex_ws_revision(app.ws);
             if (app.title_warn_until && SDL_GetTicks() >= app.title_warn_until) app.title_warn_until = 0;     /* drawn once more without the bubble */
             relayout_and_draw(&app);
+            draw_pops(&app);                                                                   /* one frame of each pop-out window (7g) */
         }
         if (app.editor && app.editor->editor) {
             float cx, cy, cw, ch;
-            ex_editor_caret_rect(app.editor->editor, app.r, &cx, &cy, &cw, &ch);
-            ex_text_input_set_area(ex_renderer_window(app.r), (int)cx, (int)cy, 1, (int)ch);
+            ExPopWin *home = pop_of_widget(&app, app.editor);
+            ExRenderer *er = home ? ex_popwin_renderer(home) : app.main_r;
+            ex_editor_caret_rect(app.editor->editor, er, &cx, &cy, &cw, &ch);
+            ex_text_input_set_area(ex_renderer_window(er), (int)cx, (int)cy, 1, (int)ch);
         }
     }
     /* leaving (the window was closed, or SIGTERM, SIGHUP or the end of the session): everything is saved first */
@@ -2812,6 +3022,7 @@ int main(int argc, char **argv) {
     }
     ex_queue_destroy(results);
     stop_showing_diff(&app);
+    while (app.npops) destroy_pop(&app, app.pops[app.npops - 1]);                 /* the pop-out windows go first: they share the main window's font database */
     ex_graphmodel_free(app.gm);
     ex_graphmodel_free(app.gm_local);
     free(app.graph_note);

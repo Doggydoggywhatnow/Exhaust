@@ -3,6 +3,7 @@
  * 16 ms (the project's rule that the interface thread never waits longer), a whole frame (layout and drawing with the
  * software renderer, the slowest there is) within 60 ms. The 95th percentile is checked, so one slow moment of a busy
  * machine does not fail the test; sanitizer builds are given ten times the time. */
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +11,7 @@
 #include <SDL3/SDL.h>
 
 #include "exhaust_panes.h"
+#include "exhaust_popwin.h"
 #include "exhaust_ui.h"
 
 #if defined(__SANITIZE_ADDRESS__)
@@ -43,6 +45,19 @@ static void report(const char *what, double *v, size_t n, double limit) {
     p = p95(v, n);
     printf("%s: 95th percentile %.2f ms (limit %.0f ms), worst %.2f ms\n", what, p, limit, v[n - 1]);
     if (p >= limit) { fprintf(stderr, "%s is over budget\n", what); failures++; }
+}
+
+static ExDoc *g_big_doc;
+/* The content of the tab in the second window: an editor on the same big text as the first window's (7g). */
+static ExWidget *big_content(ExPanes *p, const ExTab *tab, void *user) {
+    ExWidget *e;
+    (void)tab; (void)user;
+    e = ex_widget_editor(ex_panes_ui(p), g_big_doc, "note");
+    if (!e) return NULL;
+    e->width = ex_size_grow(); e->height = ex_size_grow();
+    ex_editor_set_mode(e->editor, EX_EDITOR_LIVE);
+    ex_editor_set_wrap(e->editor, 1);
+    return e;
 }
 
 int main(void) {
@@ -157,6 +172,42 @@ int main(void) {
         ex_widget_free(win);
         ex_panes_free(panes);
         ex_ws_free(ws);
+    }
+    {   /* two windows (7g): the same big note in the first window and in a pop-out window of its own; every pass handles a key press, draws the first window and then the second (one frame each) */
+        ExWorkspace *ws2 = ex_ws_create();
+        ExId tab = ex_ws_new_tab(ws2, 0, "Big.md", "note"), win = ex_ws_popout(ws2, tab);
+        ExPanesHooks hooks;
+        ExPopWin *pw;
+        double pass[120], second[120], handler[120];
+        size_t np = 0, before_size = 0;
+        memset(&hooks, 0, sizeof hooks);
+        hooks.make_content = big_content;
+        g_big_doc = doc;
+        pw = win ? ex_popwin_create(ws2, win, &theme, 16.0f, 1.0f, &hooks, NULL, INT_MIN, INT_MIN, 800, 600, "second window") : NULL;
+        CHECK(pw != NULL);
+        if (pw) {
+            ex_ui_set_focus(ui, ed);
+            before_size = ex_buffer_size(ex_doc_buffer(doc));
+            ex_popwin_frame(pw, 1);                                                      /* the first frame loads fonts and builds the content */
+            for (i = 0; i < 120; i++) {
+                double t0 = now_ms(), t1, t2, t3;
+                ex_ui_text_input(ui, i % 7 == 6 ? "\n" : "y", 1);
+                t1 = now_ms();
+                ex_ui_layout(ui, root, 1000, 700); ex_ui_draw(ui, root, 1); finish_frame(r);
+                t2 = now_ms();
+                ex_popwin_frame(pw, 1);
+                finish_frame(ex_popwin_renderer(pw));
+                t3 = now_ms();
+                handler[np] = t1 - t0; second[np] = t3 - t2; pass[np] = t3 - t0;
+                np++;
+            }
+            CHECK(ex_buffer_size(ex_doc_buffer(doc)) >= before_size + 100);                        /* the keys really went into the text both windows show */
+            report("an input handler with two windows open", handler, np, key_limit);
+            report("the frame of the second window", second, np, frame_limit);
+            report("a pass: a key, the first window and the second", pass, np, frame_limit * 2);
+            ex_popwin_free(pw);
+        }
+        ex_ws_free(ws2);
     }
     ex_widget_free(root);
     ex_doc_free(doc);

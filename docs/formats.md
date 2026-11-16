@@ -521,7 +521,7 @@ The file has one section `[workspace.<name>]` for each layout and, for each, the
 | `[workspace.<name>/layout]` | the keys of the session file's `[layout]` | | 0.1.0 (7e). `left_visible`, `right_visible`, `left_width`, `right_width`, `open_panels`, `right_group`, `active_group`, `active_tab` |
 | `[workspace.<name>/window.<n>]`, `/split.<id>`, `/group.<id>`, `/tab.<id>` | the keys of the same sections of the session file | | 0.1.0 (7e). A window's `x`, `y`, `width`, `height` and `maximized` are not saved |
 
-A **name** is 1 to 60 bytes of UTF-8 with no control character and none of `[`, `]` and `/`, and does not start or end with a space; two names that differ only in the case of ASCII letters are the same name. *Save* with a name that is taken asks before it replaces the layout. *Load* replaces the main window's panes with the layout: tabs of notes that no longer exist are dropped, pop-out windows are folded into the main window (as at launch), the left and right sidebars take the layout's widths and panels, and nothing is written to any note (an open note keeps its unsaved text; its tab only goes away). A layout that cannot be read is skipped and the rest of the file is kept; unknown sections and keys are kept and written back. The file is read once at launch and written, atomically, by a worker thread after every change; it is Exhaust's file, so comments you add by hand are not kept when it is written.
+A **name** is 1 to 60 bytes of UTF-8 with no control character and none of `[`, `]` and `/`, and does not start or end with a space; two names that differ only in the case of ASCII letters are the same name. *Save* with a name that is taken asks before it replaces the layout. *Load* replaces the main window's panes with the layout: tabs of notes that no longer exist are dropped, pop-out windows in the layout open as windows (7g), the left and right sidebars take the layout's widths and panels, and nothing is written to any note (an open note keeps its unsaved text; its tab only goes away). A layout that cannot be read is skipped and the rest of the file is kept; unknown sections and keys are kept and written back. The file is read once at launch and written, atomically, by a worker thread after every change; it is Exhaust's file, so comments you add by hand are not kept when it is written.
 
 Commands (declared in the Commands table, gated by the `workspaces` feature): `workspaces.save-workspace-layout` asks for a name; `workspaces.load-workspace-layout` lists the names; `workspaces.manage-workspace-layouts` lists them and offers *Replace with the current layout* and *Delete*.
 
@@ -848,6 +848,18 @@ Everything is in the `exhaust` table. A function that needs a permission fails w
 | `exhaust.http.get(url)` | `network` |
 
 Event names for `exhaust.events.on`: `vault-open`, `file-open`, `file-save`, `file-rename`, `editor-change`. Since: 0.1.0.
+
+## Pop-out windows (7g)
+
+A window of the workspace model other than the main one is an operating-system window of its own. It has its own renderer and its own tab strip and panes (the panes of that workspace window; there is no ribbon, no sidebar, no status bar, no banner and no find bar in it); everything else is shared with the main window: the workspace, the notes and their buffers (one buffer for each note, so an edit in either window is at once in the other), the index, the settings and the theme.
+
+- *Opening one.* A tab dragged out of the window (let go outside the panes) or *Open in new window* in a pane's menu moves that tab into a new window. The new window has the size of a new window (`[appearance] window_width` and `window_height`, 7f) and is placed a little off from the main window.
+- *Closing one.* The window's close button, or closing its last tab, ends it: its tabs go to the active pane of the main window, and nothing is lost (each note's buffer stays open and is saved as always). Closing the main window ends the program and every other window with it.
+- *Session.* Every pop-out is in `session.ini` as `[window.<n>]` with its `x`, `y`, `width` and `height` (screen units; kept up to date while it is moved or resized) and its own tree of panes (see *Layout tree*). At the next start the windows open again. A window that was on a screen that is not there any more opens on the primary screen instead (its middle must be on some screen).
+- *Which window is active.* The pane last clicked in is the active pane of the workspace, in whichever window it is: commands (shortcuts, the palette) act on its note, the sidebar panels show that note, and the status bar describes it. A shortcut that is pressed in a pop-out works on the program as a whole.
+- *Frames.* Every window is handled on the interface thread by the same loop: all waiting events, then one frame for each window that needs one. A pop-out costs about what a pane of the main window costs, and `ctest -R frame_budget` has a case with two windows.
+- *What a pop-out does not have yet.* The pane menu (the three dots), dialogs and the page preview (they would open in the main window), the find bar, and dragging a tab from one window to another. Each is in `docs/ISSUES.md`.
+- *Script.* The developer's script of `EXHAUST_SCRIPT` has `window N` (the next events and `shot` are for the N-th pop-out, 0 for the main window) and `closewindow N` (its close button); see `tests/popout_scripts.sh`.
 
 ## Shell: status bar, ribbon, zoom, high contrast and window size (7f)
 

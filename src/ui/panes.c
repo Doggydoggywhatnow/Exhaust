@@ -21,6 +21,8 @@ typedef struct Divider { int active; ExId split; size_t index; } Divider;
 struct ExPanes {
     ExUi *ui;
     ExWorkspace *ws;
+    ExId window;                 /* the workspace window these panes show; 0: the main window (and the right sidebar's group) */
+    struct ExPanes *sibling[8]; size_t nsibling;   /* the panes of the other windows, for finding a tab's content (7g) */
     ExPanesHooks hooks;
     void *user;
     ExWidget *root;
@@ -66,6 +68,10 @@ static Cached *cached(ExPanes *p, ExId tab) {
 
 void ex_panes_replace_content(ExPanes *p, ExId tab, ExWidget *content) {
     Cached *c = cached(p, tab);
+    if (!c && content) {                                         /* the tab may be shown in another window */
+        size_t i;
+        for (i = 0; i < p->nsibling; i++) if (cached(p->sibling[i], tab)) { ex_panes_replace_content(p->sibling[i], tab, content); return; }
+    }
     if (!c || !content) { ex_widget_free(content); return; }
     ex_ui_release(p->ui, c->w);
     if (c->w->parent) ex_widget_remove(c->w->parent, c->w);
@@ -74,7 +80,22 @@ void ex_panes_replace_content(ExPanes *p, ExId tab, ExWidget *content) {
     p->built_layout = (unsigned long)-1;                       /* the next update puts the new widget in place */
 }
 
-ExWidget *ex_panes_content(ExPanes *p, ExId tab) { Cached *c = cached(p, tab); return c ? c->w : NULL; }
+ExWidget *ex_panes_content(ExPanes *p, ExId tab) {
+    Cached *c = cached(p, tab);
+    size_t i;
+    if (c) return c->w;
+    for (i = 0; i < p->nsibling; i++) { Cached *s = cached(p->sibling[i], tab); if (s) return s->w; }
+    return NULL;
+}
+
+void ex_panes_link(ExPanes *p, ExPanes *other, int link) {
+    size_t i;
+    if (!p || !other || p == other) return;
+    for (i = 0; i < p->nsibling; i++) if (p->sibling[i] == other) { if (!link) p->sibling[i] = p->sibling[--p->nsibling]; return; }
+    if (link && p->nsibling < 8) p->sibling[p->nsibling++] = other;
+}
+
+ExUi *ex_panes_ui(ExPanes *p) { return p ? p->ui : NULL; }
 
 static int within(const ExWidget *w, float x, float y) { return w && x >= w->x && y >= w->y && x < w->x + w->w && y < w->y + w->h; }
 
@@ -460,10 +481,20 @@ static ExWidget *build_node(ExPanes *p, ExId node, int parent_dir, float share) 
     return w;
 }
 
+/* Does the tab belong to the window these panes show? The main panes also hold the right sidebar's group, which is in no window. */
+static int tab_here(const ExPanes *p, ExId tab) {
+    const ExTab *t = ex_ws_tab(p->ws, tab);
+    ExId w;
+    if (!t) return 0;
+    w = ex_ws_window_of_node(p->ws, t->group);
+    if (p->window == 0 || p->window == ex_ws_main_window(p->ws)) return w == 0 || w == ex_ws_main_window(p->ws);
+    return w == p->window;
+}
+
 static void drop_stale_content(ExPanes *p) {
     size_t i;
     for (i = 0; i < p->ncache; i++) {
-        if (ex_ws_tab(p->ws, p->cache[i].tab) && p->cache[i].epoch == ex_ws_epoch(p->ws)) continue;      /* the state was replaced: the ids mean other tabs now */
+        if (ex_ws_tab(p->ws, p->cache[i].tab) && p->cache[i].epoch == ex_ws_epoch(p->ws) && tab_here(p, p->cache[i].tab)) continue;      /* the state was replaced: the ids mean other tabs now; or the tab went to another window */
         ex_ui_release(p->ui, p->cache[i].w);
         if (p->cache[i].w->parent) ex_widget_remove(p->cache[i].w->parent, p->cache[i].w);
         if (p->hooks.content_closed) p->hooks.content_closed(p, p->cache[i].tab, p->cache[i].w, p->user);
@@ -476,7 +507,8 @@ static void drop_stale_content(ExPanes *p) {
 static void rebuild(ExPanes *p) {
     ExWidget *old, *next;
     size_t i;
-    ExId main_root = ex_ws_window_root(p->ws, ex_ws_main_window(p->ws));
+    ExId main_root = ex_ws_window_root(p->ws, p->window ? p->window : ex_ws_main_window(p->ws));
+    int is_main = p->window == 0 || p->window == ex_ws_main_window(p->ws);
     for (i = 0; i < p->ncache; i++)                      /* keep the contents out of the tree that is freed */
         if (p->cache[i].w->parent) ex_widget_remove(p->cache[i].w->parent, p->cache[i].w);
     drop_stale_content(p);
@@ -497,7 +529,7 @@ static void rebuild(ExPanes *p) {
         ExWidget *top = build_node(p, main_root, -1, 1.0f);
         if (top) ex_widget_add(p->root, top);
     }
-    if (ex_ws_side_group(p->ws, EX_SIDE_RIGHT)) {                       /* the right sidebar's tabs (5e) */
+    if (is_main && ex_ws_side_group(p->ws, EX_SIDE_RIGHT)) {            /* the right sidebar's tabs (5e) */
         ExWidget *sg;
         p->building_side = 1;                                              /* a sidebar is narrow: its tabs are at most 110 px */
         sg = build_node(p, ex_ws_side_group(p->ws, EX_SIDE_RIGHT), -1, 1.0f);
@@ -527,10 +559,13 @@ void ex_panes_update(ExPanes *p) {
     sync_headers(p);
 }
 
-ExPanes *ex_panes_create(ExUi *ui, ExWorkspace *ws, const ExPanesHooks *hooks, void *user) {
+ExPanes *ex_panes_create_window(ExUi *ui, ExWorkspace *ws, const ExPanesHooks *hooks, void *user, ExId window);
+ExPanes *ex_panes_create(ExUi *ui, ExWorkspace *ws, const ExPanesHooks *hooks, void *user) { return ex_panes_create_window(ui, ws, hooks, user, 0); }
+
+ExPanes *ex_panes_create_window(ExUi *ui, ExWorkspace *ws, const ExPanesHooks *hooks, void *user, ExId window) {
     ExPanes *p = calloc(1, sizeof *p);
     if (!p) return NULL;
-    p->ui = ui; p->ws = ws; p->user = user;
+    p->ui = ui; p->ws = ws; p->user = user; p->window = window;
     if (hooks) p->hooks = *hooks;
     p->root = ex_widget_box(ui, 0, "Panes");
     p->side_root = ex_widget_box(ui, 1, "Sidebar tabs");

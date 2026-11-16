@@ -625,6 +625,7 @@ void ex_ui_layout(ExUi *ui, ExWidget *root, float width, float height) {
     Clay_Dimensions dim;
     ExWidget *e;
     Clay_SetCurrentContext(ui->clay);
+    Clay_SetMeasureTextFunction(measure, ui);                  /* the measuring function is Clay's own global: it must belong to the UI being laid out (several windows, 7g) */
     dim.width = width; dim.height = height;
     Clay_SetLayoutDimensions(dim);
     Clay_BeginLayout();

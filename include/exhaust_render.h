@@ -47,6 +47,8 @@ ExFontLib *ex_renderer_fonts(ExRenderer *r);
  * on the UI thread. */
 struct ExFontDb;
 void ex_renderer_set_font_db(ExRenderer *r, struct ExFontDb *db);
+/* The same database for another renderer (a pop-out window): not owned, so the owner must outlive it. */
+void ex_renderer_set_font_db_shared(ExRenderer *r, struct ExFontDb *db);
 
 /* Output size in pixels. */
 void ex_renderer_size(ExRenderer *r, int *w, int *h);

@@ -40,6 +40,12 @@ typedef struct ExPanesHooks {
 } ExPanesHooks;
 
 ExPanes *ex_panes_create(ExUi *ui, ExWorkspace *ws, const ExPanesHooks *hooks, void *user);
+/* The panes of a pop-out window (7g): the panes of that workspace window in its own ExUi. The main window's panes are made with ex_panes_create. */
+ExPanes *ex_panes_create_window(ExUi *ui, ExWorkspace *ws, const ExPanesHooks *hooks, void *user, ExId window);
+/* Panes of different windows know each other (call it for the main panes and each pop-out's, both ways), so ex_panes_content and
+ * ex_panes_replace_content find a tab's content in whichever window shows it. link 0 undoes it. */
+void ex_panes_link(ExPanes *p, ExPanes *other, int link);
+ExUi *ex_panes_ui(ExPanes *p);
 void ex_panes_free(ExPanes *p);
 /* The box that holds the panes of the main window; add it to the window layout. */
 ExWidget *ex_panes_root(ExPanes *p);
