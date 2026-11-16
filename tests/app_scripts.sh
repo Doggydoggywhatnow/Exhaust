@@ -398,7 +398,7 @@ hfirst=$(find "$work" -name 'Home.md.*.snap' | head -1)
 if grep -q "typed more" "$vault/Home.md" && [ -n "$hfirst" ] && [ "$(cat "$hfirst")" = "$(printf '# Welcome\n\nHello.')" ]; then echo "ok: the first save kept the text the note had before"; else echo "FAILED: no snapshot of the text before the first save"; fail=1; fi
 EXHAUST_SCRIPT="$work/hist_restore.script" $lim "$exe" "$vault" >"$work/hist_restore.log" 2>&1
 if [ "$(cat "$vault/Home.md")" = "$(printf '# Welcome\n\nHello.')" ]; then echo "ok: Restore put the earlier version back"; else echo "FAILED: Restore did not put the earlier version back"; fail=1; fi
-if grep -l "typed more" $(find "$work" -name 'Home.md.*.snap') >/dev/null 2>&1; then echo "ok: the text that was replaced is in the history"; else echo "FAILED: the text a restore replaced was not kept"; fail=1; fi
+if [ -n "$(find "$work" -name 'Home.md.*.snap' -exec grep -l "typed more" {} + 2>/dev/null)" ]; then echo "ok: the text that was replaced is in the history"; else echo "FAILED: the text a restore replaced was not kept"; fail=1; fi
 unset EXHAUST_OPEN
 
 # workspaces (7e): a layout saved under a name comes back after the tabs changed, and it is in workspaces.ini
