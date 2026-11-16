@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include "exhaust_hotkeys.h"
 #include "exhaust_settings.h"
+#include "exhaust_themes.h"
 #include "exhaust_ui.h"
 
 #ifdef __cplusplus
@@ -51,6 +52,9 @@ typedef struct ExSettingsHost {
      * done(arg, text) with the shortcut as text, or NULL if the user pressed Escape. Both may be NULL: the page then has no shortcuts to show. */
     ExHotkeys *hotkeys;
     void (*capture)(void *user, void (*done)(void *arg, const char *shortcut), void *arg);
+    /* The Theme page (7d): the themes and snippets that were found, and the theme on screen now (for the values and the contrast warnings). */
+    ExThemes *themes;
+    const ExTheme *(*current_theme)(void *user);
 } ExSettingsHost;
 
 typedef struct ExSettingsView ExSettingsView;

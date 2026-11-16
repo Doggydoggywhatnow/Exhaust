@@ -382,4 +382,27 @@ hsession=$(find "$work" -name session.ini -newer "$work/hk_custom.script" | head
 if [ -n "$hsession" ] && grep -q "view = settings" "$hsession"; then echo "ok: the shortcut from hotkeys.ini opens the settings"; else echo "FAILED: the shortcut from hotkeys.ini"; fail=1; fi
 unset EXHAUST_OPEN
 
+# themes (7d): the theme file named in the settings colours the window, and a change to the file shows without a restart
+vault="$work/theme_live"; rm -rf "$vault"; mkdir -p "$vault/.exhaust/themes"
+printf '# Welcome\n' > "$vault/Home.md"
+printf '[appearance]\ntheme = Rose\n' > "$vault/.exhaust/settings.ini"
+printf '[theme]\nname = Rose\nbase = light\n[colors]\nbackground = #ffe0e6\n' > "$vault/.exhaust/themes/rose.theme"
+printf 'wait 1500\nshot %s\nwait 2200\nshot %s\nquit\n' "$work/theme_a.ppm" "$work/theme_b.ppm" > "$work/theme_live.script"
+( n=0; until [ -s "$work/theme_a.ppm" ] || [ $n -ge 100 ]; do sleep 0.1; n=$((n+1)); done; sleep 0.4; printf '[theme]\nname = Rose\nbase = light\n[colors]\nbackground = #e0ffe6\n' > "$vault/.exhaust/themes/rose.theme.tmp" && mv "$vault/.exhaust/themes/rose.theme.tmp" "$vault/.exhaust/themes/rose.theme" ) &
+export EXHAUST_OPEN=Home.md
+EXHAUST_SCRIPT="$work/theme_live.script" $lim "$exe" "$vault" >"$work/theme_live.log" 2>&1
+unset EXHAUST_OPEN
+wait
+tcolors=$(python3 - "$work/theme_a.ppm" "$work/theme_b.ppm" <<'PY'
+import sys
+def px(path, x, y):
+    d=open(path,'rb').read(); parts=d.split(b'\n',3); w,h=map(int,parts[1].split()); i=(y*w+x)*3; return tuple(parts[3][i:i+3])
+try:
+    print(px(sys.argv[1],600,500), px(sys.argv[2],600,500))
+except Exception:
+    print("none")
+PY
+)
+if [ "$tcolors" = "(255, 224, 230) (224, 255, 230)" ]; then echo "ok: a theme file colours the window and a change to it shows within a second or two"; else echo "FAILED: the theme file's colours ($tcolors)"; fail=1; fi
+
 exit $fail

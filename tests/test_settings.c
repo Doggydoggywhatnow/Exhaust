@@ -33,6 +33,9 @@ static void test_patch(void) {
            "[editor]\nvim_mode = false\nline_numbers = true\n\n[files]\na = b\n");
     /* a new section goes at the end */
     EXPECT(patch("[editor]\nvim_mode = false\n", "files", "trash_mode", "permanent"), "[editor]\nvim_mode = false\n\n[files]\ntrash_mode = permanent\n");
+    /* a value that is itself a colour starts with # and is not a trailing comment: it is replaced, not kept (found in 7d) */
+    EXPECT(patch("[appearance]\naccent_color = #112233\n", "appearance", "accent_color", "#aabbcc"), "[appearance]\naccent_color = #aabbcc\n");
+    EXPECT(patch("[appearance]\naccent_color = #112233  # mine\n", "appearance", "accent_color", "#aabbcc"), "[appearance]\naccent_color = #aabbcc  # mine\n");
     /* an empty file */
     EXPECT(patch("", "general", "language", "de"), "[general]\nlanguage = de\n");
     /* no line ending at the end of the file */

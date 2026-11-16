@@ -168,6 +168,36 @@ int ex_theme_init_builtin(ExTheme *t, ExBuiltinTheme which) {
     return 0;
 }
 
+int ex_theme_apply_text(ExTheme *t, const char *text, size_t len, ExThemeDiag *diag) {
+    ExThemeDiag local;
+    if (!diag) diag = &local;
+    memset(diag, 0, sizeof *diag);
+    return apply(t, text, len, diag, NULL);
+}
+
+int ex_theme_text_base(const char *text, size_t len) {
+    char *copy = dup_n(text, len), *line, *next;
+    char section[32] = "";
+    int base = -1;
+    if (!copy) return -1;
+    for (line = copy; line; line = next) {
+        char *eq, *key, *val, *hash;
+        next = strchr(line, '\n');
+        if (next) *next++ = 0;
+        line = trim(line);
+        if (*line == '[') { char *close = strchr(line, ']'); size_t n; if (!close) continue; n = (size_t)(close - line - 1); if (n >= sizeof section) n = sizeof section - 1; memcpy(section, line + 1, n); section[n] = 0; continue; }
+        eq = strchr(line, '=');
+        if (!eq || strcmp(section, "theme")) continue;
+        *eq = 0;
+        key = trim(line); val = trim(eq + 1);
+        if ((hash = strchr(val, '#')) && hash != val && (hash[-1] == ' ' || hash[-1] == '\t')) *hash = 0;
+        val = trim(val);
+        if (!strcmp(key, "base")) base = !strcmp(val, "light") ? 1 : !strcmp(val, "dark") ? 0 : -1;
+    }
+    free(copy);
+    return base;
+}
+
 int ex_theme_load_text(ExTheme *t, const char *text, size_t len, ExThemeDiag *diag) {
     int base = 0;
     ExThemeDiag local;

@@ -286,9 +286,11 @@ char *ex_ini_patch(const char *text, size_t len, const char *section, const char
         if (key_start != (size_t)-1) {
             /* rewrite that one line */
             const char *l = text + key_start;
-            size_t content = key_end - key_start, eol = content, keep_from = 0, i;
+            size_t content = key_end - key_start, eol = content, keep_from = 0, i, vs;
             while (eol > 0 && (l[eol - 1] == '\n' || l[eol - 1] == '\r')) eol--;
-            for (i = val_off; i + 1 < eol; i++) if (l[i] == ' ' && l[i + 1] == '#') { while (i > val_off + 1 && l[i - 1] == ' ') i--; keep_from = i; break; }   /* a trailing comment stays, with its spacing */
+            vs = val_off;
+            while (vs < eol && (l[vs] == ' ' || l[vs] == '\t')) vs++;                   /* a value that starts with # (a colour) is a value, as the reader sees it, not a comment */
+            for (i = vs; i + 1 < eol; i++) if (l[i] == ' ' && l[i + 1] == '#') { while (i > val_off + 1 && l[i - 1] == ' ') i--; keep_from = i; break; }   /* a trailing comment stays, with its spacing */
             put(&b, text, key_start);
             {
                 size_t k = 0, ke;

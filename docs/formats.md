@@ -753,6 +753,22 @@ In Dark, `background_alt`, `surface` and `code_background` share the darker `#18
 | `sizes.tab_height` | int | `36` | 0.1.0 |
 | `sizes.line_height` | percent | `150` | 0.1.0 |
 
+### Loading themes and snippets (7d)
+
+*Since 0.1.0.* The theme in use is built from the settings in this order, each step replacing only what it sets:
+1. the built-in theme of the colour scheme: `[appearance] color_scheme` is `dark`, `light`, or `system` (what the operating system says);
+2. the theme file named by `[appearance] theme` (`exhaust` or empty: none). A theme file is found by its `[theme] name` or, without one, its file name without `.theme`, in `<vault>/.exhaust/themes` and then the global `themes` folder; a vault file hides a global one with the same file name; names are compared without regard to case. A theme with a `[theme] base` of its own is built over that built-in theme whatever the colour scheme is (so it can be dark only or light only); without one it follows the colour scheme. A name with no file is the built-in theme;
+3. `[appearance] accent_color` (when it is a colour): `colors.accent`, and `colors.accent_hover` as the same colour 15 percent lighter;
+4. the snippets named in `[appearance] snippets_enabled`, in that order, from `<vault>/.exhaust/snippets/<name>.style` (then the global `snippets` folder); a name with no file is skipped.
+
+A snippet's `@tokens` block sets tokens by name (`colors.*`, `sizes.*`, `fonts.*`, as in the table above; a bad value is ignored), and `callout.<type> { color: #rrggbb; }` sets `colors.callout_<type>`. Every other rule of a snippet (the widgets, states and properties of the list below) is read and left alone in 0.1.0; it is kept in the file and will take effect in a later version. Unknown keys of a theme file are kept in the theme and written back unchanged when the settings editor changes another token (comments, other sections and the order of the file stay too).
+
+*Live reload.* A worker thread looks at the theme file and the enabled snippet files about four times a second, and lists the folders every two seconds. When one changed, was added or was deleted, the theme is built again and replaces the one on screen within a second; a deleted theme file falls back to the built-in theme. The interface thread never reads the files.
+
+*The settings editor.* The page *Theme* of the settings (7d) shows the theme in use, a list to choose another, the snippets with a switch each, and every token as a row with its colour (or value) in a text field. Changing a token writes it into the user's theme file: into the file of the chosen theme, or, with the built-in one, into a new `custom.theme` in the vault's themes folder (named Custom, with the base of the colour scheme) that then becomes the chosen theme. The built-in themes are never changed.
+
+*The contrast check.* The editor warns when a pair of colours is hard to read (WCAG contrast ratio): `colors.text` on `colors.background`, on `colors.surface`, `colors.text_muted`, `colors.link` and `colors.error` on `colors.background` and `colors.code_text` on `colors.code_background` need 4.5 to 1; `colors.text_faint` and `colors.accent` on `colors.background` need 3 to 1. The built-in themes pass. A warning never stops a theme from being used.
+
 ## snippets/*.style
 
 A plain text file in `.exhaust/snippets`, switched on and off in Settings. It does not use CSS. A file is a list of rules:
@@ -836,6 +852,7 @@ Event names for `exhaust.events.on`: `vault-open`, `file-open`, `file-save`, `fi
 - *Not on a page.* Nothing in these sections is left off; `config_folder` and `allow_uri_callbacks` carry a note that they take effect when the vault is opened again.
 - *Core plugins (7b).* The list *Core plugins* is a page of the *Options* group: one switch for every key of `[features]` (a stub feature, Sync and Publish, has a disabled switch that says it is not in this version), in groups. Below it, in the group *Core plugins* of the page list, one page for each feature that has options of its own: Backlinks (`[backlinks]`), Canvas (`[canvas]`), Command palette (`[command_palette]`), Daily notes (`[daily_notes]`), File recovery (`[file_recovery]`), Note composer (`[note_composer]`), Page preview (`[page_preview]`), Quick switcher (`[quick_switcher]`), Templates (`[templates]`), Unique note creator (`[unique_note]`) and Sync (a stub page). A switch of the list goes through the feature registry, so the feature's menus, panels and commands follow it at once. The test `feature_pages` walks these sections of the table.
 - *Hotkeys (7c).* The page *Hotkeys* (in the *Options* group, after Files and links) lists every command of the Commands table in table order: its name, its shortcuts as chips (a chip with a cross removes that shortcut; a chip in red has a shortcut another command has too), a `+` button that waits for the next key press and adds it (Escape cancels; a modifier alone is waited out) and, for a command that differs from its defaults, a *Reset* button. A filter field above the list narrows it by name, id or shortcut, and *Customized only* shows just the commands with a line in `hotkeys.ini`. Only the rows near the view are built (the list has 200 rows). The test `hotkeys` covers the file and chord rules, `hotkeys_screen` the page.
+- *Theme (7d).* The page *Theme* of the *Options* group, after Appearance: see "Loading themes and snippets" above.
 - *Names.* Each control's accessible name is its row's name followed by its state (`Spell check: on`).
 
 ## Table editing

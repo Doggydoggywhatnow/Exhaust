@@ -52,6 +52,8 @@ struct ExWidget {
     /* look: theme token ids, -1 for none */
     int bg_token;                 /* ExColorToken */
     int border_token;             /* ExColorToken */
+    int bg_custom;                /* 1: the background is bg_color, a colour that is not a theme token (the swatch of the theme editor); bg_token is then -1 */
+    ExColor bg_color;
     int radius_token;             /* ExSizeToken */
 
     /* label and button text */

@@ -35,6 +35,10 @@ struct ExSettingsView {
     long hk_capturing;               /* the command (index in the command table) a shortcut is being captured for, or -1 */
     ExWidget *hk_capture_btn;
     char hk_filter[160];
+    /* the Theme page (7d) */
+    struct TokCtl *toks;
+    ExWidget *th_select, *th_warn;
+    char th_warn_text[700];
 };
 
 struct RowCtl {
@@ -48,6 +52,7 @@ struct RowCtl {
     int editing;                     /* the text field has been typed in since it was last written */
 };
 
+static int ieq_ci(const char *a, const char *b) { for (; *a && *b; a++, b++) if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return 0; return *a == *b; }
 static char *dup_str(const char *s) { size_t n = strlen(s); char *p = malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
 static void set_name(ExWidget *w, const char *name) { char *n = dup_str(name); if (n) { free(w->name); w->name = n; } }
 
@@ -242,8 +247,10 @@ static void on_stub(ExWidget *w, void *u) { (void)w; (void)u; }
 
 /* ---- building a page ---- */
 
+static void free_toks(ExSettingsView *sv);
 static void free_rows(ExSettingsView *sv) {
     RowCtl *c = sv->rows, *next;
+    free_toks(sv);
     for (; c; c = next) { next = c->next; ex_doc_free(c->doc); free(c); }
     sv->rows = NULL;
     sv->shown = 0;
@@ -371,6 +378,263 @@ static ExWidget *divider(ExSettingsView *sv) {
     return d;
 }
 
+
+
+/* ---- the Theme page (7d) ---- */
+
+typedef struct TokCtl { struct TokCtl *next; ExSettingsView *sv; char key[48]; ExDoc *doc; ExWidget *field, *swatch; char shown[80], theme_val[80], committed[80]; int editing; } TokCtl;
+
+static void free_toks(ExSettingsView *sv) {
+    TokCtl *c = sv->toks, *next;
+    for (; c; c = next) { next = c->next; ex_doc_free(c->doc); free(c); }
+    sv->toks = NULL; sv->th_select = sv->th_warn = NULL;
+}
+
+static const char *size_names[] = { "radius", "radius_large", "spacing", "border_width", "ribbon_width", "tab_height", "line_height" };
+static const char *font_names[] = { "interface", "text", "mono" };
+
+/* The value of a token in the theme on screen, as the text of the field. */
+static void tok_value(const ExSettingsView *sv, const char *key, char *out, size_t cap) {
+    const ExTheme *t = sv->host.current_theme ? sv->host.current_theme(sv->host.user) : NULL;
+    out[0] = 0;
+    if (!t) return;
+    if (!strncmp(key, "colors.", 7)) {
+        int id = ex_color_token_by_name(key + 7);
+        if (id >= 0) { ExColor c = t->colors[id]; if (c.a == 255) snprintf(out, cap, "#%02x%02x%02x", c.r, c.g, c.b); else snprintf(out, cap, "#%02x%02x%02x%02x", c.r, c.g, c.b, c.a); }
+    } else if (!strncmp(key, "sizes.", 6)) {
+        size_t k;
+        for (k = 0; k < sizeof size_names / sizeof *size_names; k++) if (!strcmp(size_names[k], key + 6)) snprintf(out, cap, "%d", t->sizes[k]);
+    } else if (!strncmp(key, "fonts.", 6)) {
+        size_t k;
+        for (k = 0; k < sizeof font_names / sizeof *font_names; k++) if (!strcmp(font_names[k], key + 6)) {
+            char sk[24];
+            snprintf(sk, sizeof sk, "font_%s", font_names[k]);
+            snprintf(out, cap, "%s", t->fonts[k] ? t->fonts[k] : (ex_settings_get(sv->settings, "appearance", sk) ? ex_settings_get(sv->settings, "appearance", sk) : ""));
+        }
+    }
+}
+
+static void tok_commit(TokCtl *c) {
+    ExSettingsView *sv = c->sv;
+    char *t, *name;
+    const char *cur_theme = ex_settings_get(sv->settings, "appearance", "theme");
+    const ExTheme *shown_theme = sv->host.current_theme ? sv->host.current_theme(sv->host.user) : NULL;
+    const char *scheme = shown_theme && !shown_theme->is_dark ? "light" : "dark";                 /* a new Custom theme has the base of the theme on screen */
+    c->editing = 0;
+    if (!sv->host.themes) return;
+    t = field_text(c->doc);
+    if (!t) return;
+    if (strcmp(t, c->shown) != 0) {
+        snprintf(c->committed, sizeof c->committed, "%s", t);
+        name = ex_themes_set_token(sv->host.themes, cur_theme ? cur_theme : "exhaust", scheme ? scheme : "dark", 0, c->key, t);
+        if (name) {
+            if (!cur_theme || strcmp(cur_theme, name) != 0) ex_settings_set(sv->settings, "appearance", "theme", name);
+            if (sv->host.changed) sv->host.changed(sv->host.user, "appearance", "theme");
+            free(name);
+        } else { set_field(c->doc, c->shown); }                                   /* a value the token refuses is put back */
+    }
+    free(t);
+}
+
+static int tok_key(ExWidget *w, ExKey key, int mods, void *u) {
+    TokCtl *c = u;
+    (void)w; (void)mods;
+    if (key == EX_KEY_ENTER) { tok_commit(c); return 1; }
+    if (key == EX_KEY_ESCAPE) { set_field(c->doc, c->shown); c->editing = 0; return 1; }
+    return 0;
+}
+
+static ExWidget *tok_row(ExSettingsView *sv, const char *key, const char *label_text, int swatch) {
+    ExWidget *row = ex_widget_box(sv->ui, sv->compact, label_text), *nm = label(sv, label_text, EX_COLOR_TEXT, 1.0f, 0), *left = ex_widget_box(sv->ui, 0, ""), *f;
+    TokCtl *c = calloc(1, sizeof *c);
+    if (!row || !nm || !left || !c) { free(c); return row; }
+    c->sv = sv;
+    snprintf(c->key, sizeof c->key, "%s", key);
+    c->doc = ex_doc_create("", 0);
+    f = c->doc ? ex_widget_editor(sv->ui, c->doc, label_text) : NULL;
+    if (!f) { ex_doc_free(c->doc); free(c); return row; }
+    f->bg_token = EX_COLOR_BACKGROUND; f->border_token = EX_COLOR_BORDER; f->radius_token = EX_SIZE_RADIUS;
+    f->height = ex_size_token(EX_SIZE_TAB_HEIGHT, 1.0f); f->width = ex_size_token(EX_SIZE_SPACING, 16.0f); f->no_wheel = 1;
+    f->on_key = tok_key; f->on_key_user = c;
+    c->field = f;
+    row->width = ex_size_grow(); row->gap = sv->compact ? 0.5f : 1.0f; row->align_y = sv->compact ? 0 : 1; row->pad_y = 0.4f;
+    left->width = ex_size_grow(); left->gap = 0.75f; left->align_y = 1;
+    if (swatch) {
+        ExWidget *sw = ex_widget_box(sv->ui, 0, "");
+        if (sw) { sw->width = ex_size_token(EX_SIZE_SPACING, 3.0f); sw->height = ex_size_token(EX_SIZE_SPACING, 3.0f); sw->radius_token = EX_SIZE_RADIUS; sw->border_token = EX_COLOR_BORDER; sw->bg_custom = 1; c->swatch = sw; ex_widget_add(left, sw); }
+    }
+    ex_widget_add(left, nm);
+    ex_widget_add(row, left); ex_widget_add(row, f);
+    c->shown[0] = 1; c->shown[1] = 0; c->theme_val[0] = 1; c->theme_val[1] = 0;
+    c->next = sv->toks; sv->toks = c;
+    return row;
+}
+
+static void on_snippet(ExWidget *w, void *u) {
+    ExSettingsView *sv = u;
+    const char *list = ex_settings_get(sv->settings, "appearance", "snippets_enabled");
+    char *name = w->owned, out[400], cur[400], *p;
+    int on = 0;
+    size_t o = 0;
+    if (!name) return;
+    snprintf(cur, sizeof cur, "%s", list ? list : "");
+    out[0] = 0;
+    for (p = cur; p && *p;) {
+        char *comma = strchr(p, ','), *item = p;
+        if (comma) *comma = 0;
+        while (*item == ' ') item++;
+        { size_t n = strlen(item); while (n && item[n - 1] == ' ') item[--n] = 0; }
+        p = comma ? comma + 1 : NULL;
+        if (!*item) continue;
+        if (!strcmp(item, name)) { on = 1; continue; }
+        o += (size_t)snprintf(out + o, sizeof out - o, "%s%s", o ? "," : "", item);
+    }
+    if (!on) snprintf(out + o, sizeof out - o, "%s%s", o ? "," : "", name);
+    if (ex_settings_set(sv->settings, "appearance", "snippets_enabled", out) == 0 && sv->host.changed) sv->host.changed(sv->host.user, "appearance", "snippets_enabled");
+    sv->th_warn_text[0] = 0;
+    ex_widget_set_text(w, on ? "Off" : "On");
+    w->bg_token = on ? EX_COLOR_BACKGROUND : EX_COLOR_ACCENT;
+}
+
+static void theme_picked(void *arg, size_t index) {
+    ExSettingsView *sv = arg;
+    char *name = sv->host.themes ? ex_themes_name(sv->host.themes, index) : NULL;
+    if (!name) return;
+    if (ex_settings_set(sv->settings, "appearance", "theme", index == 0 ? "exhaust" : name) == 0 && sv->host.changed) sv->host.changed(sv->host.user, "appearance", "theme");
+    free(name);
+}
+
+static void on_theme_select(ExWidget *w, void *u) {
+    ExSettingsView *sv = u;
+    size_t n = ex_themes_count(sv->host.themes), i, cur = 0;
+    char labels[24][80];
+    const char *ptrs[24];
+    const char *now = ex_settings_get(sv->settings, "appearance", "theme");
+    if (!sv->host.choose || n == 0) return;
+    if (n > 24) n = 24;
+    for (i = 0; i < n; i++) {
+        char *name = ex_themes_name(sv->host.themes, i);
+        snprintf(labels[i], sizeof labels[i], "%s", name ? name : "");
+        if (i > 0 && name && now && ieq_ci(now, name)) cur = i;
+        free(name);
+        ptrs[i] = labels[i];
+    }
+    sv->host.choose(sv->host.user, ptrs, n, cur, w->x, w->y + w->h, theme_picked, sv);
+}
+
+static void build_theme_page(ExSettingsView *sv) {
+    ExWidget *intro, *cd, *h;
+    size_t i, n;
+    char buf[100];
+    if (!sv->host.themes) { ExWidget *l = label(sv, "Themes are not available here.", EX_COLOR_TEXT_MUTED, 1.0f, 0); if (l) ex_widget_add(sv->col, l); return; }
+    intro = label(sv, "Pick a theme, switch style snippets on, or change any token below: the change is written to your own theme file and shows at once. The built-in themes are never changed.", EX_COLOR_TEXT_MUTED, 0.9f, 0);
+    if (intro) ex_widget_add(sv->col, intro);
+    /* the theme in use and the contrast check */
+    h = label(sv, "Theme in use", EX_COLOR_TEXT, 1.15f, 1);
+    if (h) ex_widget_add(sv->col, h);
+    cd = card(sv);
+    if (cd) {
+        ExWidget *row = ex_widget_box(sv->ui, sv->compact, "Theme in use"), *left = ex_widget_box(sv->ui, 1, ""), *nm = label(sv, "Theme", EX_COLOR_TEXT, 1.0f, 0);
+        sv->th_select = ex_widget_button(sv->ui, "", on_theme_select, sv);
+        sv->th_warn = label(sv, "", EX_COLOR_TEXT_MUTED, 0.9f, 0);
+        if (row && left && nm && sv->th_select && sv->th_warn) {
+            row->width = ex_size_grow(); row->gap = sv->compact ? 0.5f : 1.5f; row->align_y = sv->compact ? 0 : 1; row->pad_y = 0.75f;
+            left->width = ex_size_grow(); left->gap = 0.15f;
+            sv->th_select->pad_x = 1.0f; sv->th_select->pad_y = 0.4f; sv->th_select->width = ex_size_token(EX_SIZE_SPACING, 16.0f); sv->th_select->bg_token = EX_COLOR_BACKGROUND;
+            ex_widget_add(left, nm); ex_widget_add(left, sv->th_warn);
+            ex_widget_add(row, left); ex_widget_add(row, sv->th_select);
+            ex_widget_add(cd, row);
+        }
+        ex_widget_add(sv->col, cd);
+    }
+    /* the snippets */
+    n = ex_themes_snippet_count(sv->host.themes);
+    h = label(sv, "Style snippets", EX_COLOR_TEXT, 1.15f, 1);
+    if (h) ex_widget_add(sv->col, h);
+    cd = card(sv);
+    if (cd && n == 0) { ExWidget *l = label(sv, "No snippets yet. Put files that end in .style in the snippets folder of the vault's .exhaust folder.", EX_COLOR_TEXT_MUTED, 0.9f, 0); if (l) ex_widget_add(cd, l); }
+    for (i = 0; cd && i < n; i++) {
+        char *name = ex_themes_snippet_name(sv->host.themes, i);
+        ExWidget *row = ex_widget_box(sv->ui, 0, name ? name : ""), *nm = name ? label(sv, name, EX_COLOR_TEXT, 1.0f, 0) : NULL, *b;
+        const char *list = ex_settings_get(sv->settings, "appearance", "snippets_enabled");
+        int on = 0;
+        char *p, cur[400];
+        if (!name || !row || !nm) { free(name); continue; }
+        snprintf(cur, sizeof cur, "%s", list ? list : "");
+        for (p = cur; p && *p;) { char *comma = strchr(p, ','), *item = p; if (comma) *comma = 0; while (*item == ' ') item++; { size_t k = strlen(item); while (k && item[k - 1] == ' ') item[--k] = 0; } p = comma ? comma + 1 : NULL; if (!strcmp(item, name)) on = 1; }
+        b = ex_widget_button(sv->ui, on ? "On" : "Off", on_snippet, sv);
+        if (b) {
+            snprintf(buf, sizeof buf, "Snippet %s", name);
+            set_name(b, buf);
+            b->owned = name; b->free_owned = free; name = NULL;
+            b->pad_x = 1.0f; b->pad_y = 0.4f; b->width = ex_size_token(EX_SIZE_SPACING, 5.0f); b->bg_token = on ? EX_COLOR_ACCENT : EX_COLOR_BACKGROUND;
+            nm->width = ex_size_grow(); row->width = ex_size_grow(); row->align_y = 1; row->pad_y = 0.4f; row->gap = 1.0f;
+            ex_widget_add(row, nm); ex_widget_add(row, b);
+            ex_widget_add(cd, row);
+        }
+        free(name);
+    }
+    if (cd) ex_widget_add(sv->col, cd);
+    /* every token */
+    h = label(sv, "Colors", EX_COLOR_TEXT, 1.15f, 1);
+    if (h) ex_widget_add(sv->col, h);
+    cd = card(sv);
+    for (i = 0; cd && i < EX_COLOR_COUNT; i++) {
+        char key[64];
+        ExWidget *r;
+        snprintf(key, sizeof key, "colors.%s", ex_color_token_name((ExColorToken)i));
+        r = tok_row(sv, key, ex_color_token_name((ExColorToken)i), 1);
+        if (r) ex_widget_add(cd, r);
+    }
+    if (cd) ex_widget_add(sv->col, cd);
+    h = label(sv, "Fonts and sizes", EX_COLOR_TEXT, 1.15f, 1);
+    if (h) ex_widget_add(sv->col, h);
+    cd = card(sv);
+    for (i = 0; cd && i < sizeof font_names / sizeof *font_names; i++) { char key[48], nmb[48]; ExWidget *r; snprintf(key, sizeof key, "fonts.%s", font_names[i]); snprintf(nmb, sizeof nmb, "%s font", font_names[i]); r = tok_row(sv, key, nmb, 0); if (r) ex_widget_add(cd, r); }
+    for (i = 0; cd && i < sizeof size_names / sizeof *size_names; i++) { char key[48]; ExWidget *r; snprintf(key, sizeof key, "sizes.%s", size_names[i]); r = tok_row(sv, key, size_names[i], 0); if (r) ex_widget_add(cd, r); }
+    if (cd) ex_widget_add(sv->col, cd);
+}
+
+/* Once a frame while the page is shown: the name of the theme in use, the warnings, and the fields that follow the theme on screen. */
+static void theme_tick(ExSettingsView *sv, ExWidget *focus) {
+    TokCtl *c;
+    const ExTheme *t;
+    if (!sv->th_select || !sv->host.themes) return;
+    t = sv->host.current_theme ? sv->host.current_theme(sv->host.user) : NULL;
+    {
+        const char *now = ex_settings_get(sv->settings, "appearance", "theme");
+        char shown[96];
+        size_t i, n = ex_themes_count(sv->host.themes);
+        snprintf(shown, sizeof shown, "Exhaust");
+        for (i = 1; i < n; i++) { char *name = ex_themes_name(sv->host.themes, i); if (name && now && ieq_ci(now, name)) snprintf(shown, sizeof shown, "%s", name); free(name); }
+        if (!sv->th_select->text || strcmp(sv->th_select->text, shown)) { ex_widget_set_text(sv->th_select, shown); set_name(sv->th_select, "Choose the theme"); }
+    }
+    if (t) {
+        char w[5][160], text[700];
+        size_t n = ex_theme_contrast_warnings(t, w, 5), i, o = 0;
+        text[0] = 0;
+        if (n == 0) snprintf(text, sizeof text, "No contrast problems found.");
+        for (i = 0; i < n && o < sizeof text; i++) o += (size_t)snprintf(text + o, sizeof text - o, "%s%s", i ? " " : "", w[i]);
+        if (strcmp(text, sv->th_warn_text)) { snprintf(sv->th_warn_text, sizeof sv->th_warn_text, "%s", text); ex_widget_set_text(sv->th_warn, text); }
+    }
+    for (c = sv->toks; c; c = c->next) {
+        char now[80];
+        char *typed;
+        tok_value(sv, c->key, now, sizeof now);
+        if (focus == c->field) {                                           /* being typed in: noticed, written when it is left or on Enter */
+            typed = field_text(c->doc);
+            c->editing = typed && strcmp(typed, c->shown) && strcmp(typed, c->committed);
+            free(typed);
+        } else if (sv->last_focus == c->field && c->editing) { tok_commit(c); c->editing = 0; }
+        if (strcmp(now, c->theme_val)) {                                   /* the theme on screen changed: the field shows its value, unless something else is being typed */
+            snprintf(c->theme_val, sizeof c->theme_val, "%s", now);
+            snprintf(c->shown, sizeof c->shown, "%s", now);
+            c->committed[0] = 0;
+            if (!c->editing) set_field(c->doc, now);
+        }
+        if (c->swatch) { ExColor col; if (ex_parse_color(c->shown, &col) == 0) c->swatch->bg_color = col; }
+    }
+}
 
 /* ---- the Hotkeys page (7c) ---- */
 
@@ -618,6 +882,7 @@ static void rebuild(ExSettingsView *sv) {
     int first_in_card = 1;
     clear_content(sv);
     if (!sv->query[0] && !strcmp(sv->page, "hotkeys")) { build_hotkeys_page(sv); sv->scroll->scroll_y = 0; select_nav(sv); return; }
+    if (!sv->query[0] && !strcmp(sv->page, "theme")) { build_theme_page(sv); sv->scroll->scroll_y = 0; select_nav(sv); return; }
     for (i = 0; i < nrows; i++) {
         const ExSettingsRow *r = ex_settings_row(i);
         ExWidget *row;
@@ -718,6 +983,7 @@ void ex_settingsview_tick(ExSettingsView *sv) {
         }
         apply_shown(c);
     }
+    theme_tick(sv, focus);
     sv->last_focus = focus;
     hk_tick(sv);
     /* the focus moved to a control that is out of view: scroll to it */

@@ -103,6 +103,11 @@ int ex_theme_init_builtin(ExTheme *t, ExBuiltinTheme which);
 /* Reads a theme file: starts from its `[theme] base` (dark or light, default
  * dark) and applies the file over it. Returns 0 on success. */
 int ex_theme_load_text(ExTheme *t, const char *text, size_t len, ExThemeDiag *diag);
+/* Applies a theme file's text over a theme that is already set up (7d): what the file sets replaces the theme's value, what it does not set stays;
+ * its `[theme] base` is not read (the caller chose the base). */
+int ex_theme_apply_text(ExTheme *t, const char *text, size_t len, ExThemeDiag *diag);
+/* The `[theme] base` of a file's text: 0 dark, 1 light, -1 when it has none. */
+int ex_theme_text_base(const char *text, size_t len);
 void ex_theme_free(ExTheme *t);
 
 ExColor ex_theme_color(const ExTheme *t, ExColorToken c);

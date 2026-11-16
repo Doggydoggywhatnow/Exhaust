@@ -705,6 +705,7 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
     ExWidget *c;
     if (w->hidden) return;
     if (w->on_tick) w->on_tick(w, w->on_tick_user);
+    if (w->bg_custom) ex_fill_round_rect(r, w->x, w->y, w->w, w->h, rad, w->bg_color);
     if (w->bg_token >= 0) {
         int token = w->bg_token;
         if (w->type == EX_WIDGET_BUTTON) token = w->pressed ? EX_COLOR_ACCENT : (w->hover ? EX_COLOR_SURFACE_HOVER : w->bg_token);

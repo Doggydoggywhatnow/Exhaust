@@ -19,6 +19,7 @@
 #include "exhaust_session.h"
 #include "exhaust_settings.h"
 #include "exhaust_hotkeys.h"
+#include "exhaust_themes.h"
 #include "exhaust_settingsview.h"
 #include "exhaust_theme.h"
 #include "exhaust_findbar.h"
@@ -100,6 +101,7 @@ typedef struct App {
     ExSession *session;
     ExSettings *settings;
     ExHotkeys *hotkeys;                      /* hotkeys.ini and the shortcuts (7c) */
+    ExThemes *themes;                        /* the theme files and snippets, built on a worker thread (7d) */
     void (*cap_cb)(void *, const char *);    /* the settings screen is waiting for a key press to make a shortcut of (7c) */
     void *cap_arg;
     Uint64 swallow_text_until;               /* the text event that follows a captured key press is not typed anywhere */
@@ -557,17 +559,19 @@ static void settings_choose(void *u, const char *const *labels, size_t n, size_t
 static void settings_capture(void *u, void (*done)(void *, const char *), void *arg) { App *a = u; a->cap_cb = done; a->cap_arg = arg; }   /* the next key press goes to the Hotkeys page (7c) */
 static int settings_set_feature(void *u, const char *key, int enabled) { return ex_features_set(((App *)u)->features, key, enabled); }
 
-static void apply_color_scheme(App *a);
+static int theme_sync(App *a);
 static void settings_changed(void *u, const char *section, const char *key) {
     App *a = u;
-    if (!strcmp(section, "appearance") && !strcmp(key, "color_scheme")) apply_color_scheme(a);
+    if (!strcmp(section, "appearance")) theme_sync(a);                         /* the colour scheme, the theme, the accent colour or the snippets changed */
+    (void)key;
 }
+static const ExTheme *current_theme_cb(void *u);
 
 static ExWidget *make_settings(App *a) {
     ExSettingsHost h;
     ExSettingsView *sv;
     memset(&h, 0, sizeof h);
-    h.user = a; h.choose = settings_choose; h.changed = settings_changed; h.version = exhaust_version(); h.set_feature = settings_set_feature; h.hotkeys = a->hotkeys; h.capture = settings_capture;
+    h.user = a; h.choose = settings_choose; h.changed = settings_changed; h.version = exhaust_version(); h.set_feature = settings_set_feature; h.hotkeys = a->hotkeys; h.capture = settings_capture; h.themes = a->themes; h.current_theme = current_theme_cb;
     sv = ex_settingsview_create(a->ui, a->settings, &h);
     return sv ? ex_settingsview_widget(sv) : info_label(a, "The settings cannot be shown.");
 }
@@ -715,19 +719,25 @@ static void on_toggle_theme(ExWidget *w, void *user) {
     }
 }
 
-/* The base color scheme from the setting (dark, light or follow the system), applied to the running program. */
-static void apply_color_scheme(App *a) {
-    const char *scheme = ex_settings_get(a->settings, "appearance", "color_scheme");
-    int dark = !scheme || strcmp(scheme, "light") != 0;
+/* The theme from the settings, built by the worker (7d): hands it what the settings say now and takes a newer theme when one is ready. Returns 1 when the
+ * theme on screen changed (the caller draws again). */
+static int theme_sync(App *a) {
     ExTheme next;
-    if (scheme && strcmp(scheme, "system") == 0) dark = SDL_GetSystemTheme() != SDL_SYSTEM_THEME_LIGHT;
-    if (dark == (a->theme.is_dark != 0)) return;
-    if (ex_theme_init_builtin(&next, dark ? EX_THEME_DARK : EX_THEME_LIGHT) == 0) {
-        ex_theme_free(&a->theme);
-        a->theme = next;
-        ex_ui_set_theme(a->ui, &a->theme);
-    }
+    const char *scheme, *theme, *accent, *snippets;
+    if (!a->themes || !a->settings) return 0;
+    scheme = ex_settings_get(a->settings, "appearance", "color_scheme");
+    theme = ex_settings_get(a->settings, "appearance", "theme");
+    accent = ex_settings_get(a->settings, "appearance", "accent_color");
+    snippets = ex_settings_get(a->settings, "appearance", "snippets_enabled");
+    ex_themes_set_inputs(a->themes, scheme ? scheme : "dark", SDL_GetSystemTheme() != SDL_SYSTEM_THEME_LIGHT, theme ? theme : "", accent ? accent : "", snippets ? snippets : "");
+    if (!ex_themes_take(a->themes, &next, NULL)) return 0;
+    ex_theme_free(&a->theme);
+    a->theme = next;
+    ex_ui_set_theme(a->ui, &a->theme);
+    return 1;
 }
+
+static const ExTheme *current_theme_cb(void *u) { return &((App *)u)->theme; }
 
 static void toggle_side(App *a, ExSide side) {
     ex_ws_set_sidebar(a->ws, side, !ex_ws_sidebar_visible(a->ws, side), ex_ws_sidebar_width(a->ws, side));
@@ -2163,6 +2173,7 @@ int main(int argc, char **argv) {
 #else
         app.hotkeys = ex_hotkeys_open(vcfg ? vcfg : cfg, 0);
 #endif
+        app.themes = ex_themes_create(vcfg ? vcfg : NULL, cfg);                  /* the worker lists and reads the theme files (7d) */
         free(vcfg);
         free(cfg);
         if (!app.settings) { fprintf(stderr, "exhaust: cannot read the settings\n"); return 1; }
@@ -2435,6 +2446,7 @@ int main(int argc, char **argv) {
             redraw = 1;
         } else if (timed_out) {
             if (++idle_ticks % 5 == 0) { app.blink_on = !app.blink_on; redraw = 1; }   /* the caret blinks about every half second */
+            if (theme_sync(&app)) redraw = 1;                                          /* a theme file changed, or the settings did (7d) */
         } else if (e.type == g_wake_event) {
             ExMessage m;
             while (ex_queue_pop(results, &m))
@@ -2588,6 +2600,7 @@ int main(int argc, char **argv) {
     ex_ws_free(app.ws);
     ex_commands_free(app.commands);
     ex_features_free(app.features);
+    ex_themes_free(app.themes);
     ex_hotkeys_close(app.hotkeys);                 /* waits for the shortcut writes that are queued */
     ex_settings_close(app.settings);               /* waits for the settings writes that are queued */
     ex_vault_close(app.vault);
