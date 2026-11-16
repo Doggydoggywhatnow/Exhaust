@@ -234,7 +234,7 @@ static void script_step(App *a) {
         e.type = SDL_EVENT_TEXT_INPUT; e.text.text = typed;
         SDL_PushEvent(&e);
     } else if (!strncmp(line, "key ", 4)) {
-        /* key NAME, or key MODS+NAME with the mods ctrl, shift, alt and gui joined by +: ctrl+alt+j, ctrl+comma, shift+tab. A name is enter, escape, up, down,
+        /* key NAME, or key MODS+NAME with the mods ctrl, shift, alt, gui and mod (Ctrl, or Cmd on a Mac) joined by +: ctrl+alt+j, mod+comma, shift+tab. A name is enter, escape, up, down,
          * left, right, tab, space, comma, period, or one letter or digit. */
         const char *spec = line + 4, *name = spec, *plus;
         SDL_Keymod mod = 0;
@@ -242,6 +242,13 @@ static void script_step(App *a) {
         while ((plus = strchr(name, '+')) != NULL) {
             size_t n = (size_t)(plus - name);
             if (n == 4 && !strncmp(name, "ctrl", 4)) mod |= SDL_KMOD_CTRL;
+            else if (n == 3 && !strncmp(name, "mod", 3)) {                                 /* the primary key: Ctrl, or Cmd on a Mac */
+#ifdef __APPLE__
+                mod |= SDL_KMOD_GUI;
+#else
+                mod |= SDL_KMOD_CTRL;
+#endif
+            }
             else if (n == 5 && !strncmp(name, "shift", 5)) mod |= SDL_KMOD_SHIFT;
             else if (n == 3 && !strncmp(name, "alt", 3)) mod |= SDL_KMOD_ALT;
             else if (n == 3 && !strncmp(name, "gui", 3)) mod |= SDL_KMOD_GUI;

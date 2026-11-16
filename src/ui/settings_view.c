@@ -986,6 +986,7 @@ void ex_settingsview_tick(ExSettingsView *sv) {
     theme_tick(sv, focus);
     sv->last_focus = focus;
     hk_tick(sv);
+    focus = ex_ui_focus(sv->ui);                                            /* hk_tick may have freed the button that had it */
     /* the focus moved to a control that is out of view: scroll to it */
     if (focus != sv->seen_focus) {
         sv->seen_focus = focus;
