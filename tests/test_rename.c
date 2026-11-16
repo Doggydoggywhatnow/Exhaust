@@ -37,6 +37,8 @@ static char *read_file(const char *rel) {
 
 /* Runs one case. expect lists the notes (by their path after the move) and their exact text afterwards. */
 static const char *g_filter;
+static int g_expect_failed;     /* the case expects ex_rename_links to report a note it could not handle */
+static int active(const char *name) { return !g_filter || !strcmp(g_filter, name); }
 
 static size_t run_case(const char *name, const File *files, size_t nfiles, const Move *moves, size_t nmoves, const File *expect, size_t nexpect, int dry) {
     ExIndex *w;
@@ -66,7 +68,8 @@ static size_t run_case(const char *name, const File *files, size_t nfiles, const
     if (dry) {
         /* the dry run happens after the move too (the index still has the old state); it must not change a byte */
         CHECK(ex_rename_plan(w, &io, mv, nmoves, &rep) == 0);
-    } else CHECK(ex_rename_links(w, &io, mv, nmoves, &rep) == 0);
+    } else CHECK((ex_rename_links(w, &io, mv, nmoves, &rep) == 0) == !g_expect_failed);
+    CHECK(!g_expect_failed || rep.failed == 1);
     links = rep.total_links;
     ex_rename_report_free(&rep);
     for (i = 0; i < nexpect; i++) {
@@ -168,6 +171,41 @@ int main(int argc, char **argv) {
         File e[] = {{"A.md", "[[Note]] [[Note]]\n"}, {"B.md", "[[Note]]\n"}, {"C.md", "[[Other]]\n"}};
         size_t links = run_case("dry_run", f, 4, m, 1, e, 3, 1);
         CHECK(links == 3);
+    }
+    /* .canvas files (6a): the file of a card follows the move, the links in the Markdown of text cards are rewritten, every other key and the layout stay;
+     * a canvas that moves keeps its cards' paths (they are from the vault, not from the canvas) */
+    {
+        const char *cv = "{\n\t\"nodes\":[\n\t\t{\"id\":\"a1\",\"type\":\"file\",\"file\":\"Note.md\",\"subpath\":\"#Head\",\"x\":0,\"y\":0,\"width\":250,\"height\":60,\"zIndex\":3},\n"
+                         "\t\t{\"id\":\"a2\",\"type\":\"text\",\"text\":\"See [[Note]] and [[Other]] and [m](Note.md)\\n\\t[[Note#Head|h]]\",\"x\":300,\"y\":0,\"width\":250,\"height\":60},\n"
+                         "\t\t{\"id\":\"a3\",\"type\":\"file\",\"file\":\"Other.md\",\"x\":0,\"y\":100,\"width\":250,\"height\":60},\n"
+                         "\t\t{\"id\":\"a4\",\"type\":\"file\",\"file\":\"Pic.png\",\"x\":0,\"y\":200,\"width\":250,\"height\":60}\n\t],\n\t\"edges\":[],\n\t\"meta\":{\"a\":[1,2.50]}\n}";
+        const char *want = "{\n\t\"nodes\":[\n\t\t{\"id\":\"a1\",\"type\":\"file\",\"file\":\"Moved/Renamed.md\",\"subpath\":\"#Head\",\"x\":0,\"y\":0,\"width\":250,\"height\":60,\"zIndex\":3},\n"
+                           "\t\t{\"id\":\"a2\",\"type\":\"text\",\"text\":\"See [[Renamed]] and [[Other]] and [m](Moved/Renamed.md)\\n\\t[[Renamed#Head|h]]\",\"x\":300,\"y\":0,\"width\":250,\"height\":60},\n"
+                           "\t\t{\"id\":\"a3\",\"type\":\"file\",\"file\":\"Other.md\",\"x\":0,\"y\":100,\"width\":250,\"height\":60},\n"
+                           "\t\t{\"id\":\"a4\",\"type\":\"file\",\"file\":\"Images/Photo.png\",\"x\":0,\"y\":200,\"width\":250,\"height\":60}\n\t],\n\t\"edges\":[],\n\t\"meta\":{\"a\":[1,2.50]}\n}";
+        File f[] = {{"Note.md", "# Head\n"}, {"Other.md", "o\n"}, {"Pic.png", "PNG"}, {"Board.canvas", cv}};
+        Move m[] = {{"Note.md", "Moved/Renamed.md"}, {"Pic.png", "Images/Photo.png"}};
+        File e[] = {{"Board.canvas", want}};
+        size_t links = run_case("canvas", f, 4, m, 2, e, 1, 0);
+        CHECK(!active("canvas") || links == 5);
+    }
+    {   /* the dry run reads the canvas and writes nothing; a canvas that is moved too is found at its new place */
+        const char *cv = "{\"nodes\":[{\"id\":\"a1\",\"type\":\"file\",\"file\":\"Note.md\",\"x\":0,\"y\":0,\"width\":1,\"height\":1}],\"edges\":[]}";
+        File f[] = {{"Note.md", "n\n"}, {"Board.canvas", cv}};
+        Move m[] = {{"Note.md", "Z.md"}, {"Board.canvas", "Boards/Board.canvas"}};
+        File e[] = {{"Boards/Board.canvas", "{\n\t\"nodes\":[\n\t\t{\"id\":\"a1\",\"type\":\"file\",\"file\":\"Z.md\",\"x\":0,\"y\":0,\"width\":1,\"height\":1}\n\t],\n\t\"edges\":[]\n}"}};
+        File e2[] = {{"Boards/Board.canvas", cv}};
+        size_t a = run_case("canvas_moved", f, 2, m, 2, e, 1, 0), b = run_case("canvas_dry_run", f, 2, m, 2, e2, 1, 1);
+        CHECK(!active("canvas_moved") || a == 1);
+        CHECK(!active("canvas_dry_run") || b == 1);
+    }
+    {   /* a canvas that is not valid JSON is left alone and counted as failed, never overwritten */
+        File f[] = {{"Note.md", "n\n"}, {"Broken.canvas", "{\"nodes\": [ not json"}, {"A.md", "[[Note]]\n"}};
+        Move m[] = {{"Note.md", "Z.md"}};
+        File e[] = {{"Broken.canvas", "{\"nodes\": [ not json"}, {"A.md", "[[Z]]\n"}};
+        g_expect_failed = 1;
+        run_case("canvas_broken", f, 3, m, 1, e, 2, 0);
+        g_expect_failed = 0;
     }
     if (failures) { fprintf(stderr, "%d check(s) failed\n", failures); return 1; }
     printf("ok\n");

@@ -315,7 +315,7 @@ target_link_libraries(exhaust_canvas PUBLIC yyjson_static)
 
 add_library(exhaust_index STATIC src/index/db.c src/index/extract.c src/index/props.c src/index/indexer.c src/index/store_extra.c src/index/store_v3.c src/index/links.c src/index/graph.c src/index/propquery.c src/index/propedit.c src/index/rename.c src/index/search.c src/index/query.c)
 target_include_directories(exhaust_index PUBLIC include PRIVATE src/index)
-target_link_libraries(exhaust_index PUBLIC exhaust_notes exhaust_markdown exhaust_unicode exhaust_find exhaust_ini sqlite3_static yaml_static)
+target_link_libraries(exhaust_index PUBLIC exhaust_notes exhaust_markdown exhaust_unicode exhaust_find exhaust_ini exhaust_canvas sqlite3_static yaml_static)
 
 # Finding your way: quick switcher, command palette, outline, bookmarks, random note, footnotes (sub-slices 4b-iii, 4b-iv).
 add_library(exhaust_nav STATIC src/nav/switcher.c src/nav/outline.c src/nav/footnotes.c src/nav/random.c src/nav/bookmarks.c)
@@ -624,7 +624,7 @@ endforeach()
 add_test(NAME search_perf COMMAND test_search perf $<TARGET_FILE:gen_vault>)
 add_executable(test_rename tests/test_rename.c)
 target_link_libraries(test_rename PRIVATE exhaust_index exhaust_platform)
-foreach(c wikilink embed markdown_relative markdown_url_encoded property_links heading_and_block moved_note duplicates folder_move crlf_and_bom dry_run)
+foreach(c wikilink embed markdown_relative markdown_url_encoded property_links heading_and_block moved_note duplicates folder_move crlf_and_bom dry_run canvas canvas_moved canvas_dry_run canvas_broken)
   add_test(NAME rename_${c} COMMAND test_rename ${c})
 endforeach()
 add_executable(test_canvas tests/test_canvas.c)

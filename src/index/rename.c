@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "exhaust_canvas.h"
 #include "exhaust_links.h"
 #include "exhaust_nfc.h"
 #include "exhaust_rename.h"
@@ -231,6 +232,70 @@ void ex_rename_report_free(ExRenameReport *r) {
     memset(r, 0, sizeof *r);
 }
 
+
+/* .canvas files (6a): the `file` of a card that points at a moved file, and the links in the Markdown of text cards, are rewritten like the links of a
+ * note. The file is read with the canvas reader and written back by the canvas writer, which keeps every key and its order (a canvas in another layout than
+ * the standard one is written in the standard one). A canvas that cannot be read is counted as failed and left alone. */
+static int canvas_pass(ExIndex *r, const ExNoteIO *io, const Moved *m, ExRenameReport *report, int write) {
+    sqlite3_stmt *st = ex_db_prepare(r, "SELECT path FROM files WHERE kind = 3 ORDER BY 1");
+    char **paths = NULL;
+    size_t np = 0, cap = 0, i;
+    int rc = 0;
+    if (!st) return -1;
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        if (np == cap) { size_t nc = cap ? cap * 2 : 8; char **a = realloc(paths, nc * sizeof *a); if (!a) break; paths = a; cap = nc; }
+        paths[np++] = ex_strdup((const char *)sqlite3_column_text(st, 0));
+    }
+    sqlite3_finalize(st);
+    for (i = 0; i < np; i++) {
+        const char *s_old = paths[i], *s_new = s_old;
+        size_t k, len = 0, nl_total = 0, j;
+        char *text, *out;
+        ExCanvas *c;
+        for (k = 0; k < m->n; k++) if (!strcmp(m->from[k], s_old)) { s_new = m->to[k]; break; }
+        text = io->read(io->user, write ? s_new : s_old, &len);
+        if (!text && !write) text = io->read(io->user, s_new, &len);
+        if (!text) { report->failed++; continue; }
+        c = ex_canvas_parse(text, len, NULL, 0);
+        if (!c) { report->failed++; free(text); continue; }
+        for (j = 0; j < c->n; j++) {
+            ExCanvasNode *n = &c->nodes[j];
+            if (n->raw) continue;
+            if (n->kind == EX_CN_FILE && n->file) {
+                for (k = 0; k < m->n; k++) if (!strcmp(n->file, m->from[k])) { if (ex_canvas_set_string(c, &n->file, m->to[k]) == 0) nl_total++; break; }
+            } else if (n->kind == EX_CN_TEXT && n->text && n->text[0]) {
+                Edits ed = {0};
+                size_t nl = 0, tl = strlen(n->text);
+                if (collect_edits(r, m, s_old, s_new, n->text, tl, &ed, &nl) == 0 && ed.n) {
+                    size_t olen = 0;
+                    char *nt = apply_edits(n->text, tl, &ed, &olen);
+                    if (nt && ex_canvas_set_string(c, &n->text, nt) == 0) nl_total += nl;
+                    free(nt);
+                }
+                edits_free(&ed);
+            }
+        }
+        if (nl_total) {
+            size_t olen = 0;
+            out = ex_canvas_write(c, &olen);
+            if (write && (!out || io->write(io->user, s_new, out, olen) != 0)) report->failed++;
+            free(out);
+            {
+                char **np2 = realloc(report->paths, (report->n + 1) * sizeof *np2);
+                size_t *nlk = realloc(report->links, (report->n + 1) * sizeof *nlk);
+                if (np2) report->paths = np2;
+                if (nlk) report->links = nlk;
+                if (np2 && nlk) { report->paths[report->n] = ex_strdup(s_new); report->links[report->n] = nl_total; report->n++; report->total_links += nl_total; }
+            }
+        }
+        ex_canvas_free(c);
+        free(text);
+    }
+    for (i = 0; i < np; i++) free(paths[i]);
+    free(paths);
+    return rc;
+}
+
 static int rename_impl(ExIndex *r, const ExNoteIO *io, const ExMove *moves, size_t n, ExRenameReport *report, int write) {
     Moved m;
     sqlite3_stmt *st;
@@ -290,6 +355,7 @@ static int rename_impl(ExIndex *r, const ExNoteIO *io, const ExMove *moves, size
         free(text);
         edits_free(&ed);
     }
+    if (canvas_pass(r, io, &m, report, write) != 0) rc = -1;
     for (i = 0; i < nsrc; i++) free(source_old[i]);
     free(sources);
     free(m.ids); free(m.from); free(m.to);
