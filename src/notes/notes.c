@@ -5,12 +5,13 @@
 
 #include <SDL3/SDL.h>
 
+#include "exhaust_history.h"
 #include "exhaust_notes.h"
 #include "exhaust_platform.h"
 #include "exhaust_util.h"
 #include "exhaust_worker.h"
 
-enum { JOB_SAVE = 1 };
+enum { JOB_SAVE = 1, JOB_PRUNE = 2, JOB_SNAPSHOT = 3 };
 enum { RES_OK = 1, RES_FAIL = 2, RES_CONFLICT = 3 };
 
 typedef struct PostEdit { uint64_t offset, removed; char *text; size_t len; } PostEdit;
@@ -53,6 +54,9 @@ struct ExNotes {
     ExNoteEvent *events; size_t nev, cap_ev;
     ExRecovery recovery;        /* notes that had unsaved edits at launch */
     long journal_number;
+    int hist_on, hist_interval_s, hist_days;     /* file recovery (7e): set by the interface thread, copied into every save job */
+    uint64_t hist_prune_ms;
+    struct HistEntry { char *rel; int64_t last; } *hist_cache; size_t hist_n, hist_cap;   /* the save thread's: the time of each note's newest automatic snapshot */
 };
 
 typedef struct SaveJob {
@@ -60,6 +64,9 @@ typedef struct SaveJob {
     char *abs; uint8_t *bytes; size_t len;
     int64_t expect_size; uint8_t expect_hash[16];
     int force;
+    char *rel;                  /* file recovery: the note's path, and what to do (hist_on 0: nothing) */
+    int hist_on, hist_interval_s;
+    int64_t now_s;
 } SaveJob;
 
 typedef struct SaveResult {
@@ -72,6 +79,8 @@ typedef struct SaveResult {
 static char *dup_str(const char *s) { size_t n = strlen(s); char *p = malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
 
 static uint64_t now_ms(const ExNotes *m) { return m->cfg.clock ? m->cfg.clock(m->cfg.clock_user) : ex_platform_now_ms(); }
+
+static int64_t unix_now(const ExNotes *m) { return m->cfg.unix_time ? m->cfg.unix_time(m->cfg.clock_user) : ex_platform_unix_time(); }
 
 static void push_event(ExNotes *m, ExNoteEventKind kind, ExNote *n, const char *rel, const char *msg) {
     ExNoteEvent *e;
@@ -116,11 +125,83 @@ static void empty_hash(uint8_t out[16]) { ex_hash16("", 0, out); }
 
 /* ---- the save worker ---- */
 
+/* The time of the newest automatic snapshot of a note: from the cache, else from the folder. Save thread only. */
+static int64_t hist_last(ExNotes *m, const char *rel) {
+    size_t i;
+    int64_t t;
+    for (i = 0; i < m->hist_n; i++) if (!strcmp(m->hist_cache[i].rel, rel)) return m->hist_cache[i].last;
+    t = ex_history_last_auto(m->recovery_dir, rel);
+    if (m->hist_n == m->hist_cap) {
+        size_t nc = m->hist_cap ? m->hist_cap * 2 : 32, k;
+        struct HistEntry *ne;
+        if (nc > 4096) { for (k = 0; k < m->hist_n; k++) free(m->hist_cache[k].rel); m->hist_n = 0; nc = m->hist_cap; }
+        ne = nc == m->hist_cap ? m->hist_cache : realloc(m->hist_cache, nc * sizeof *ne);
+        if (!ne) return t;
+        m->hist_cache = ne; m->hist_cap = nc;
+    }
+    m->hist_cache[m->hist_n].rel = dup_str(rel);
+    if (!m->hist_cache[m->hist_n].rel) return t;
+    m->hist_cache[m->hist_n].last = t;
+    m->hist_n++;
+    return t;
+}
+
+static void hist_set_last(ExNotes *m, const char *rel, int64_t t) {
+    size_t i;
+    for (i = 0; i < m->hist_n; i++) if (!strcmp(m->hist_cache[i].rel, rel)) { m->hist_cache[i].last = t; return; }
+}
+
+/* After a note was written (save thread): the snapshot of file recovery, if one is due. `old` is what the file held before (NULL: nothing). */
+static void hist_after_save(ExNotes *m, const SaveJob *j, const uint8_t *old, size_t old_len) {
+    int64_t last;
+    if (!j->hist_on || !j->rel || !m->recovery_dir) return;
+    last = hist_last(m, j->rel);
+    if (last == 0) {
+        /* the first save of a note that has no snapshot: the version it had before is the first one */
+        if (old && old_len > 0 && ex_history_take(m->recovery_dir, j->rel, old, old_len, j->now_s, EX_SNAP_AUTO) == 0) hist_set_last(m, j->rel, j->now_s);
+        else if (!old || old_len == 0) hist_set_last(m, j->rel, j->now_s);    /* a new note: its first snapshot comes after the interval */
+        return;
+    }
+    if (j->now_s - last < (int64_t)j->hist_interval_s) return;
+    {   /* due: unless the text is what the newest snapshot holds */
+        ExSnapshot *l = NULL;
+        size_t n = ex_history_list(m->recovery_dir, j->rel, &l), i;
+        int same = 0;
+        for (i = 0; i < n && !same; i++) {
+            size_t sl = 0;
+            char *s;
+            if (l[i].kind != EX_SNAP_AUTO) continue;
+            if (l[i].size == (int64_t)j->len && (s = ex_history_read(m->recovery_dir, l[i].file, &sl)) != NULL) { same = sl == j->len && memcmp(s, j->bytes, sl) == 0; free(s); }
+            break;                                                 /* only the newest automatic one counts */
+        }
+        ex_history_free(l, n);
+        if (!same && ex_history_take(m->recovery_dir, j->rel, j->bytes, j->len, j->now_s, EX_SNAP_AUTO) != 0) return;
+        hist_set_last(m, j->rel, j->now_s);
+    }
+}
+
 static void save_job(ExWorker *self, const ExMessage *msg, void *user) {
+    ExNotes *m = user;
     SaveJob *j = msg->payload;
-    SaveResult *r = calloc(1, sizeof *r);
+    SaveResult *r;
     ExSaveResult sr;
-    (void)user;
+    uint8_t *old = NULL;
+    size_t old_len = 0;
+    if (msg->type == JOB_SNAPSHOT) {                 /* a snapshot the user asked for (before a restore): written here, not on the interface thread */
+        SaveJob *s = msg->payload;
+        if (m->recovery_dir && s->rel) {
+            ex_history_take(m->recovery_dir, s->rel, s->bytes, s->len, s->now_s, EX_SNAP_AUTO);
+            hist_set_last(m, s->rel, s->now_s);
+        }
+        free(s->rel); free(s->bytes); free(s);
+        return;
+    }
+    if (msg->type == JOB_PRUNE) {
+        int days = (int)(intptr_t)msg->payload;
+        if (m->recovery_dir) ex_history_prune(m->recovery_dir, ex_platform_unix_time(), days);
+        return;
+    }
+    r = calloc(1, sizeof *r);
     if (!r) return;
     r->note_id = j->note_id;
     r->seq = j->seq;
@@ -135,18 +216,20 @@ static void save_job(ExWorker *self, const ExMessage *msg, void *user) {
             if (rc < 0) { snprintf(r->message, sizeof r->message, "cannot read the file to check it"); ex_worker_send(self, RES_FAIL, r, sizeof *r, free); free(cur); goto cleanup; }
             if (!same) { r->disk = cur; r->disk_len = cur_len; r->size = rc == 1 ? -1 : (int64_t)cur_len; if (rc == 0) memcpy(r->hash, hash, 16); ex_worker_send(self, RES_CONFLICT, r, sizeof *r, NULL); goto cleanup; }
         }
-        free(cur);
+        old = cur; old_len = cur_len;
     }
     if (ex_platform_save_file(j->abs, j->bytes, j->len, &sr) == 0) {
         r->size = (int64_t)j->len;
         ex_hash16(j->bytes, j->len, r->hash);
+        hist_after_save(m, j, old, old_len);          /* before the result: a saved event means the snapshot (if one was due) exists */
         ex_worker_send(self, RES_OK, r, sizeof *r, free);
     } else {
         snprintf(r->message, sizeof r->message, "%s", sr.message);
         ex_worker_send(self, RES_FAIL, r, sizeof *r, free);
     }
+    free(old);
 cleanup:
-    free(j->abs); free(j->bytes); free(j);
+    free(j->abs); free(j->rel); free(j->bytes); free(j);
 }
 
 /* ---- notes ---- */
@@ -208,22 +291,9 @@ static ExNote *new_note(ExNotes *m, const char *rel, const char *text, size_t le
     return n;
 }
 
+/* The other side of a conflict, kept before the user's choice replaces it (the interface thread, on the user's click: a small file). */
 static void snapshot_to_recovery(ExNotes *m, const char *rel, const void *bytes, size_t len) {
-    char name[700], *path;
-    size_t i, k = 0;
-    time_t t = (time_t)ex_platform_unix_time();
-    struct tm *tmv = localtime(&t);
-    char stamp[32];
-    for (i = 0; rel[i] && k < 500; i++) name[k++] = rel[i] == '/' ? '_' : rel[i];
-    if (k < 2) return;
-    name[k] = 0;
-    strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", tmv ? tmv : localtime(&t));
-    path = malloc(strlen(m->recovery_dir) + strlen(name) + 64);
-    if (!path) return;
-    sprintf(path, "%s/%s.%s.bak", m->recovery_dir, name, stamp);
-    ex_platform_make_dirs(m->recovery_dir);
-    ex_platform_write_file_atomic(path, bytes, len);
-    free(path);
+    ex_history_take(m->recovery_dir, rel, bytes, len, unix_now(m), EX_SNAP_CONFLICT);
 }
 
 /* ---- creating the manager ---- */
@@ -431,11 +501,15 @@ static int start_save(ExNote *n) {
     memcpy(j->expect_hash, n->disk_hash, 16);
     j->force = n->force_next;
     n->force_next = 0;
+    j->rel = dup_str(n->rel);
+    j->hist_on = m->hist_on && !j->force;
+    j->hist_interval_s = m->hist_interval_s;
+    j->now_s = unix_now(m);
     memset(&msg, 0, sizeof msg);
     msg.type = JOB_SAVE;
     msg.payload = j;
     msg.size = sizeof *j;
-    if (!j->abs || ex_worker_post(m->saver, &msg) != 0) { free(j->abs); free(bytes); free(j); return -1; }
+    if (!j->abs || !j->rel || ex_worker_post(m->saver, &msg) != 0) { free(j->abs); free(j->rel); free(bytes); free(j); return -1; }
     n->saving = 1;
     n->saving_seq = n->edit_seq;
     clear_post(n);
@@ -593,6 +667,7 @@ void ex_notes_tick(ExNotes *m) {
     ExNote *n;
     char rel[512];
     pump_results(m);
+    if (m->hist_on && m->saver && t - m->hist_prune_ms >= 3600000u) ex_notes_set_history(m, 1, m->hist_interval_s / 60, m->hist_days);     /* once an hour */
     if (m->watcher) {
         int tree_changed = 0;
         while (ex_watcher_poll(m->watcher, rel, sizeof rel)) {
@@ -676,9 +751,47 @@ static void destroy(ExNotes *m, int save) {
         ex_jw_close(m->jw);
     }
     ex_recovery_free(&m->recovery);
+    { size_t k; for (k = 0; k < m->hist_n; k++) free(m->hist_cache[k].rel); free(m->hist_cache); }
     free(m->events); free(m->data_dir); free(m->journal_dir); free(m->recovery_dir);
     free(m);
 }
+
+int ex_notes_snapshot_now(ExNotes *m, ExNote *n) {
+    SaveJob *j;
+    ExMessage msg;
+    char *text;
+    size_t tlen = 0, blen = 0;
+    uint8_t *bytes;
+    if (!m || !n || !m->saver) return -1;
+    text = ex_buffer_text(ex_doc_buffer(n->doc), &tlen);
+    if (!text) return -1;
+    bytes = ex_note_encode(text, tlen, &n->fmt, &blen);
+    free(text);
+    if (!bytes) return -1;
+    j = calloc(1, sizeof *j);
+    if (!j) { free(bytes); return -1; }
+    j->rel = dup_str(n->rel); j->bytes = bytes; j->len = blen; j->now_s = unix_now(m);
+    memset(&msg, 0, sizeof msg);
+    msg.type = JOB_SNAPSHOT; msg.payload = j; msg.size = sizeof *j;
+    if (!j->rel || ex_worker_post(m->saver, &msg) != 0) { free(j->rel); free(bytes); free(j); return -1; }
+    return 0;
+}
+
+void ex_notes_set_history(ExNotes *m, int enabled, int interval_minutes, int days) {
+    ExMessage msg;
+    if (!m) return;
+    m->hist_on = enabled != 0;
+    m->hist_interval_s = (interval_minutes < 1 ? 1 : interval_minutes) * 60;
+    m->hist_days = days < 1 ? 1 : days;
+    if (!m->hist_on || !m->saver) return;
+    memset(&msg, 0, sizeof msg);
+    msg.type = JOB_PRUNE;
+    msg.payload = (void *)(intptr_t)m->hist_days;
+    ex_worker_post(m->saver, &msg);
+    m->hist_prune_ms = now_ms(m);
+}
+
+const char *ex_notes_history_dir(const ExNotes *m) { return m ? m->recovery_dir : NULL; }
 
 void ex_notes_destroy(ExNotes *m) { destroy(m, 1); }
 void ex_notes_destroy_without_saving(ExNotes *m) { destroy(m, 0); }

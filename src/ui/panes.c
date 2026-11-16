@@ -6,7 +6,7 @@
 #include "exhaust_panes.h"
 
 typedef struct GroupWidgets { ExId group; ExWidget *box, *strip, *content; ExWidget *hdr, *back, *fwd, *title, *read, *more; } GroupWidgets;
-typedef struct Cached { ExId tab; ExWidget *w; } Cached;
+typedef struct Cached { ExId tab; ExWidget *w; unsigned long epoch; } Cached;     /* epoch: the workspace's, when the content was made */
 
 typedef struct Drag {
     int active;                  /* a tab is held down */
@@ -408,7 +408,7 @@ static ExWidget *build_group(ExPanes *p, ExId g) {
                     Cached *nc2 = realloc(p->cache, nc * sizeof *nc2);
                     if (nc2) { p->cache = nc2; p->capcache = nc; }
                 }
-                if (p->ncache < p->capcache) { p->cache[p->ncache].tab = active; p->cache[p->ncache].w = w; p->ncache++; c = &p->cache[p->ncache - 1]; }
+                if (p->ncache < p->capcache) { p->cache[p->ncache].tab = active; p->cache[p->ncache].w = w; p->cache[p->ncache].epoch = ex_ws_epoch(p->ws); p->ncache++; c = &p->cache[p->ncache - 1]; }
                 else ex_widget_free(w);
             }
         }
@@ -463,7 +463,7 @@ static ExWidget *build_node(ExPanes *p, ExId node, int parent_dir, float share) 
 static void drop_stale_content(ExPanes *p) {
     size_t i;
     for (i = 0; i < p->ncache; i++) {
-        if (ex_ws_tab(p->ws, p->cache[i].tab)) continue;
+        if (ex_ws_tab(p->ws, p->cache[i].tab) && p->cache[i].epoch == ex_ws_epoch(p->ws)) continue;      /* the state was replaced: the ids mean other tabs now */
         ex_ui_release(p->ui, p->cache[i].w);
         if (p->cache[i].w->parent) ex_widget_remove(p->cache[i].w->parent, p->cache[i].w);
         if (p->hooks.content_closed) p->hooks.content_closed(p, p->cache[i].tab, p->cache[i].w, p->user);

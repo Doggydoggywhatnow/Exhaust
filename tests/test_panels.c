@@ -7,6 +7,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "exhaust_history.h"
 #include "exhaust_panels.h"
 #include "exhaust_platform.h"
 #include "exhaust_query.h"
@@ -71,6 +72,17 @@ static char g_clicked[200]; static int g_nclicks;
 static void on_link_click(void *u, const char *t, const char *h, const char *b) { (void)u; (void)h; (void)b; snprintf(g_clicked, sizeof g_clicked, "%s", t); g_nclicks++; }
 static int dummy_mouse(ExWidget *w, ExMouse k, float x, float y, ExWidget *u, void *user) { (void)w; (void)k; (void)x; (void)y; (void)u; (void)user; return 0; }
 static char g_expanded[4000];
+static char g_hist_rel[260], g_hist_label[300], *g_hist_old, g_hist_diff[6000]; static size_t g_hist_len; static int g_hist_calls;
+static void h_history(void *u, const char *rel, const char *label, const char *old_text, size_t len, const char *diff) {
+    (void)u;
+    snprintf(g_hist_rel, sizeof g_hist_rel, "%s", rel); snprintf(g_hist_label, sizeof g_hist_label, "%s", label);
+    free(g_hist_old); g_hist_old = malloc(len + 1); memcpy(g_hist_old, old_text, len); g_hist_old[len] = 0; g_hist_len = len;
+    snprintf(g_hist_diff, sizeof g_hist_diff, "%s", diff); g_hist_calls++;
+}
+static char g_ask_text[100]; static int g_ask_text_n, g_ask_confirm, g_ask_choice = -1;
+static void ask_text_cb(const char *text, void *arg) { (void)arg; snprintf(g_ask_text, sizeof g_ask_text, "%s", text); g_ask_text_n++; }
+static void ask_confirm_cb(int button, void *arg) { (void)arg; g_ask_confirm = button; }
+static void ask_choice_cb(size_t index, void *arg) { (void)arg; g_ask_choice = (int)index; }
 static void h_query(void *u, const char *path, const char *text) { (void)u; (void)path; snprintf(g_expanded, sizeof g_expanded, "%s", text); }
 
 static ExWidget *find(ExWidget *w, ExWidgetType type, const char *name) {
@@ -157,7 +169,7 @@ int main(void) {
     pi.ui = g_ui; pi.vault_root = ex_vault_path(F.vault); pi.vault_id = ex_vault_id(F.vault); pi.settings = settings; pi.features = features; pi.commands = commands; pi.ws = ws; pi.files = files;
     pi.index_path = index_path;
     pi.host.open_note = h_open; pi.host.active_path = h_active; pi.host.active_text = h_text; pi.host.read_text = h_read; pi.host.replace_text = h_replace;
-    pi.host.select_range = h_select; pi.host.move_file = h_move; pi.host.message = h_msg; pi.host.flush_notes = h_flush; pi.host.query_results = h_query; pi.host.file_op = h_fileop;
+    pi.host.select_range = h_select; pi.host.move_file = h_move; pi.host.message = h_msg; pi.host.flush_notes = h_flush; pi.host.query_results = h_query; pi.host.file_op = h_fileop; pi.host.history_version = h_history;
     F.p = ex_panels_create(&pi);
     CHECK(F.p != NULL);
     if (!F.p) return 1;
@@ -729,6 +741,71 @@ int main(void) {
         pump(800);
         if (ex_panels_modal(F.p)) { ExWidget *no = find(ex_panels_overlay(F.p), EX_WIDGET_BUTTON, "Don't update"); if (no) no->on_click(no, no->on_click_user); pump(400); }
         CHECK(F.moved == before + 1 && !strcmp(F.moved_to, "Daily renamed.md"));
+    }
+
+    /* questions the application asks, and the earlier versions of a note (7e) */
+    {
+        ExWidget *ov, *list, *b;
+        const char *hd = "panels_test_hist";
+        const char *labels[3] = {"One", "Two", "Three"};
+        ex_platform_remove_tree(hd);
+        ex_panels_ask_text(F.p, "Save workspace layout", "Name of the layout", "", ask_text_cb, NULL);
+        pump(50);
+        type("started");
+        key(EX_KEY_ENTER, 0);
+        pump(50);
+        CHECK(g_ask_text_n == 1 && !strcmp(g_ask_text, "started"));
+        ex_panels_ask_text(F.p, "Save workspace layout", "Name of the layout", "x", ask_text_cb, NULL);
+        pump(50);
+        key(EX_KEY_ESCAPE, 0);
+        pump(50);
+        CHECK(g_ask_text_n == 1);                                                 /* Escape asks nothing of the application */
+        ex_panels_ask_confirm(F.p, "Manage", "The layout.", "Cancel", "Replace", "Delete", ask_confirm_cb, NULL);
+        pump(50);
+        ov = ex_panels_overlay(F.p);
+        b = ov ? find(ov, EX_WIDGET_BUTTON, "Delete") : NULL;
+        CHECK(b != NULL);
+        if (b) b->on_click(b, b->on_click_user);
+        pump(50);
+        CHECK(g_ask_confirm == 3);
+        ex_panels_ask_choice(F.p, "Load", labels, 3, ask_choice_cb, NULL);
+        pump(50);
+        key(EX_KEY_DOWN, 0); key(EX_KEY_ENTER, 0);
+        pump(50);
+        CHECK(g_ask_choice == 1);
+
+        /* the versions of Alpha.md: two snapshots and the other side of a conflict, listed newest first; choosing one gives its text and the changes */
+        CHECK(ex_history_take(hd, "Alpha.md", "# Alpha\n\nOld text.\n", 19, 1700000000, EX_SNAP_AUTO) == 0);
+        CHECK(ex_history_take(hd, "Alpha.md", "\xEF\xBB\xBF# Alpha\r\n\r\nNewer text.\r\n", 27, 1700000600, EX_SNAP_AUTO) == 0);
+        CHECK(ex_history_take(hd, "Beta.md", "# Beta\n", 7, 1700000700, EX_SNAP_AUTO) == 0);
+        snprintf(F.active, sizeof F.active, "Alpha.md");
+        F.msg[0] = 0;
+        ex_panels_history_open(F.p, hd, "Alpha.md");
+        pump(400);
+        ov = ex_panels_overlay(F.p);
+        list = ov ? find(ov, EX_WIDGET_LIST, "Earlier versions of this note") : NULL;
+        CHECK(list != NULL && ex_list_count(list) == 2);
+        CHECK(list && has_row(list, "differ") && !has_row(list, "Beta"));
+        g_hist_calls = 0;
+        key(EX_KEY_ENTER, 0);                                                     /* the first row is the newer snapshot */
+        pump(500);
+        CHECK(g_hist_calls == 1 && !strcmp(g_hist_rel, "Alpha.md"));
+        CHECK(g_hist_old && !strcmp(g_hist_old, "# Alpha\n\nNewer text.\n") && g_hist_len == strlen("# Alpha\n\nNewer text.\n"));   /* the editing form: no BOM, LF */
+        if (!(strstr(g_hist_diff, "-Newer text.") && strstr(g_hist_diff, "that version") && strstr(g_hist_diff, "+See [[Beta"))) fprintf(stderr, "diff: [%s]\n", g_hist_diff);
+        CHECK(strstr(g_hist_diff, "-Newer text.") && strstr(g_hist_diff, "that version") && strstr(g_hist_diff, "+See [[Beta"));
+        /* a note with no earlier version says so */
+        g_hist_calls = 0;
+        snprintf(F.active, sizeof F.active, "Gamma.md");
+        ex_panels_history_open(F.p, hd, "Gamma.md");
+        pump(300);
+        CHECK(g_hist_calls == 0 && strstr(F.msg, "no earlier versions") != NULL);
+        /* clearing */
+        ex_panels_history_clear(F.p, hd);
+        pump(300);
+        CHECK(strstr(F.msg, "snapshots deleted") != NULL);
+        {   ExSnapshot *l = NULL; size_t n = ex_history_list(hd, "Alpha.md", &l); CHECK(n == 0); ex_history_free(l, n); }
+        ex_platform_remove_tree(hd);
+        free(g_hist_old);
     }
 
     if (getenv("PANELS_SHOT")) {

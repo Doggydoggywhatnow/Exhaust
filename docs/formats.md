@@ -290,7 +290,7 @@ Every command in the command registry, read from the nine hotkeys screenshots (`
 
 The code's table of commands (`ex_command_table`) is generated from this table at build time (`tools/gen_tables.c`), so a command exists in the code only if it is listed here. A command is *declared* by this table and *bound* when the code that runs it exists; an unbound command, a command whose feature is switched off in `[features]`, and a command of a stub feature are not available (they are shown disabled, never hidden from the hotkeys screen). A command's feature is its area with hyphens turned into underscores (`daily-notes.` belongs to `daily_notes`), except `graph-view.` (`graph`) and `unique-note-creator.` (`unique_note`); `app.`, `editor.`, `table.` and `format-converter.` commands have no feature switch.
 
-210 commands (203 read from the screenshots, two added in 5e (*Move the current tab to the right sidebar* and *to the main area*), one added for GitHub issue 2 (*Toggle main text view*, which collapses the main text view to its handle and brings it back), two added for sub-slice 3e and two for sub-slice 4c (*Random note: Open random note* and *Footnotes: Show footnotes*, which the Core plugins screenshots list as features but give no command for), *Spelling: Add word to dictionary* and *Spelling: Replace with the next suggestion*, because Exhaust has no context menu yet to pick a suggestion from). Left out on purpose: *Configure mobile Quick Action* (mobile is a non-goal), *Open sandbox vault* and *Show release notes* (Obsidian-specific), and *Copy Obsidian URL for current file*, which is renamed *Copy URL for current file*. Commands for stubbed features (Sync) are present and disabled; *Download attachments for current file* needs the network and is *(optional)*. Checked in 7c: the rows at the top and bottom of each of the nine screenshots are all in the table and in order, with nothing missing between two pages; the macOS defaults are the rule under *hotkeys.ini* above; the shortcuts shown may still be one person's settings rather than defaults.
+213 commands (203 read from the screenshots, three added in 7e (*Workspaces: Save, Load and Manage workspace layout*; the screenshots list the feature but no command for it), two added in 5e (*Move the current tab to the right sidebar* and *to the main area*), one added for GitHub issue 2 (*Toggle main text view*, which collapses the main text view to its handle and brings it back), two added for sub-slice 3e and two for sub-slice 4c (*Random note: Open random note* and *Footnotes: Show footnotes*, which the Core plugins screenshots list as features but give no command for), *Spelling: Add word to dictionary* and *Spelling: Replace with the next suggestion*, because Exhaust has no context menu yet to pick a suggestion from). Left out on purpose: *Configure mobile Quick Action* (mobile is a non-goal), *Open sandbox vault* and *Show release notes* (Obsidian-specific), and *Copy Obsidian URL for current file*, which is renamed *Copy URL for current file*. Commands for stubbed features (Sync) are present and disabled; *Download attachments for current file* needs the network and is *(optional)*. Checked in 7c: the rows at the top and bottom of each of the nine screenshots are all in the table and in order, with nothing missing between two pages; the macOS defaults are the rule under *hotkeys.ini* above; the shortcuts shown may still be one person's settings rather than defaults.
 
 | Id | Name | Default | Editor |
 | --- | --- | --- | --- |
@@ -502,21 +502,27 @@ The code's table of commands (`ex_command_table`) is generated from this table a
 | `editor.unindent-list-item` | Unindent list item |  | yes |
 | `unique-note-creator.add-unique-internal-link` | Unique note creator: Add unique internal link |  | yes |
 | `unique-note-creator.create-new-unique-note` | Unique note creator: Create new unique note |  |  |
+| `workspaces.save-workspace-layout` | Workspaces: Save workspace layout |  |  |
+| `workspaces.load-workspace-layout` | Workspaces: Load workspace layout |  |  |
+| `workspaces.manage-workspace-layouts` | Workspaces: Manage workspace layouts |  |  |
 | `app.zoom-in` | Zoom in |  |  |
 | `app.zoom-out` | Zoom out |  |  |
 
 ## workspaces.ini
 
-Plain text, one section per saved layout, `[workspace.<name>]`:
+*Rewritten in 7e* (the earlier table of `left_visible`, `tab.<n>` and so on could not hold splits, and nothing had used it). Plain text, in `.exhaust`, written by the Workspaces feature (`[features] workspaces`, off by default) and by hand if you like. A **layout** is saved under a name: the panes of the main window as they are in the session file (see *Layout tree*), without the window's position, the graph's options or the search text, which are not part of a layout.
+
+The file has one section `[workspace.<name>]` for each layout and, for each, the sections of the session file under the same name, written `[workspace.<name>/<section>]` (for example `[workspace.Writing/tab.3]`):
 
 | Name | Type | Default | Since |
 | --- | --- | --- | --- |
-| `left_visible` | bool | `true` | 0.1.0 |
-| `right_visible` | bool | `true` | 0.1.0 |
-| `left_width` | int | `260` | 0.1.0 |
-| `right_width` | int | `300` | 0.1.0 |
-| `active` | string | empty (the active tab id) | 0.1.0 |
-| `tab.<n>` | string | none: `path\|view\|mode\|pinned` for each open tab, `n` from 0 | 0.1.0 |
+| `[workspace.<name>]` `saved` | int (Unix seconds) | the time it was saved | 0.1.0 (7e) |
+| `[workspace.<name>/layout]` | the keys of the session file's `[layout]` | | 0.1.0 (7e). `left_visible`, `right_visible`, `left_width`, `right_width`, `open_panels`, `right_group`, `active_group`, `active_tab` |
+| `[workspace.<name>/window.<n>]`, `/split.<id>`, `/group.<id>`, `/tab.<id>` | the keys of the same sections of the session file | | 0.1.0 (7e). A window's `x`, `y`, `width`, `height` and `maximized` are not saved |
+
+A **name** is 1 to 60 bytes of UTF-8 with no control character and none of `[`, `]` and `/`, and does not start or end with a space; two names that differ only in the case of ASCII letters are the same name. *Save* with a name that is taken asks before it replaces the layout. *Load* replaces the main window's panes with the layout: tabs of notes that no longer exist are dropped, pop-out windows are folded into the main window (as at launch), the left and right sidebars take the layout's widths and panels, and nothing is written to any note (an open note keeps its unsaved text; its tab only goes away). A layout that cannot be read is skipped and the rest of the file is kept; unknown sections and keys are kept and written back. The file is read once at launch and written, atomically, by a worker thread after every change; it is Exhaust's file, so comments you add by hand are not kept when it is written.
+
+Commands (declared in the Commands table, gated by the `workspaces` feature): `workspaces.save-workspace-layout` asks for a name; `workspaces.load-workspace-layout` lists the names; `workspaces.manage-workspace-layouts` lists them and offers *Replace with the current layout* and *Delete*.
 
 ## Journal and session state
 
@@ -851,6 +857,7 @@ Event names for `exhaust.events.on`: `vault-open`, `file-open`, `file-save`, `fi
 - *Search.* Typing in the search box shows the rows of every page whose name or explanation contains the words (case-insensitive, every word must match), each under the name of its page; the box emptied shows the page again.
 - *Not on a page.* Nothing in these sections is left off; `config_folder` and `allow_uri_callbacks` carry a note that they take effect when the vault is opened again.
 - *Core plugins (7b).* The list *Core plugins* is a page of the *Options* group: one switch for every key of `[features]` (a stub feature, Sync and Publish, has a disabled switch that says it is not in this version), in groups. Below it, in the group *Core plugins* of the page list, one page for each feature that has options of its own: Backlinks (`[backlinks]`), Canvas (`[canvas]`), Command palette (`[command_palette]`), Daily notes (`[daily_notes]`), File recovery (`[file_recovery]`), Note composer (`[note_composer]`), Page preview (`[page_preview]`), Quick switcher (`[quick_switcher]`), Templates (`[templates]`), Unique note creator (`[unique_note]`) and Sync (a stub page). A switch of the list goes through the feature registry, so the feature's menus, panels and commands follow it at once. The test `feature_pages` walks these sections of the table.
+- *File recovery page (7e).* Below its two numbers the page has a button row, *Clear history*, which asks for a confirmation and then deletes every automatic snapshot (see *File recovery snapshots*). A row with a button (`EX_ROW_ACTION`) has no setting; the application does what its id says.
 - *Hotkeys (7c).* The page *Hotkeys* (in the *Options* group, after Files and links) lists every command of the Commands table in table order: its name, its shortcuts as chips (a chip with a cross removes that shortcut; a chip in red has a shortcut another command has too), a `+` button that waits for the next key press and adds it (Escape cancels; a modifier alone is waited out) and, for a command that differs from its defaults, a *Reset* button. A filter field above the list narrows it by name, id or shortcut, and *Customized only* shows just the commands with a line in `hotkeys.ini`. Only the rows near the view are built (the list has 200 rows). The test `hotkeys` covers the file and chord rules, `hotkeys_screen` the page.
 - *Theme (7d).* The page *Theme* of the *Options* group, after Appearance: see "Loading themes and snippets" above.
 - *Names.* Each control's accessible name is its row's name followed by its state (`Spell check: on`).
@@ -1189,9 +1196,22 @@ Editing is text surgery: changing, adding, removing, renaming or retyping a prop
 
 Inside a vault, `.exhaust` holds Exhaust's own plain-text files (settings, themes, snippets, hotkeys, workspaces, plugins) and `.trash` holds notes deleted with `trash_mode = vault_trash` (the deleted file keeps its path relative to the vault). Both are hidden from the file explorer, search, links and the graph. Other names that start with a dot are hidden from the explorer and never indexed.
 
-## Recovery snapshots of the other side of a conflict
+## File recovery snapshots (7e)
 
-*Since 0.1.0.* When a note was changed on disk while it had unsaved edits (the conflict banner), and the user keeps their own version, Exhaust first copies the version that is on disk to `<local-data>/Exhaust/vaults/<vault-id>/recovery/<vault-relative path, "/" replaced by "__">.<YYYYMMDD-HHMMSS>.bak` (same bytes as the file, never altered). File recovery (sub-slice 7e) later takes these over as its first snapshots. They are user data like the journal: never deleted by Exhaust automatically in 0.1.0 before 7e defines the retention.
+Snapshots are the *history* of a note: earlier saved versions you can look at and restore. They are separate from the recovery journal (crash safety). Both are user data in the OS local-data folder, never in the vault and never in the cache.
+
+**Where and how named.** `<local-data>/Exhaust/vaults/<vault-id>/recovery/`, one file per snapshot, named `<note>.<YYYYMMDD-HHMMSS>.<kind>`:
+- `<note>` is the vault-relative path with each `/` written `__` and each `_` written `_u` (so the name tells one note from another);
+- the stamp is the local time the snapshot was taken;
+- `<kind>` is `snap` for a snapshot taken by the interval and `bak` for the other side of a conflict (the text of the file that was on disk, or the editor's text, copied before the user's choice replaced it; see the conflict banner). The bytes are those of the file, never altered.
+
+A file in this folder whose name does not have this shape is ignored. (Before 7e a conflict copy was named with a single `_` for `/` and no `_u`; those files stay where they are and are not listed.)
+
+**When a snapshot is taken.** On the thread that saves notes, after a note was written to disk: if File recovery is on (`[features] file_recovery`) and the note has no snapshot newer than `[file_recovery] interval_minutes`, the text just written is copied. The first time a note with no snapshot at all is saved, the text it had on disk *before* the save is copied first, so there is always an earlier version to go back to. Nothing is copied when the text is the same as the newest snapshot's. A new note nothing was typed into has none.
+
+**Pruning.** When a vault opens and then once an hour, snapshots of kind `snap` older than `[file_recovery] history_days` days are deleted (a value below 1 counts as 1). Snapshots of kind `bak` are never deleted automatically: they hold text the user may not have decided about. *Clear history* on the File recovery page (after a confirmation) deletes every `snap`; it says that conflict copies stay.
+
+**Seeing and restoring.** `file-recovery.open-local-history` lists the snapshots of the active note, newest first, each with its date and time, its size and how many lines it differs from the note now (a conflict copy says so). Choosing one shows the changes (a unified diff of that version against the note, in the editor, read only) with *Restore this version* and *Back*. *Restore* first takes a snapshot of the note as it is now (kind `snap`), then replaces the buffer's text as one edit (Undo brings the text back, and the note is saved by the usual autosave); it never writes the note file itself.
 
 ## Note text on disk
 

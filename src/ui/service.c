@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "exhaust_history.h"
+#include "exhaust_notes.h"
 #include "service.h"
 
 static char *dups(const char *s) { size_t n; char *p; if (!s) return NULL; n = strlen(s); p = malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
@@ -377,6 +379,70 @@ static void do_expand(QService *s, QJob *j, QRes *res) {
     res->ok = res->text != NULL;
 }
 
+/* File recovery (7e): the snapshots of a note, one snapshot with its changes, or clearing the history. No index needed. */
+static size_t differing_lines(const char *a, const char *b) {
+    char *d = ex_diff_unified(a, b, "a", "b"), *line;
+    size_t n = 0;
+    if (!d) return 0;
+    for (line = d; line && *line; line = strchr(line, '\n') ? strchr(line, '\n') + 1 : NULL)
+        if ((line[0] == '+' || line[0] == '-') && strncmp(line, "+++", 3) != 0 && strncmp(line, "---", 3) != 0) n++;
+    free(d);
+    return n;
+}
+
+/* A snapshot's text in editing form (no byte-order mark, LF line ends), as the buffer holds it; NULL if it is not text we can compare and restore. */
+static char *snapshot_text(const char *dir, const char *file, size_t *len) {
+    size_t raw_len = 0;
+    char *raw = ex_history_read(dir, file, &raw_len), *text = NULL;
+    ExNoteFormat fmt;
+    if (!raw) return NULL;
+    if (ex_note_decode((const uint8_t *)raw, raw_len, &text, len, &fmt) != 0) text = NULL;
+    free(raw);
+    if (text && strlen(text) != *len) { free(text); text = NULL; }            /* a NUL in the text: it could not be put back whole */
+    return text;
+}
+
+static void do_history(QJob *j, QRes *res) {
+    const char *dir = j->b ? j->b : "", *now_text = j->text ? j->text : "";
+    if (j->i1 == 0) {
+        ExSnapshot *l = NULL;
+        size_t n = ex_history_list(dir, j->a ? j->a : "", &l), i;
+        for (i = 0; i < n; i++) {
+            char label[300], when[40], size[40];
+            size_t sl = 0, diff = 0;
+            int known = 0;
+            ex_history_format_time(l[i].time, when, sizeof when);
+            if (l[i].size < 1024) snprintf(size, sizeof size, "%lld bytes", (long long)l[i].size);
+            else if (l[i].size < 1024 * 1024) snprintf(size, sizeof size, "%.1f KB", (double)l[i].size / 1024.0);
+            else snprintf(size, sizeof size, "%.1f MB", (double)l[i].size / (1024.0 * 1024.0));
+            if (i < 30 && l[i].size < 400000 && j->len < 400000) {          /* how much it differs from now, for the newest ones */
+                char *t = snapshot_text(dir, l[i].file, &sl);
+                if (t) { diff = differing_lines(t, now_text); known = 1; free(t); }
+            }
+            if (known && diff == 0) snprintf(label, sizeof label, "%s  ·  %s  ·  same as now%s", when, size, l[i].kind == EX_SNAP_CONFLICT ? "  ·  the other side of a conflict" : "");
+            else if (known) snprintf(label, sizeof label, "%s  ·  %s  ·  %zu line%s differ%s", when, size, diff, diff == 1 ? "" : "s", l[i].kind == EX_SNAP_CONFLICT ? "  ·  the other side of a conflict" : "");
+            else snprintf(label, sizeof label, "%s  ·  %s%s", when, size, l[i].kind == EX_SNAP_CONFLICT ? "  ·  the other side of a conflict" : "");
+            qrows_add(&res->rows, label, NULL, l[i].file, 0, l[i].kind, 0, 0, (int64_t)i, (size_t)l[i].time, (size_t)l[i].size);
+        }
+        res->total = n;
+        ex_history_free(l, n);
+        snprintf(res->summary, sizeof res->summary, "%zu earlier version%s", n, n == 1 ? "" : "s");
+        res->ok = 1;
+    } else if (j->i1 == 1) {
+        size_t len = 0;
+        char *t = snapshot_text(dir, j->a ? j->a : "", &len);
+        if (!t) { snprintf(res->summary, sizeof res->summary, "That version could not be read as text"); return; }
+        res->text = ex_diff_unified(t, now_text, "that version", "now");
+        qrows_add(&res->rows2, t, NULL, j->a, 0, 0, 0, 0, 0, len, 0);
+        free(t);
+        res->ok = res->text != NULL;
+    } else if (j->i1 == 2) {
+        res->changed = ex_history_clear(dir, NULL);
+        snprintf(res->summary, sizeof res->summary, "%zu snapshot%s deleted", res->changed, res->changed == 1 ? "" : "s");
+        res->ok = 1;
+    }
+}
+
 static void service_job(ExWorker *self, const ExMessage *m, void *user) {
     QService *s = user;
     QJob *j = m->payload;
@@ -386,6 +452,8 @@ static void service_job(ExWorker *self, const ExMessage *m, void *user) {
     res = calloc(1, sizeof *res);
     if (!res) return;
     res->kind = j->kind; res->req = j->req;
+    if (j->kind == QJ_HISTORY) do_history(j, res);
+    else {
     if (!s->r) s->r = ex_index_open(s->index_path, 0, err, sizeof err);
     if (!s->r) snprintf(res->summary, sizeof res->summary, "The index is not ready yet");
     else switch (j->kind) {
@@ -421,6 +489,7 @@ static void service_job(ExWorker *self, const ExMessage *m, void *user) {
         else { if (res->graph) { ex_graph_free(res->graph); free(res->graph); } res->graph = NULL; }
         break;
     default: break;
+    }
     }
     if (j->kind == QJ_OUTLINE || j->kind == QJ_FOOTNOTES || j->kind == QJ_FILEPROPS) { if (!res->ok) res->ok = 1; }
     ex_worker_send(self, EX_MSG_SERVICE, res, sizeof *res, qres_free_payload);

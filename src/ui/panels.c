@@ -126,6 +126,7 @@ void ex_panels_free(ExPanels *p) {
     size_t i;
     if (!p) return;
     dialogs_free(p);
+    history_free(p);
     ex_indexer_stop(p->indexer);
     qservice_stop(p->svc);
     ex_index_close(p->reader);
@@ -428,6 +429,7 @@ void ex_panels_update(ExPanels *p) {
                     if (!r->summary[0]) p->graph_msg_shown[0] = 0;                  /* the queries work again: tell again if one breaks */
                 }
                 break;
+            case QJ_HISTORY: history_result(p, r); break;
             case QJ_EXPAND: if (r->ok && r->text && p->in.host.query_results) p->in.host.query_results(p->in.host.user, r->summary, r->text); break;
             default: views_result(p, r); break;
             }

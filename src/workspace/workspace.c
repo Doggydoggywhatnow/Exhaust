@@ -45,7 +45,7 @@ struct ExWorkspace {
     Sidebar side[2];
     char *search;
     ExIni *extra;           /* sections this version does not know, kept for writing back */
-    unsigned long revision, layout_revision;
+    unsigned long revision, layout_revision, epoch;
 };
 
 static char *dup_str(const char *s) { size_t n = strlen(s); char *p = malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
@@ -261,6 +261,7 @@ ExWorkspace *ex_ws_create(void) {
 
 static void clear_all(ExWorkspace *ws) {
     size_t i, k;
+    ws->epoch++;
     for (i = 0; i < ws->n; i++) free_node_data(&ws->nodes[i]);
     ws->n = 0;
     ws->nwin = 0;
@@ -283,6 +284,7 @@ void ex_ws_free(ExWorkspace *ws) {
 
 unsigned long ex_ws_revision(const ExWorkspace *ws) { return ws->revision; }
 unsigned long ex_ws_layout_revision(const ExWorkspace *ws) { return ws->layout_revision; }
+unsigned long ex_ws_epoch(const ExWorkspace *ws) { return ws->epoch; }
 
 /* ---- windows and nodes: queries ---- */
 

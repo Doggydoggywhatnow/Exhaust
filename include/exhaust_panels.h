@@ -43,6 +43,8 @@ typedef struct ExPanelsHost {
     void (*graph_data)(void *user, struct ExGraph *graph);
     /* the local graph's data (5c): the open note and what is within the options' local_depth links of it; same ownership */
     void (*local_graph_data)(void *user, struct ExGraph *graph);
+    /* the user picked an earlier version of a note in the history (7e): its text, and the unified diff of it against the note as it is now */
+    void (*history_version)(void *user, const char *rel, const char *label, const char *old_text, size_t len, const char *diff);
 } ExPanelsHost;
 
 typedef struct ExPanelsInit {
@@ -119,6 +121,15 @@ void ex_panels_expand_queries(ExPanels *p, const char *path, const char *text, s
 void ex_panels_open_switcher(ExPanels *p);
 void ex_panels_open_palette(ExPanels *p);
 void ex_panels_close_dialog(ExPanels *p);
+/* Questions the application asks (7e). The answer comes in the callback, after the dialog has closed; Cancel and Escape call nothing. */
+void ex_panels_ask_text(ExPanels *p, const char *title, const char *label, const char *initial, void (*cb)(const char *text, void *arg), void *arg);
+void ex_panels_ask_choice(ExPanels *p, const char *title, const char *const *labels, size_t n, void (*cb)(size_t index, void *arg), void *arg);
+/* up to three buttons; the callback gets 1, 2 or 3 */
+void ex_panels_ask_confirm(ExPanels *p, const char *title, const char *message, const char *b1, const char *b2, const char *b3, void (*cb)(int button, void *arg), void *arg);
+/* File recovery (7e): lists the earlier versions of a note (read from `dir` on the service thread), asks which one, and hands it to the host's
+ * history_version; and clears the automatic snapshots of every note after a confirmation. */
+void ex_panels_history_open(ExPanels *p, const char *dir, const char *rel);
+void ex_panels_history_clear(ExPanels *p, const char *dir);
 /* The suggestions for [[ typed in the editor: fills out, returns the count. */
 struct ExLinkSuggestion;
 size_t ex_panels_suggest_links(void *panels, const char *query, struct ExLinkSuggestion *out, size_t max);

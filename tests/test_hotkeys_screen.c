@@ -109,10 +109,10 @@ int main(void) {
     built = count_rows(ROOT);
     printf("hotkeys_screen: %zu rows built of %zu commands\n", built, ex_command_table_count);
     CHECK(built > 5 && built < ex_command_table_count / 2);
-    CHECK(named("Add alias") != NULL && named("Toggle numbered list") == NULL);
+    CHECK(named("Add alias") != NULL && named("Zoom out") == NULL);
     ex_ui_scroll(UI, SCROLL, 1000000.0f);
     frames(4);
-    CHECK(named("Add alias") == NULL && named("Toggle numbered list") != NULL);       /* the last rows came in, the first went */
+    CHECK(named("Add alias") == NULL && named("Zoom out") != NULL);       /* the last rows came in, the first went */
     CHECK(count_rows(ROOT) < ex_command_table_count / 2);
     ex_ui_scroll(UI, SCROLL, -1000000.0f);
     frames(4);

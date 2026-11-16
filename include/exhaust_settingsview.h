@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-typedef enum ExRowKind { EX_ROW_TOGGLE, EX_ROW_SELECT, EX_ROW_NUMBER, EX_ROW_TEXT, EX_ROW_COLOR, EX_ROW_STUB, EX_ROW_INFO } ExRowKind;
+typedef enum ExRowKind { EX_ROW_TOGGLE, EX_ROW_SELECT, EX_ROW_NUMBER, EX_ROW_TEXT, EX_ROW_COLOR, EX_ROW_STUB, EX_ROW_INFO, EX_ROW_ACTION } ExRowKind;   /* ACTION: a button; `choices` is "Label|id" and the host's action(id) runs */
 
 typedef struct ExSettingsRow {
     const char *page;            /* "general", "appearance", "interface", "editor", "files", "keychain" */
@@ -55,6 +55,8 @@ typedef struct ExSettingsHost {
     /* The Theme page (7d): the themes and snippets that were found, and the theme on screen now (for the values and the contrast warnings). */
     ExThemes *themes;
     const ExTheme *(*current_theme)(void *user);
+    /* A button row of a page (7e: Clear history): the application does what the id says. May be NULL. */
+    void (*action)(void *user, const char *id);
 } ExSettingsHost;
 
 typedef struct ExSettingsView ExSettingsView;

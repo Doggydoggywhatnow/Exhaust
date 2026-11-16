@@ -20,7 +20,7 @@ typedef struct QRows { QRow *v; size_t n, cap; } QRows;
 void qrows_free(QRows *r);
 size_t qrows_add(QRows *r, const char *text, const char *detail, const char *key, int indent, int glyph, int muted, int bold, int64_t id, size_t aux1, size_t aux2);
 
-enum { QJ_SEARCH = 1, QJ_BACKLINKS, QJ_UNLINKED, QJ_OUTGOING, QJ_TAGS, QJ_PROPS, QJ_OUTLINE, QJ_FOOTNOTES, QJ_PREVIEW, QJ_SNAPSHOT, QJ_REWRITE, QJ_PLAN, QJ_PROPOP, QJ_LINKIT, QJ_EXPAND, QJ_FILEPROPS, QJ_GRAPH };
+enum { QJ_SEARCH = 1, QJ_BACKLINKS, QJ_UNLINKED, QJ_OUTGOING, QJ_TAGS, QJ_PROPS, QJ_OUTLINE, QJ_FOOTNOTES, QJ_PREVIEW, QJ_SNAPSHOT, QJ_REWRITE, QJ_PLAN, QJ_PROPOP, QJ_LINKIT, QJ_EXPAND, QJ_FILEPROPS, QJ_GRAPH, QJ_HISTORY };
 enum { EX_MSG_SERVICE = 0x200 };
 
 typedef struct QJob {
@@ -35,6 +35,9 @@ typedef struct QJob {
     ExMove *moves; size_t nmoves;  /* the strings are owned */
     int include_attachments;
     ExGraphOptions gopts;          /* QJ_GRAPH: the filters and groups to apply (5b) */
+    /* QJ_HISTORY (7e): b is the folder of the snapshots; i1 0 lists those of the note a (rows, newest first: text the label, key the file, id the index,
+     * aux1 the time, aux2 the size, glyph the kind), 1 reads the snapshot named a (rows2[0].text its text, res->text the changes to the note's text in `text`),
+     * 2 deletes every automatic snapshot (changed is how many). `text` is the note's text as it is now. */
 } QJob;
 
 typedef struct QRes {

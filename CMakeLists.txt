@@ -188,14 +188,14 @@ add_library(exhaust_buffer STATIC src/buffer/buffer.c src/buffer/doc.c src/buffe
 target_include_directories(exhaust_buffer PUBLIC include)
 target_link_libraries(exhaust_buffer PUBLIC SDL3::SDL3-static)
 
-add_library(exhaust_notes STATIC src/notes/note_codec.c src/notes/diff.c src/notes/watcher.c src/notes/journal_writer.c src/notes/notes.c)
+add_library(exhaust_notes STATIC src/notes/note_codec.c src/notes/diff.c src/notes/watcher.c src/notes/journal_writer.c src/notes/history.c src/notes/notes.c)
 target_include_directories(exhaust_notes PUBLIC include)
 target_link_libraries(exhaust_notes PUBLIC exhaust_vault exhaust_buffer exhaust_platform)
 
 add_library(exhaust_ini STATIC src/util/ini.c)
 target_include_directories(exhaust_ini PUBLIC include)
 
-add_library(exhaust_workspace STATIC src/workspace/workspace.c src/workspace/session.c)
+add_library(exhaust_workspace STATIC src/workspace/workspace.c src/workspace/session.c src/workspace/layouts.c)
 target_include_directories(exhaust_workspace PUBLIC include)
 target_link_libraries(exhaust_workspace PUBLIC exhaust_ini exhaust_vault exhaust_buffer exhaust_platform SDL3::SDL3-static)
 
@@ -346,7 +346,7 @@ endif()
 add_library(exhaust_theme STATIC src/ui/theme.c src/ui/theme_data.c src/settings/themes.c ${THEME_C})
 target_include_directories(exhaust_theme PUBLIC include)
 target_link_libraries(exhaust_theme PUBLIC exhaust_ini exhaust_platform SDL3::SDL3-static)
-add_library(exhaust_ui STATIC src/ui/graphview.c src/ui/slider.c src/ui/graph_panel.c src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/editor.c src/ui/editor_layout.c src/ui/editor_fold.c src/ui/editor_keys.c src/ui/editor_format.c src/ui/editor_table.c src/ui/settings_view.c src/ui/settings_rows.c src/ui/findbar.c src/ui/reading_view.c src/ui/ui.c src/ui/list.c src/ui/icons.c src/ui/service.c src/ui/views.c src/ui/dialogs.c src/ui/panels.c src/ui/fileactions.c src/ui/fileprops.c src/ui/panes.c src/ui/vault_screen.c)
+add_library(exhaust_ui STATIC src/ui/graphview.c src/ui/slider.c src/ui/graph_panel.c src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/editor.c src/ui/editor_layout.c src/ui/editor_fold.c src/ui/editor_keys.c src/ui/editor_format.c src/ui/editor_table.c src/ui/settings_view.c src/ui/settings_rows.c src/ui/findbar.c src/ui/reading_view.c src/ui/ui.c src/ui/list.c src/ui/icons.c src/ui/service.c src/ui/views.c src/ui/dialogs.c src/ui/history_dialog.c src/ui/panels.c src/ui/fileactions.c src/ui/fileprops.c src/ui/panes.c src/ui/vault_screen.c)
 target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
 target_link_libraries(exhaust_ui PUBLIC exhaust_theme exhaust_layout exhaust_nav exhaust_index exhaust_spell exhaust_settings exhaust_find exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace exhaust_markdown clay_impl)
 if(NOT MSVC)
@@ -704,7 +704,11 @@ target_link_libraries(test_title_scroll PRIVATE exhaust_ui exhaust_markdown)
 target_include_directories(test_title_scroll PRIVATE src/ui)
 add_test(NAME title_scroll COMMAND test_title_scroll)
 
-foreach(t file_safety write_failure watch_fallback)
+add_executable(test_layouts tests/test_layouts.c)
+target_link_libraries(test_layouts PRIVATE exhaust_workspace exhaust_buffer)
+add_test(NAME layouts COMMAND test_layouts)
+
+foreach(t file_safety write_failure watch_fallback recovery)
   add_executable(test_${t} tests/test_${t}.c)
   target_link_libraries(test_${t} PRIVATE exhaust_notes)
   add_test(NAME ${t} COMMAND test_${t})

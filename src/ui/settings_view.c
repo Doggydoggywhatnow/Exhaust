@@ -244,6 +244,17 @@ static int field_key(ExWidget *w, ExKey key, int mods, void *u) {
 }
 
 static void on_stub(ExWidget *w, void *u) { (void)w; (void)u; }
+/* A button row (EX_ROW_ACTION): `choices` is "Label|id"; the application runs the action named by the id. */
+static void on_action(ExWidget *w, void *u) {
+    RowCtl *c = u;
+    const char *bar = c->row->choices ? strchr(c->row->choices, '|') : NULL;
+    (void)w;
+    if (bar && c->sv->host.action) {
+        char id[64];
+        snprintf(id, sizeof id, "%s", bar + 1);
+        c->sv->host.action(c->sv->host.user, id);
+    }
+}
 
 /* ---- building a page ---- */
 
@@ -323,6 +334,14 @@ static ExWidget *control_for(ExSettingsView *sv, RowCtl *c, ExWidget **holder) {
         ctl = ex_widget_button(sv->ui, "Not in this version", on_stub, c);
         if (ctl) { ctl->pad_x = 1.0f; ctl->pad_y = 0.4f; ctl->disabled = 1; }
         break;
+    case EX_ROW_ACTION: {
+        char label[80];
+        const char *bar = r->choices ? strchr(r->choices, '|') : NULL;
+        snprintf(label, sizeof label, "%.*s", bar ? (int)(bar - r->choices) : 40, r->choices ? r->choices : "");
+        ctl = ex_widget_button(sv->ui, label, on_action, c);
+        if (ctl) { ctl->pad_x = 1.0f; ctl->pad_y = 0.4f; }
+        break;
+    }
     case EX_ROW_INFO:
         ctl = ex_widget_button(sv->ui, r->choices ? r->choices : "", on_stub, c);
         if (ctl) { ctl->pad_x = 1.0f; ctl->pad_y = 0.4f; ctl->disabled = 1; }

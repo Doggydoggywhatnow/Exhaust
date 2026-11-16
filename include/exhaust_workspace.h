@@ -39,6 +39,8 @@ unsigned long ex_ws_revision(const ExWorkspace *ws); /* grows with every change;
 /* Grows only when the tree of panes or the tabs in it change (not for cursor and scroll positions,
  * sidebar sizes or split ratios); the widgets are rebuilt when it does. */
 unsigned long ex_ws_layout_revision(const ExWorkspace *ws);
+/* Grows when the whole state is replaced (ex_ws_deserialize): ids start again, so a widget kept for a tab id from before no longer belongs to that id. */
+unsigned long ex_ws_epoch(const ExWorkspace *ws);
 
 /* ---- windows ---- */
 size_t ex_ws_window_count(const ExWorkspace *ws);

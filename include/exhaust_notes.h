@@ -109,6 +109,7 @@ typedef struct ExNotesConfig {
     const char *data_dir;      /* the vault's folder under the OS local-data folder; NULL: the standard one */
     const ExWatchBackend *watch_backend; /* NULL: native */
     uint64_t (*clock)(void *user); /* milliseconds; NULL: the real clock (tests pass a fake one) */
+    int64_t (*unix_time)(void *user); /* seconds since 1970, for the stamps of file recovery snapshots; NULL: the real time (user is clock_user) */
     void *clock_user;
 } ExNotesConfig;
 
@@ -128,6 +129,14 @@ typedef struct ExNoteEvent {
 } ExNoteEvent;
 
 ExNotes *ex_notes_create(ExVault *vault, const ExNotesConfig *cfg);
+/* File recovery (7e): whether snapshots are taken, the minutes between them and the days they are kept (see docs/formats.md). Applies to the
+ * saves after it; also deletes the automatic snapshots older than `days` (on the save thread, and again once an hour from ex_notes_tick).
+ * Off until this is called. */
+void ex_notes_set_history(ExNotes *m, int enabled, int interval_minutes, int days);
+/* Takes a snapshot of the note's text as it is now (the save thread writes it), whatever the interval: for before a restore. 0, or -1. */
+int ex_notes_snapshot_now(ExNotes *m, ExNote *n);
+/* The folder of the snapshots (valid as long as the manager). */
+const char *ex_notes_history_dir(const ExNotes *m);
 /* Flushes everything (journal and unsaved notes) and frees; see ex_notes_flush. */
 void ex_notes_destroy(ExNotes *m);
 /* Frees without saving the open notes (the journal is still flushed): what the program state

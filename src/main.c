@@ -10,6 +10,8 @@
 #include "exhaust.h"
 #include "exhaust_commands.h"
 #include "exhaust_graphview.h"
+#include "exhaust_history.h"
+#include "exhaust_layouts.h"
 #include "exhaust_fontdb.h"
 #include "exhaust_input.h"
 #include "exhaust_notes.h"
@@ -57,7 +59,7 @@ static void worker_job(ExWorker *self, const ExMessage *job, void *unused) {
         ex_worker_send(self, MSG_FONTS_READY, ex_fontdb_scan(NULL, 0, NULL, NULL), 0, NULL);
 }
 
-typedef enum Banner { BANNER_NONE, BANNER_RECOVERED, BANNER_CONFLICT, BANNER_ERROR } Banner;
+typedef enum Banner { BANNER_NONE, BANNER_RECOVERED, BANNER_CONFLICT, BANNER_ERROR, BANNER_HISTORY } Banner;
 
 typedef struct TabNote { ExId tab; ExNote *note; } TabNote;
 
@@ -92,6 +94,12 @@ typedef struct App {
     ExDoc *demo_doc;           /* shown when there is no vault */
     ExDoc *diff_doc;           /* the conflict diff, while it is shown */
     ExDoc *shown_before_diff;
+    ExWidget *diff_editor;     /* the editor the diff is shown in (the active one when it was opened) */
+    ExEditorMode diff_mode;    /* the mode that editor had */
+    ExLayouts *layouts;                      /* saved workspace layouts, workspaces.ini (7e) */
+    char pending_layout[64];                 /* the name a question about a layout is about */
+    char *hist_old; size_t hist_old_len;     /* the earlier version being compared with the note, and its note and label (7e) */
+    char hist_rel[512], hist_label[200];
     ExVault *vault;
     ExNotes *notes;
     ExNote *note;              /* the note of the active tab */
@@ -311,25 +319,45 @@ static int is_reading(const char *mode) { return mode && strcmp(mode, "reading")
 
 static void stop_showing_diff(App *a) {
     if (a->diff_doc) {
-        if (a->editor && a->editor->editor) {
-            ex_editor_set_doc(a->editor->editor, a->shown_before_diff);
-            ex_editor_set_readonly(a->editor->editor, a->note == NULL);
-            {
-                ExId tab = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
-                const ExTab *tt = tab ? ex_ws_tab(a->ws, tab) : NULL;
-                ex_editor_set_mode(a->editor->editor, editor_mode_for(tt ? tt->mode : NULL));
-            }
+        if (a->diff_editor && a->diff_editor->editor) {
+            ex_editor_set_doc(a->diff_editor->editor, a->shown_before_diff);
+            ex_editor_set_readonly(a->diff_editor->editor, a->note == NULL);
+            ex_editor_set_mode(a->diff_editor->editor, a->diff_mode);
         }
         ex_doc_free(a->diff_doc);
         a->diff_doc = NULL;
         a->shown_before_diff = NULL;
+        a->diff_editor = NULL;
     }
 }
+
+/* Shows text (a diff) in the editor of the active note, read only and as it is, until stop_showing_diff. */
+static void show_diff_doc(App *a, const char *text) {
+    if (!a->note || !a->editor || !a->editor->editor) return;
+    stop_showing_diff(a);
+    a->diff_doc = ex_doc_create(text, strlen(text));
+    a->shown_before_diff = ex_note_doc(a->note);
+    a->diff_editor = a->editor;
+    a->diff_mode = ex_editor_mode(a->editor->editor);
+    ex_editor_set_doc(a->editor->editor, a->diff_doc);
+    ex_editor_set_readonly(a->editor->editor, 1);
+    ex_editor_set_mode(a->editor->editor, EX_EDITOR_PLAIN);              /* a diff is shown as it is, not as Markdown */
+}
+
+static int host_replace_text(void *u, const char *path, const char *text, size_t len);
 
 static void banner_a_click(ExWidget *w, void *user) { /* "Keep my version", or "OK" */
     App *a = user;
     (void)w;
     stop_showing_diff(a);
+    if (a->banner_kind == BANNER_HISTORY) {                         /* Restore this version (7e) */
+        if (a->note && a->hist_old && !strcmp(ex_note_path(a->note), a->hist_rel)) {
+            ex_notes_snapshot_now(a->notes, a->note);              /* the text as it is now is kept first, so the restore can be undone from the history too */
+            if (host_replace_text(a, a->hist_rel, a->hist_old, a->hist_old_len) == 0) set_status(a, "Restored the earlier version. Undo (Ctrl+Z) brings back the text you had; it is also in the history.");
+            else set_status(a, "The earlier version could not be put back.");
+        }
+        free(a->hist_old); a->hist_old = NULL;
+    }
     if (a->banner_kind == BANNER_CONFLICT && a->note) { ex_note_resolve_conflict(a->note, EX_KEEP_MINE); set_status(a, "Kept your version; the other one was copied to the recovery folder."); }
     show_banner(a, BANNER_NONE, "", NULL, NULL, NULL);
 }
@@ -338,6 +366,7 @@ static void banner_b_click(ExWidget *w, void *user) { /* "Use the version on dis
     App *a = user;
     (void)w;
     stop_showing_diff(a);
+    if (a->banner_kind == BANNER_HISTORY) { free(a->hist_old); a->hist_old = NULL; }       /* Back to the note */
     if (a->banner_kind == BANNER_CONFLICT && a->note) { ex_note_resolve_conflict(a->note, EX_USE_DISK); set_status(a, "Loaded the version from disk; your text was copied to the recovery folder (and Undo brings it back)."); }
     show_banner(a, BANNER_NONE, "", NULL, NULL, NULL);
 }
@@ -350,12 +379,8 @@ static void banner_c_click(ExWidget *w, void *user) { /* "Show differences" */
     if (a->diff_doc) { stop_showing_diff(a); return; }
     diff = ex_note_conflict_diff(a->note);
     if (!diff) return;
-    a->diff_doc = ex_doc_create(diff[0] ? diff : "(the two versions have the same text)\n", diff[0] ? strlen(diff) : 38);
+    show_diff_doc(a, diff[0] ? diff : "(the two versions have the same text)\n");
     free(diff);
-    a->shown_before_diff = ex_note_doc(a->note);
-    ex_editor_set_doc(a->editor->editor, a->diff_doc);
-    ex_editor_set_readonly(a->editor->editor, 1);
-    ex_editor_set_mode(a->editor->editor, EX_EDITOR_PLAIN);              /* a diff is shown as it is, not as Markdown */
 }
 
 /* ---- tabs and notes ---- */
@@ -567,8 +592,11 @@ static void settings_capture(void *u, void (*done)(void *, const char *), void *
 static int settings_set_feature(void *u, const char *key, int enabled) { return ex_features_set(((App *)u)->features, key, enabled); }
 
 static int theme_sync(App *a);
+static void apply_history(App *a);
+static void settings_action(void *u, const char *id);
 static void settings_changed(void *u, const char *section, const char *key) {
     App *a = u;
+    if (!strcmp(section, "file_recovery")) apply_history(a);                   /* the interval or the days kept (7e) */
     if (!strcmp(section, "appearance")) theme_sync(a);                         /* the colour scheme, the theme, the accent colour or the snippets changed */
     (void)key;
 }
@@ -578,7 +606,7 @@ static ExWidget *make_settings(App *a) {
     ExSettingsHost h;
     ExSettingsView *sv;
     memset(&h, 0, sizeof h);
-    h.user = a; h.choose = settings_choose; h.changed = settings_changed; h.version = exhaust_version(); h.set_feature = settings_set_feature; h.hotkeys = a->hotkeys; h.capture = settings_capture; h.themes = a->themes; h.current_theme = current_theme_cb;
+    h.user = a; h.choose = settings_choose; h.changed = settings_changed; h.version = exhaust_version(); h.set_feature = settings_set_feature; h.hotkeys = a->hotkeys; h.capture = settings_capture; h.themes = a->themes; h.current_theme = current_theme_cb; h.action = settings_action;
     sv = ex_settingsview_create(a->ui, a->settings, &h);
     return sv ? ex_settingsview_widget(sv) : info_label(a, "The settings cannot be shown.");
 }
@@ -641,6 +669,7 @@ static void content_closed(ExPanes *p, ExId tab, ExWidget *content, void *user) 
     ExNote *n = NULL;
     (void)p;
     if (a->findbar) ex_findbar_target_closed(a->findbar, content);
+    if (a->diff_doc && a->diff_editor == content) { show_banner(a, BANNER_NONE, "", NULL, NULL, NULL); stop_showing_diff(a); }     /* the editor that shows a diff goes away: its own text comes back first */
     for (i = 0; i < a->ntabnotes; i++) if (a->tabnotes[i].tab == tab) { n = a->tabnotes[i].note; a->tabnotes[i] = a->tabnotes[--a->ntabnotes]; break; }
     if (!n) return;
     if (a->editor == content) a->editor = NULL;
@@ -1321,6 +1350,151 @@ static void cmd_graph_animation(void *u) { ExWidget *g = active_graph(u); if (g)
 
 static void on_ribbon_graph(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "graph-view.open-graph-view"); }
 
+/* ---- workspaces (7e): saved layouts ---- */
+
+/* Pop-out windows cannot be opened as operating-system windows yet: their tabs come back to the main window (as they would when such a
+ * window is closed), so no tab is ever out of reach. */
+static void fold_popouts(ExWorkspace *ws) {
+    while (ex_ws_window_count(ws) > 1) {
+        ExId w = ex_ws_window_at(ws, 0) == ex_ws_main_window(ws) ? ex_ws_window_at(ws, 1) : ex_ws_window_at(ws, 0);
+        if (ex_ws_close_window(ws, w) != 0) break;
+    }
+}
+
+static int has_layouts(void *u) { App *a = u; return a->layouts != NULL && a->vault != NULL && a->panels != NULL; }
+static int has_saved_layouts(void *u) { App *a = u; return has_layouts(u) && ex_layouts_count(a->layouts) > 0; }
+
+static void layout_save_do(App *a) {
+    char msg[200];
+    capture_tab_state(a);                                                    /* the cursors and scroll positions as they are now */
+    if (ex_layouts_save(a->layouts, a->pending_layout, a->ws, ex_platform_unix_time()) == 0) { snprintf(msg, sizeof msg, "Saved the layout \"%s\".", a->pending_layout); set_status(a, msg); }
+    else set_status(a, "That layout could not be saved.");
+}
+static void layout_replace_answer(int button, void *arg) { if (button == 1) layout_save_do(arg); }
+static void layout_named(const char *text, void *arg) {
+    App *a = arg;
+    char name[64];
+    size_t b = 0, e = strlen(text);
+    while (text[b] == ' ') b++;
+    while (e > b && text[e - 1] == ' ') e--;
+    if (e - b >= sizeof name) e = b + sizeof name - 1;
+    memcpy(name, text + b, e - b); name[e - b] = 0;
+    if (!ex_layouts_name_valid(name)) { set_status(a, "A layout's name is 1 to 60 characters and has no [ ] or / in it."); return; }
+    snprintf(a->pending_layout, sizeof a->pending_layout, "%s", name);
+    if (ex_layouts_find(a->layouts, name)) {
+        char msg[200];
+        snprintf(a->pending_layout, sizeof a->pending_layout, "%s", ex_layouts_find(a->layouts, name));
+        snprintf(msg, sizeof msg, "A layout named \"%s\" is saved already. Replace it with the layout on screen?", a->pending_layout);
+        ex_panels_ask_confirm(a->panels, "Replace the layout", msg, "Replace", "Cancel", NULL, layout_replace_answer, a);
+    } else layout_save_do(a);
+}
+static void cmd_layout_save(void *u) { App *a = u; ex_panels_ask_text(a->panels, "Save workspace layout", "Name of the layout", "", layout_named, a); }
+
+static int layout_note_exists(void *u, const char *path) {
+    App *a = u;
+    char *abs = malloc(strlen(ex_vault_path(a->vault)) + strlen(path) + 2);
+    int ok;
+    if (!abs) return 1;
+    sprintf(abs, "%s/%s", ex_vault_path(a->vault), path);
+    ok = ex_platform_file_exists(abs);                                         /* ui-ok: one stat for each open tab, on the user's own command */
+    free(abs);
+    return ok;
+}
+
+static void layout_load_index(size_t index, void *arg) {
+    App *a = arg;
+    const char *name = ex_layouts_name(a->layouts, index);
+    char msg[200];
+    if (!name) return;
+    snprintf(msg, sizeof msg, "%s", name);
+    stop_showing_diff(a);
+    if (ex_layouts_load(a->layouts, msg, a->ws, layout_note_exists, a) == 0) {
+        fold_popouts(a->ws);
+        snprintf(msg, sizeof msg, "Loaded the layout \"%s\".", name);
+        set_status(a, msg);
+    } else set_status(a, "That layout could not be read. The tabs stay as they are.");
+}
+static void cmd_layout_load(void *u) {
+    App *a = u;
+    size_t n = ex_layouts_count(a->layouts), i;
+    const char *labels[64];
+    if (n > 64) n = 64;
+    for (i = 0; i < n; i++) labels[i] = ex_layouts_name(a->layouts, i);
+    ex_panels_ask_choice(a->panels, "Load workspace layout", labels, n, layout_load_index, a);
+}
+
+static void layout_manage_answer(int button, void *arg) {
+    App *a = arg;
+    char msg[200];
+    if (button == 2) layout_save_do(a);                                         /* Replace with the current layout */
+    else if (button == 3) {
+        if (ex_layouts_delete(a->layouts, a->pending_layout) == 0) { snprintf(msg, sizeof msg, "Deleted the layout \"%s\".", a->pending_layout); set_status(a, msg); }
+    }
+}
+static void layout_manage_index(size_t index, void *arg) {
+    App *a = arg;
+    const char *name = ex_layouts_name(a->layouts, index);
+    char msg[300], when[40];
+    int64_t t;
+    if (!name) return;
+    snprintf(a->pending_layout, sizeof a->pending_layout, "%s", name);
+    t = ex_layouts_saved_time(a->layouts, name);
+    if (t > 0) ex_history_format_time(t, when, sizeof when); else snprintf(when, sizeof when, "an unknown time");
+    snprintf(msg, sizeof msg, "The layout \"%s\" was saved on %s.", a->pending_layout, when);
+    ex_panels_ask_confirm(a->panels, "Manage workspace layouts", msg, "Cancel", "Replace with the current layout", "Delete", layout_manage_answer, a);
+}
+static void cmd_layout_manage(void *u) {
+    App *a = u;
+    size_t n = ex_layouts_count(a->layouts), i;
+    const char *labels[64];
+    if (n > 64) n = 64;
+    for (i = 0; i < n; i++) labels[i] = ex_layouts_name(a->layouts, i);
+    ex_panels_ask_choice(a->panels, "Manage workspace layouts", labels, n, layout_manage_index, a);
+}
+
+/* ---- file recovery (7e) ---- */
+
+static void apply_history(App *a) {
+    if (!a->notes || !a->features) return;
+    ex_notes_set_history(a->notes, ex_features_enabled(a->features, "file_recovery"), (int)ex_settings_get_int(a->settings, "file_recovery", "interval_minutes"), (int)ex_settings_get_int(a->settings, "file_recovery", "history_days"));
+}
+static void on_recovery_feature(const char *id, int enabled, void *user) { (void)id; (void)enabled; apply_history(user); }
+
+static void cmd_history(void *u) {
+    App *a = u;
+    if (a->panels && a->note && ex_notes_history_dir(a->notes)) ex_panels_history_open(a->panels, ex_notes_history_dir(a->notes), ex_note_path(a->note));
+}
+
+/* The user picked an earlier version: show what differs from the note, with a banner to restore it. */
+static void host_history_version(void *u, const char *rel, const char *label, const char *old_text, size_t len, const char *diff) {
+    App *a = u;
+    char when[24], msg[400];
+    if (!a->note || !a->editor || strcmp(ex_note_path(a->note), rel) != 0) { set_status(a, "Open the note again to compare it with that version."); return; }
+    stop_showing_diff(a);
+    free(a->hist_old);
+    a->hist_old = malloc(len + 1);
+    if (!a->hist_old) return;
+    memcpy(a->hist_old, old_text, len); a->hist_old[len] = 0; a->hist_old_len = len;
+    snprintf(a->hist_rel, sizeof a->hist_rel, "%s", rel);
+    snprintf(a->hist_label, sizeof a->hist_label, "%s", label);
+    snprintf(when, sizeof when, "%.19s", label);
+    show_diff_doc(a, diff && diff[0] ? diff : "(this version has the same text as the note now)\n");
+    a->banner_note = a->note;
+    snprintf(msg, sizeof msg, "Comparing with the version of %s. Lines with - are only in that version, lines with + only in the note now.", when);
+    show_banner(a, BANNER_HISTORY, msg, "Restore this version", "Back to the note", NULL);
+}
+
+static void clear_history_answer(int button, void *arg) {
+    App *a = arg;
+    if (button == 1 && a->panels && a->notes) ex_panels_history_clear(a->panels, ex_notes_history_dir(a->notes));
+}
+/* The File recovery page's buttons (7e) and the other actions of the settings screen. */
+static void settings_action(void *u, const char *id) {
+    App *a = u;
+    if (!strcmp(id, "clear_history") && a->panels && a->notes)
+        ex_panels_ask_confirm(a->panels, "Clear the history", "Delete every snapshot of every note?\nThe copies kept when a note was changed on disk and in Exhaust at the same time stay.", "Delete", "Cancel", NULL, clear_history_answer, a);
+}
+
 static void register_features_and_commands(App *a) {
     a->features = ex_features_create(a->settings);
     ex_features_register(a->features, "files", "Files", on_files_feature, a);
@@ -1328,6 +1502,7 @@ static void register_features_and_commands(App *a) {
     on_files_feature("files", ex_features_enabled(a->features, "files"), a);
     ex_features_register(a->features, "slash_commands", "Slash commands", NULL, a);
     ex_features_register(a->features, "word_count", "Word count", on_wordcount_feature, a);
+    ex_features_register(a->features, "file_recovery", "File recovery", on_recovery_feature, a);
     a->commands = ex_commands_create(a->features);
     ex_commands_bind(a->commands, "graph-view.open-graph-view", cmd_open_graph, NULL, a);
     ex_commands_bind(a->commands, "app.open-settings", cmd_open_settings, NULL, a);
@@ -1410,6 +1585,10 @@ static void register_features_and_commands(App *a) {
     ex_commands_bind(a->commands, "app.navigate-forward", cmd_nav_forward, NULL, a);
     ex_commands_bind(a->commands, "app.create-new-note", cmd_new_note, has_notes, a);
     ex_commands_bind(a->commands, "app.close-current-tab", cmd_close_tab, has_tab, a);
+    ex_commands_bind(a->commands, "workspaces.save-workspace-layout", cmd_layout_save, has_layouts, a);
+    ex_commands_bind(a->commands, "workspaces.load-workspace-layout", cmd_layout_load, has_saved_layouts, a);
+    ex_commands_bind(a->commands, "workspaces.manage-workspace-layouts", cmd_layout_manage, has_saved_layouts, a);
+    ex_commands_bind(a->commands, "file-recovery.open-local-history", cmd_history, has_note_tab, a);
 }
 
 /* A key press as a chord of the hotkeys module (7c). Printable keys are their lower case character; a key that is only a modifier gives 0. */
@@ -1691,6 +1870,7 @@ static void sync_ui(App *a) {
     } else if (a->sel_path && a->note && !a->editor && !strcmp(ex_note_path(a->note), a->sel_path)) { free(a->sel_path); a->sel_path = NULL; }
     update_wordcount(a);
     if (a->findbar && ex_findbar_is_open(a->findbar)) { if (a->editor) ex_findbar_set_target(a->findbar, a->editor); ex_findbar_update(a->findbar); }
+    if (a->diff_doc && a->banner_kind == BANNER_HISTORY && a->note != a->banner_note) { stop_showing_diff(a); free(a->hist_old); a->hist_old = NULL; banner_for_note(a, a->note); }   /* another tab: the comparison ends */
     if (a->note != a->banner_note && !a->diff_doc) banner_for_note(a, a->note);
     if (a->focus_tab && a->focus_tab == t && a->editor) { if (!(a->title && !a->title->hidden && a->note && !ex_note_exists_on_disk(a->note))) ex_ui_set_focus(a->ui, a->editor); a->focus_tab = 0; }   /* a new note keeps the focus on its title */
     else if (a->focus_tab && !ex_ws_tab(a->ws, a->focus_tab)) a->focus_tab = 0;
@@ -2240,17 +2420,17 @@ int main(int argc, char **argv) {
             loaded = app.session && !fresh ? ex_session_load(app.session, app.ws) : 0;
         }
         (void)loaded;
-        /* Pop-out windows cannot be opened as operating-system windows yet: their tabs come back to the main window
-         * (as they would when such a window is closed), so no tab is ever out of reach. */
-        while (ex_ws_window_count(app.ws) > 1) {
-            ExId w = ex_ws_window_at(app.ws, 0) == ex_ws_main_window(app.ws) ? ex_ws_window_at(app.ws, 1) : ex_ws_window_at(app.ws, 0);
-            if (ex_ws_close_window(app.ws, w) != 0) break;
-        }
+        fold_popouts(app.ws);
     } else {
         ex_ws_new_tab(app.ws, 0, "", "welcome");   /* no vault: one tab with the welcome text */
     }
 
     register_features_and_commands(&app);
+    apply_history(&app);                                                    /* file recovery: on or off, the interval and the days (7e) */
+    if (app.vault) {                                                        /* saved workspace layouts: read now, written by a worker */
+        char *lp = malloc(strlen(ex_vault_path(app.vault)) + 32);
+        if (lp) { sprintf(lp, "%s/.exhaust/workspaces.ini", ex_vault_path(app.vault)); app.layouts = ex_layouts_open(lp); free(lp); }
+    }
     app.spell = ex_spell_create_en_us();                                    /* English (US), built in; the words you added come from the vault */
     load_custom_words(&app);
     memset(&hooks, 0, sizeof hooks);
@@ -2324,7 +2504,7 @@ int main(int argc, char **argv) {
         pi.host.user = &app;
         pi.host.open_note = host_open_note; pi.host.active_path = host_active_path; pi.host.active_text = host_active_text; pi.host.read_text = host_read_text;
         pi.host.replace_text = host_replace_text; pi.host.select_range = host_select_range; pi.host.move_file = host_move_file; pi.host.file_op = host_file_op; pi.host.message = host_message;
-        pi.host.graph_data = host_graph_data; pi.host.local_graph_data = host_local_graph_data; pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
+        pi.host.history_version = host_history_version; pi.host.graph_data = host_graph_data; pi.host.local_graph_data = host_local_graph_data; pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
         pi.wake = wake_ui;
         app.panels = ex_panels_create(&pi);
         if (app.panels) {
@@ -2350,6 +2530,7 @@ int main(int argc, char **argv) {
     app.banner->hidden = 1;
     app.banner_text = ex_widget_label(app.ui, "");
     app.banner_text->width = ex_size_grow();
+    app.banner_text->wrap = 1;                                  /* a long notice goes onto more lines instead of under the buttons */
     app.banner_a = ex_widget_button(app.ui, "", banner_a_click, &app);
     app.banner_b = ex_widget_button(app.ui, "", banner_b_click, &app);
     app.banner_c = ex_widget_button(app.ui, "", banner_c_click, &app);
@@ -2608,6 +2789,8 @@ int main(int argc, char **argv) {
     ex_commands_free(app.commands);
     ex_features_free(app.features);
     ex_themes_free(app.themes);
+    ex_layouts_close(app.layouts);                 /* waits for the layout writes that are queued */
+    free(app.hist_old);
     ex_hotkeys_close(app.hotkeys);                 /* waits for the shortcut writes that are queued */
     ex_settings_close(app.settings);               /* waits for the settings writes that are queued */
     ex_vault_close(app.vault);

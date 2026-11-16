@@ -6,6 +6,7 @@
 
 #define T(page, group, sec, key, name, desc)                  { page, group, sec, key, EX_ROW_TOGGLE, name, desc, 0, 0, 0, NULL }
 #define S(page, group, sec, key, name, desc, choices)         { page, group, sec, key, EX_ROW_SELECT, name, desc, 0, 0, 0, choices }
+#define A(page, group, name, desc, label_and_id)              { page, group, NULL, NULL, EX_ROW_ACTION, name, desc, 0, 0, 0, label_and_id }
 #define N(page, group, sec, key, name, desc, lo, hi, st)      { page, group, sec, key, EX_ROW_NUMBER, name, desc, lo, hi, st, NULL }
 #define X(page, group, sec, key, name, desc)                  { page, group, sec, key, EX_ROW_TEXT, name, desc, 0, 0, 0, NULL }
 #define C(page, group, sec, key, name, desc)                  { page, group, sec, key, EX_ROW_COLOR, name, desc, 0, 0, 0, NULL }
@@ -145,6 +146,7 @@ static const ExSettingsRow rows[] = {
 
     N("file_recovery", "File recovery", "file_recovery", "interval_minutes", "Take a snapshot every", "How often to keep a copy of a note you are changing, in minutes.", 1, 60, 1),
     N("file_recovery", "File recovery", "file_recovery", "history_days", "Keep snapshots for", "How long a snapshot is kept, in days.", 1, 90, 1),
+    A("file_recovery", "File recovery", "Clear history", "Delete the saved versions of every note. Copies kept when a note was changed on disk and in Exhaust at the same time stay. To look at the versions of a note and bring one back, use the command File recovery: Open local history.", "Clear history|clear_history"),
 
     S("note_composer", "Note composer", "note_composer", "text_after_extract", "Text moved to a new note is replaced by", "What stays in the old note where the text was.", "A link to the new note|An embed of the new note|Nothing"),
     X("note_composer", "Note composer", "note_composer", "template", "Template", "The note whose text starts every note the composer makes, as a path in the vault."),

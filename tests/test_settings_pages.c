@@ -51,6 +51,16 @@ static void click(ExWidget *w) {
     frame();
 }
 
+static ExWidget *find_button(ExWidget *w, const char *name) {          /* the row and the button of a button row share the name */
+    ExWidget *c, *f;
+    if (!w) return NULL;
+    if (w->type == EX_WIDGET_BUTTON && w->name && !strcmp(w->name, name)) return w;
+    for (c = w->first_child; c; c = c->next) if ((f = find_button(c, name)) != NULL) return f;
+    return NULL;
+}
+static char ACTION_ID[64];
+static void host_action(void *u, const char *id) { (void)u; snprintf(ACTION_ID, sizeof ACTION_ID, "%s", id); }
+
 static int FEATURES;                                              /* 1: the 7b pages */
 static int in_page_section(const char *s) {
     if (!FEATURES) return !strcmp(s, "general") || !strcmp(s, "appearance") || !strcmp(s, "interface") || !strcmp(s, "editor") || !strcmp(s, "files");
@@ -205,7 +215,7 @@ int main(int argc, char **argv) {
     S = ex_settings_open(vcfg, NULL);
     CHECK(S != NULL);
     memset(&h, 0, sizeof h);
-    h.choose = host_choose; h.changed = host_changed; h.set_feature = host_set_feature;
+    h.choose = host_choose; h.changed = host_changed; h.set_feature = host_set_feature; h.action = host_action;
     SV = ex_settingsview_create(UI, S, &h);
     CHECK(SV != NULL);
     ROOT = ex_widget_box(UI, 1, "root");
@@ -250,6 +260,16 @@ int main(int argc, char **argv) {
         frame();
         CHECK(ex_settingsview_control(SV, "file_recovery", "interval_minutes") != NULL);
         ex_settingsview_search(SV, "");
+        /* a button row (7e): Clear history asks the application, by its id, and a page without the host's action does nothing */
+        CHECK(ex_settingsview_show(SV, "file_recovery") == 0);
+        frame(); frame();
+        {
+            ExWidget *b = find_button(ROOT, "Clear history");
+            CHECK(b != NULL);
+            ACTION_ID[0] = 0;
+            if (b) { ex_ui_scroll_into_view(UI, b); frame(); frame(); click(b); }
+            CHECK(!strcmp(ACTION_ID, "clear_history"));
+        }
     } else {
     /* the changes reached the file: a new reader sees them */
     ex_settings_flush(S);

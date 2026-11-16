@@ -382,6 +382,44 @@ hsession=$(find "$work" -name session.ini -newer "$work/hk_custom.script" | head
 if [ -n "$hsession" ] && grep -q "view = settings" "$hsession"; then echo "ok: the shortcut from hotkeys.ini opens the settings"; else echo "FAILED: the shortcut from hotkeys.ini"; fail=1; fi
 unset EXHAUST_OPEN
 
+# file recovery (7e): the first save of a note keeps the text it had on disk; the history lists it, shows the changes, and Restore puts it back
+# as an edit of the note (which the autosave then writes), after keeping the text that was there as one more snapshot
+vault="$work/history_run"; rm -rf "$vault"; mkdir -p "$vault/.exhaust"
+printf '# Welcome\n\nHello.\n' > "$vault/Home.md"
+printf '[hotkeys]\nfile-recovery.open-local-history = Ctrl+Alt+H\n' > "$vault/.exhaust/hotkeys.ini"
+printf 'wait 800\nmove 420 250\ndown 420 250\nup 420 250\nwait 200\ntext  typed more\nwait 2500\nquit\n' > "$work/hist_type.script"
+printf 'wait 800\nkey ctrl+alt+h\nwait 800\nkey enter\nwait 1200\nmove 560 20\ndown 560 20\nup 560 20\nwait 2500\nquit\n' > "$work/hist_restore.script"
+rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"
+export EXHAUST_OPEN=Home.md
+EXHAUST_SCRIPT="$work/hist_type.script" $lim "$exe" "$vault" >"$work/hist_type.log" 2>&1
+hfirst=$(find "$work/data" -name 'Home.md.*.snap' | head -1)
+if grep -q "typed more" "$vault/Home.md" && [ -n "$hfirst" ] && [ "$(cat "$hfirst")" = "$(printf '# Welcome\n\nHello.')" ]; then echo "ok: the first save kept the text the note had before"; else echo "FAILED: no snapshot of the text before the first save"; fail=1; fi
+EXHAUST_SCRIPT="$work/hist_restore.script" $lim "$exe" "$vault" >"$work/hist_restore.log" 2>&1
+if [ "$(cat "$vault/Home.md")" = "$(printf '# Welcome\n\nHello.')" ]; then echo "ok: Restore put the earlier version back"; else echo "FAILED: Restore did not put the earlier version back"; fail=1; fi
+if grep -l "typed more" $(find "$work/data" -name 'Home.md.*.snap') >/dev/null 2>&1; then echo "ok: the text that was replaced is in the history"; else echo "FAILED: the text a restore replaced was not kept"; fail=1; fi
+unset EXHAUST_OPEN
+
+# workspaces (7e): a layout saved under a name comes back after the tabs changed, and it is in workspaces.ini
+vault="$work/layout_run"; rm -rf "$vault"; mkdir -p "$vault/.exhaust"
+printf '# Welcome\n' > "$vault/Home.md"
+printf '[features]\nworkspaces = true\n' > "$vault/.exhaust/settings.ini"
+printf '[hotkeys]\nworkspaces.save-workspace-layout = Ctrl+Alt+W\nworkspaces.load-workspace-layout = Ctrl+Alt+L\n' > "$vault/.exhaust/hotkeys.ini"
+printf 'wait 800\nkey ctrl+alt+w\nwait 500\ntext Writing\nwait 200\nkey enter\nwait 600\nmove 405 15\ndown 405 15\nup 405 15\nwait 500\nkey ctrl+alt+l\nwait 500\nkey enter\nwait 800\nmove 21 604\ndown 21 604\nup 21 604\nwait 1500\nquit\n' > "$work/layout.script"
+printf 'wait 800\nmove 405 15\ndown 405 15\nup 405 15\nwait 500\nmove 21 604\ndown 21 604\nup 21 604\nwait 1500\nquit\n' > "$work/layout_control.script"
+rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"       # only this vault has a session folder, so the one find picks is the right one
+export EXHAUST_OPEN=Home.md
+EXHAUST_SCRIPT="$work/layout_control.script" $lim "$exe" "$vault" >"$work/layout_control.log" 2>&1
+lsession=$(find "$work/data" -name session.ini | head -1)
+lcontrol=$(grep -c '^\[tab\.' "$lsession" 2>/dev/null)
+rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"
+EXHAUST_SCRIPT="$work/layout.script" $lim "$exe" "$vault" >"$work/layout.log" 2>&1
+lsession=$(find "$work/data" -name session.ini | head -1)
+ltabs=$(grep -c '^\[tab\.' "$lsession" 2>/dev/null)
+if [ "$lcontrol" = "2" ] && [ "$ltabs" = "1" ]; then echo "ok: loading a saved layout brought back its one tab"; else echo "FAILED: loading a saved layout (tabs without a load: $lcontrol, with one: $ltabs)"; fail=1; fi
+if grep -q '^\[workspace.Writing\]' "$vault/.exhaust/workspaces.ini" 2>/dev/null; then echo "ok: the layout is in workspaces.ini"; else echo "FAILED: workspaces.ini has no layout"; fail=1; fi
+rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"
+unset EXHAUST_OPEN
+
 # themes (7d): the theme file named in the settings colours the window, and a change to the file shows without a restart
 vault="$work/theme_live"; rm -rf "$vault"; mkdir -p "$vault/.exhaust/themes"
 printf '# Welcome\n' > "$vault/Home.md"

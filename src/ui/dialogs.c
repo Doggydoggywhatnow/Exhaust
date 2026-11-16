@@ -146,7 +146,7 @@ void dialog_choice(ExPanels *p, const char *title, const char **labels, size_t n
     size_t i;
     dialog_close(p);
     preview_hide(p);
-    box = frame(p, title, 360);
+    box = frame(p, title, 460);
     p->dialog_list = ex_widget_list(p->ui, title);
     p->dialog_list->height = ex_size_px(p->ui, 26.0f * (float)(n < 10 ? n : 10) + 8);
     for (i = 0; i < n; i++) { ExListRow r; memset(&r, 0, sizeof r); r.text = labels[i]; r.key = labels[i]; ex_list_add(p->dialog_list, &r); }
@@ -252,8 +252,26 @@ void dialog_confirm(ExPanels *p, const char *title, const char *message, const c
         ExWidget *l;
         next = strchr(line, '\n');
         if (next) *next++ = 0;
-        l = ex_widget_label(p->ui, line);
+        {   /* a word longer than the dialog (a long name) is cut with an ellipsis; the rest of the sentence wraps */
+            char fitted[1200], word[600];
+            const char *s = line;
+            size_t o = 0;
+            float room = (520.0f - 48.0f) * ex_renderer_scale(ex_ui_renderer(p->ui)) * 0.95f;
+            while (*s && o + 2 < sizeof fitted) {
+                size_t wl = strcspn(s, " ");
+                if (wl > 0) {
+                    size_t fl = ex_text_fit(ex_ui_renderer(p->ui), ex_ui_font(p->ui, 0, 0), ex_ui_base_size(p->ui), s, wl < sizeof word ? wl : sizeof word - 1, room, word, sizeof word);
+                    if (o + fl + 2 >= sizeof fitted) break;
+                    memcpy(fitted + o, word, fl); o += fl;
+                    s += wl;
+                }
+                if (*s == ' ') { fitted[o++] = ' '; s++; }
+            }
+            fitted[o] = 0;
+            l = ex_widget_label(p->ui, fitted);
+        }
         l->text_token = EX_COLOR_TEXT;
+        l->width = ex_size_grow(); l->wrap = 1;                      /* a long sentence goes onto more lines */
         ex_widget_add(box, l);
     }
     free(copy);

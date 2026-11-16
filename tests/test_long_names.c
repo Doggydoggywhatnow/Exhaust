@@ -21,6 +21,7 @@
 #include "exhaust_graphview.h"
 #include "exhaust_settings.h"
 #include "exhaust_settingsview.h"
+#include "exhaust_history.h"
 #include "exhaust_panels.h"
 #include "exhaust_vaultscreen.h"
 #include "exhaust_platform.h"
@@ -69,6 +70,9 @@ static void wait_settled_model(ExGraphModel *m, int ms) {
     ex_graphmodel_update(m);
 }
 
+static void ask_nothing_text(const char *t, void *a) { (void)t; (void)a; }
+static void ask_nothing_choice(size_t i, void *a) { (void)i; (void)a; }
+static void ask_nothing_confirm(int b, void *a) { (void)b; (void)a; }
 static void pump(int ms) { int i; for (i = 0; i < ms / 5; i++) { ex_panels_update(g_p); SDL_Delay(5); } }
 
 /* ---- the layout checks ---- */
@@ -272,6 +276,34 @@ int main(void) {
     ex_panels_close_dialog(g_p);
     ex_panels_file_menu(g_p, rel);          pump(100); check_layout(r, root, "file menu, a long name");
     ex_panels_close_dialog(g_p);
+    /* the questions of workspaces and file recovery (7e): a text box, a list and a confirmation with a name of 60 characters, and a version list with long labels */
+    {
+        char name60[64], msg[400];
+        const char *names[3];
+        memset(name60, 'W', 60); name60[60] = 0;
+        names[0] = name60; names[1] = "A layout"; names[2] = name60;
+        ex_panels_ask_text(g_p, "Save workspace layout", "Name of the layout", "", ask_nothing_text, NULL);     pump(100); check_layout(r, root, "save layout dialog"); test_text_boxes(r, root, "save layout dialog", in);
+        ex_panels_close_dialog(g_p);
+        ex_panels_ask_choice(g_p, "Load workspace layout", names, 3, ask_nothing_choice, NULL);               pump(100); check_layout(r, root, "load layout dialog, long names");
+        ex_panels_close_dialog(g_p);
+        snprintf(msg, sizeof msg, "A layout named \"%s\" is saved already. Replace it with the layout on screen?", name60);
+        ex_panels_ask_confirm(g_p, "Replace the layout", msg, "Replace", "Cancel", NULL, ask_nothing_confirm, NULL); pump(100); check_layout(r, root, "replace layout dialog, a long name");
+        ex_panels_close_dialog(g_p);
+        snprintf(msg, sizeof msg, "The layout \"%s\" was saved on 2026-11-16 00:45:15.", name60);
+        ex_panels_ask_confirm(g_p, "Manage workspace layouts", msg, "Cancel", "Replace with the current layout", "Delete", ask_nothing_confirm, NULL); pump(100); check_layout(r, root, "manage layout dialog, three buttons");
+        ex_panels_close_dialog(g_p);
+        {
+            const char *hd = "long_names_hist";
+            ExSnapshot *l = NULL;
+            size_t n, i;
+            ex_platform_remove_tree(hd);
+            for (i = 0; i < 12; i++) ex_history_take(hd, rel, "text\n", 5, 1700000000 + (int64_t)i * 700, i == 3 ? EX_SNAP_CONFLICT : EX_SNAP_AUTO);
+            n = ex_history_list(hd, rel, &l); CHECK(n == 12); ex_history_free(l, n);
+            ex_panels_history_open(g_p, hd, rel);   pump(500); check_layout(r, root, "versions list, a long name");
+            ex_panels_close_dialog(g_p);
+            ex_platform_remove_tree(hd);
+        }
+    }
 
     /* 3. the text boxes that are not in the panels: the find bar and its replace row, the inline title, the vault manager */
     {

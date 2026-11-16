@@ -88,6 +88,11 @@ struct ExPanels {
     unsigned long req_plan, req_rewrite, req_propop;
     ExMove *pending_moves; size_t npending;
     int link_mode;                   /* 0 ask, 1 automatic, 2 off, as read when the rename started */
+    /* questions the application asks (7e) and the list of earlier versions of a note */
+    void *ask;                       /* the one pending question (an Ask in history_dialog.c) */
+    unsigned long hist_req, hist_read_req;
+    char *hist_dir, *hist_rel;
+    char **hist_files, **hist_labels; size_t hist_n;
 };
 
 /* views.c */
@@ -123,6 +128,9 @@ void dialog_palette(ExPanels *p);
 void dialog_refresh(ExPanels *p);
 void preview_hide(ExPanels *p);
 void preview_result(ExPanels *p, QRes *r);
+/* history_dialog.c */
+void history_free(ExPanels *p);
+void history_result(ExPanels *p, QRes *r);
 /* panels.c */
 unsigned long now_ms(void);
 char *dup_s(const char *s);
