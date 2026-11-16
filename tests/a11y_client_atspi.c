@@ -97,7 +97,7 @@ int main(int argc, char **argv) {
         gint n = atspi_accessible_get_child_count(app, NULL), i;
         for (i = 0; i < n && !win; i++) {
             AtspiAccessible *c = atspi_accessible_get_child_at_index(app, i, NULL);
-            if (c && atspi_accessible_get_role(c, NULL) == ATSPI_ROLE_WINDOW) win = c; else if (c) g_object_unref(c);
+            if (c && (atspi_accessible_get_role(c, NULL) == ATSPI_ROLE_FRAME || atspi_accessible_get_role(c, NULL) == ATSPI_ROLE_WINDOW)) win = c; else if (c) g_object_unref(c);   /* AccessKit gives a window the role frame */
         }
         if (!win) sleep(1);
     }
