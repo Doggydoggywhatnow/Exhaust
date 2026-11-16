@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "exhaust_ui.h"
+#include "exhaust_canvasview.h"
 #include "exhaust_graphview.h"
 #include "reading_view.h"
 
@@ -37,6 +38,10 @@ static int sync_widget(const ExUi *ui, const ExWidget *w, uint64_t parent, ExA11
         free(text);
     } else if (w->type == EX_WIDGET_GRAPH) {
         char *text = ex_graphview_summary(w);                      /* counts, and the selected node */
+        ex_a11y_set_value(t, w->id, text ? text : "");
+        free(text);
+    } else if (w->type == EX_WIDGET_CANVAS) {
+        char *text = ex_canvasview_summary(w);                     /* counts, and what is selected */
         ex_a11y_set_value(t, w->id, text ? text : "");
         free(text);
     } else {

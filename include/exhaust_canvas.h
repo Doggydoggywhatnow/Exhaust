@@ -47,6 +47,7 @@ typedef struct ExCanvasNode {
     char **order; size_t norder;      /* the keys of the object in the order the file had them */
     char *numtext[4];                 /* x, y, width and height as the file spelled them ("1e2", "250.0"): written back as they were while the value is the same */
     char *raw;                        /* an array element that was not an object: its JSON; everything else is unused */
+    int sel;                          /* for the view: the card is selected (not part of the file) */
 } ExCanvasNode;
 
 typedef struct ExCanvasEdge {
@@ -58,6 +59,7 @@ typedef struct ExCanvasEdge {
     ExCanvasKV *extra; size_t nextra;
     char **order; size_t norder;
     char *raw;
+    int sel;                          /* for the view: the edge is selected (not part of the file) */
 } ExCanvasEdge;
 
 typedef struct ExCanvas {

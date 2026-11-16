@@ -89,6 +89,12 @@ void ex_geom_circle(ExGeom *g, float cx, float cy, float radius, ExColor c);
 /* An arrow head (a filled triangle): its tip at x, y, pointing along the direction dx, dy (any length but not zero), size long and 0.8 of
  * that wide at the base. Used at the end of a graph's lines. */
 void ex_geom_arrow(ExGeom *g, float x, float y, float dx, float dy, float size, ExColor c);
+/* Rectangles and a curve for the canvas (6a). ex_geom_rect is a filled box (no feather, no rounded corners: a card seen from far away); the outline is
+ * four boxes of the given thickness drawn inside the rectangle. ex_geom_curve is a cubic Bezier from (x0, y0) to (x1, y1) with the control points c1 and c2,
+ * drawn as short lines (as many as its length asks for, 4 to 48), so a long curve off the screen costs only what is inside the cull rectangle. */
+void ex_geom_rect(ExGeom *g, float x, float y, float w, float h, ExColor c);
+void ex_geom_rect_outline(ExGeom *g, float x, float y, float w, float h, float thickness, ExColor c);
+void ex_geom_curve(ExGeom *g, float x0, float y0, float c1x, float c1y, float c2x, float c2y, float x1, float y1, float width, ExColor c);
 /* Draws everything added since the last reset with one renderer call; returns the number of triangles drawn. */
 size_t ex_geom_submit(ExRenderer *r, ExGeom *g);
 typedef struct ExGeomStats {

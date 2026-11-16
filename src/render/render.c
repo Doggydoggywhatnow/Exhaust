@@ -359,6 +359,48 @@ void ex_geom_line(ExGeom *g, float x1, float y1, float x2, float y2, float width
     }
 }
 
+
+void ex_geom_rect(ExGeom *g, float x, float y, float w, float h, ExColor c) {
+    SDL_FColor col;
+    int a, b, d, e;
+    if (!g || w <= 0.0f || h <= 0.0f) return;
+    if (geom_outside(g, x, y, x + w, y + h)) return;
+    if (geom_reserve(g, 4, 6) != 0) return;
+    col = fcolor(c);
+    a = geom_vertex(g, x, y, col); b = geom_vertex(g, x + w, y, col); d = geom_vertex(g, x + w, y + h, col); e = geom_vertex(g, x, y + h, col);
+    geom_tri(g, a, b, d); geom_tri(g, a, d, e);
+}
+
+void ex_geom_rect_outline(ExGeom *g, float x, float y, float w, float h, float t, ExColor c) {
+    if (!g || w <= 0.0f || h <= 0.0f || t <= 0.0f) return;
+    if (t * 2.0f >= w || t * 2.0f >= h) { ex_geom_rect(g, x, y, w, h, c); return; }
+    ex_geom_rect(g, x, y, w, t, c);
+    ex_geom_rect(g, x, y + h - t, w, t, c);
+    ex_geom_rect(g, x, y + t, t, h - 2.0f * t, c);
+    ex_geom_rect(g, x + w - t, y + t, t, h - 2.0f * t, c);
+}
+
+void ex_geom_curve(ExGeom *g, float x0, float y0, float c1x, float c1y, float c2x, float c2y, float x1, float y1, float width, ExColor c) {
+    float lo_x, hi_x, lo_y, hi_y, len, px, py, half;
+    int n, i;
+    if (!g) return;
+    lo_x = fminf(fminf(x0, x1), fminf(c1x, c2x)); hi_x = fmaxf(fmaxf(x0, x1), fmaxf(c1x, c2x));
+    lo_y = fminf(fminf(y0, y1), fminf(c1y, c2y)); hi_y = fmaxf(fmaxf(y0, y1), fmaxf(c1y, c2y));
+    half = width / 2.0f + g->feather;
+    if (geom_outside(g, lo_x - half, lo_y - half, hi_x + half, hi_y + half)) return;      /* the box round the control points holds the curve */
+    len = hypotf(c1x - x0, c1y - y0) + hypotf(c2x - c1x, c2y - c1y) + hypotf(x1 - c2x, y1 - c2y);
+    n = (int)(len / 12.0f) + 4;
+    if (n > 48) n = 48;
+    px = x0; py = y0;
+    for (i = 1; i <= n; i++) {
+        float t = (float)i / (float)n, u = 1.0f - t;
+        float x = u * u * u * x0 + 3.0f * u * u * t * c1x + 3.0f * u * t * t * c2x + t * t * t * x1;
+        float y = u * u * u * y0 + 3.0f * u * u * t * c1y + 3.0f * u * t * t * c2y + t * t * t * y1;
+        ex_geom_line(g, px, py, x, y, width, c);
+        px = x; py = y;
+    }
+}
+
 /* Segments of a circle: a few for a dot, more as it grows, so every size looks round and a small one costs little. */
 static int circle_segments(float r) {
     if (r < 3.5f) return 6;                                      /* a hexagon is a circle at this size */
