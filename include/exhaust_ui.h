@@ -290,6 +290,8 @@ void ex_ui_set_focus(ExUi *ui, ExWidget *w);
  * the text. Nodes of widgets that no longer exist are removed and the focus follows
  * the UI's focus. Call it after layout whenever the UI changed. Returns 0. */
 int ex_ui_a11y_sync(ExUi *ui, ExWidget *root, ExA11yTree *tree);
+/* An action the screen reader asked for (7h): EX_A11Y_ACTION_CLICK presses the button with that node id, EX_A11Y_ACTION_FOCUS gives it the focus. 0, or -1 if it cannot be done. */
+int ex_ui_a11y_action(ExUi *ui, ExWidget *root, uint64_t id, unsigned action);
 
 /* The sample window: ribbon with a theme switch button, the note editor on doc, and a
  * status line. The demo program and the accessibility and keyboard tests all use it,

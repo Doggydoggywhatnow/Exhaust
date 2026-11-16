@@ -37,6 +37,9 @@ typedef struct ExAtlasStats {
  * dummy video driver and the software renderer). Returns NULL on failure; the
  * reason is in ex_render_error(). */
 ExRenderer *ex_renderer_create(const char *title, int width, int height);
+/* The same, with the window not shown yet (ex_renderer_show shows it): the screen reader interface of Windows must be attached before the window appears. */
+ExRenderer *ex_renderer_create_hidden(const char *title, int width, int height);
+void ex_renderer_show(ExRenderer *r);
 void ex_renderer_destroy(ExRenderer *r);
 const char *ex_render_error(void);
 

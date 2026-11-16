@@ -17,6 +17,7 @@
 #include "exhaust_input.h"
 #include "exhaust_notes.h"
 #include "exhaust_panes.h"
+#include "exhaust_a11y_adapter.h"
 #include "exhaust_popwin.h"
 #include "exhaust_platform.h"
 #include "exhaust_render.h"
@@ -87,6 +88,7 @@ typedef struct App {
     ExPopWin *cur_pop;                       /* the pop-out window the code is working for, or NULL */
     ExRenderer *main_r; ExUi *main_ui; ExWidget *main_root; ExPanes *main_panes; ExPanels *saved_panels;
     ExFontDb *fontdb;                        /* the main window's font database, shared with the pop-outs */
+    ExA11yAdapter *a11y;                     /* the main window's screen reader interface (7h) */
     char sb_mode[16]; int sb_save, sb_poll;  /* what the bar shows now, so it is only touched when something changes */
     void (*sel_chosen)(void *, size_t);      /* the choice a settings select is waiting for (7a) */
     void *sel_arg;
@@ -2191,6 +2193,28 @@ static void script_shot(App *a, const char *file) {
     leave_pop(a);
 }
 
+/* The screen reader interface of every window (7h): the actions the operating system asked for are done, and while a screen reader is attached the tree
+ * is brought up to date from the widgets a few times a second. */
+static void a11y_window(ExA11yAdapter *ad, ExUi *ui, ExWidget *root, SDL_Window *win) {
+    ExA11yActionReq req;
+    if (!ad) return;
+    while (ex_a11y_adapter_poll(ad, &req)) ex_ui_a11y_action(ui, root, req.id, req.action);
+    if (ex_a11y_adapter_wants_update(ad, (uint64_t)SDL_GetTicks())) {
+        int x = 0, y = 0, w = 0, h = 0;
+        ex_ui_a11y_sync(ui, root, ex_a11y_adapter_tree(ad));
+        SDL_GetWindowPosition(win, &x, &y);
+        SDL_GetWindowSize(win, &w, &h);
+        ex_a11y_adapter_set_window_bounds(ad, x, y, w, h);
+        ex_a11y_adapter_commit(ad);
+    }
+}
+
+static void a11y_pass(App *a) {
+    size_t i;
+    a11y_window(a->a11y, a->main_ui, a->main_root, ex_renderer_window(a->main_r));
+    for (i = 0; i < a->npops; i++) a11y_window(ex_popwin_a11y(a->pops[i]), ex_popwin_ui(a->pops[i]), ex_popwin_root(a->pops[i]), ex_renderer_window(ex_popwin_renderer(a->pops[i])));
+}
+
 /* Notes events: saves, failures, outside changes. */
 static void handle_note_events(App *a) {
     ExNoteEvent ev;
@@ -2512,11 +2536,14 @@ static int run_vault_manager(void) {
     Uint64 last_click = 0;
     char *cfg = ex_platform_config_dir();
     int dark = 1;
+    ExA11yAdapter *a11y;
 
     settings = ex_settings_open(NULL, cfg);
     free(cfg);
-    r = ex_renderer_create("Exhaust: vaults", 960, 600);
+    r = ex_renderer_create_hidden("Exhaust: vaults", 960, 600);
     if (!r) { fprintf(stderr, "exhaust: cannot open a window: %s\n", ex_render_error()); ex_settings_close(settings); return 1; }
+    a11y = ex_a11y_adapter_create(ex_renderer_window(r));                  /* the screen reader interface of this window too (7h) */
+    ex_renderer_show(r);
     if (settings) {
         const char *scheme = ex_settings_get(settings, "appearance", "color_scheme");
         dark = strcmp(scheme, "light") != 0;
@@ -2564,6 +2591,7 @@ static int run_vault_manager(void) {
             }
         }
         ex_vaultscreen_update(screen);
+        a11y_window(a11y, ui, ex_vaultscreen_root(screen), ex_renderer_window(r));
         ex_renderer_size(r, &w, &h);
         ex_ui_layout(ui, ex_vaultscreen_root(screen), (float)w, (float)h);
         ex_renderer_clear(r, ex_theme_color(&theme, EX_COLOR_BACKGROUND));
@@ -2571,6 +2599,7 @@ static int run_vault_manager(void) {
         ex_renderer_present(r);
     }
     ex_vaultscreen_free(screen);
+    ex_a11y_adapter_free(a11y);
     ex_vaultmgr_free(mgr);
     ex_settings_close(settings);
     ex_ui_free(ui);
@@ -2650,11 +2679,13 @@ int main(int argc, char **argv) {
         free(cfg);
         if (!app.settings) { fprintf(stderr, "exhaust: cannot read the settings\n"); return 1; }
     }
-    app.r = ex_renderer_create("Exhaust", (int)ex_settings_get_int(app.settings, "appearance", "window_width"), (int)ex_settings_get_int(app.settings, "appearance", "window_height"));
+    app.r = ex_renderer_create_hidden("Exhaust", ex_window_size_clamp(ex_settings_get_int(app.settings, "appearance", "window_width")), ex_window_size_clamp(ex_settings_get_int(app.settings, "appearance", "window_height")));
     if (!app.r) {
         fprintf(stderr, "exhaust: cannot open a window: %s\n", ex_render_error());
         return 1;
     }
+    app.a11y = ex_a11y_adapter_create(ex_renderer_window(app.r));          /* the screen reader interface: attached before the window is shown */
+    ex_renderer_show(app.r);
     {
         const char *scheme = ex_settings_get(app.settings, "appearance", "color_scheme");
         char *global_scheme = NULL;
@@ -2991,6 +3022,7 @@ int main(int argc, char **argv) {
             if (app.session) ex_session_tick(app.session, app.ws, (int64_t)SDL_GetTicks());
         }
         sync_windows(&app);                                                                    /* the windows of the workspace (7g) */
+        a11y_pass(&app);                                                                       /* the screen reader interface of each window (7h) */
         if (app.panels) ex_panels_update(app.panels);
         if (redraw || app.title_warn_until || (app.panels && ex_panels_overlay(app.panels)) || ex_ws_revision(app.ws) != g_drawn_revision) {
             g_drawn_revision = ex_ws_revision(app.ws);
@@ -3022,7 +3054,8 @@ int main(int argc, char **argv) {
     }
     ex_queue_destroy(results);
     stop_showing_diff(&app);
-    while (app.npops) destroy_pop(&app, app.pops[app.npops - 1]);                 /* the pop-out windows go first: they share the main window's font database */
+    while (app.npops) destroy_pop(&app, app.pops[app.npops - 1]);
+    ex_a11y_adapter_free(app.a11y);                 /* the pop-out windows go first: they share the main window's font database */
     ex_graphmodel_free(app.gm);
     ex_graphmodel_free(app.gm_local);
     free(app.graph_note);

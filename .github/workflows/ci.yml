@@ -55,6 +55,20 @@ jobs:
       - run: cmake --install build --prefix "$PWD/install"
       - run: tools/check_size.sh "$PWD/install"
 
+  # The real AT-SPI adapter read by a client that behaves as a screen reader does (sub-slice 7h): finds the window, its focused widget by name, presses a button.
+  # Windows (UI Automation) and macOS (NSAccessibility) have no such client in CI yet: see docs/ISSUES.md.
+  a11y-atspi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $LINUX_DEPS at-spi2-core libatspi2.0-dev libglib2.0-dev dbus pkg-config
+      - name: Rust toolchain (for AccessKit)
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --target exhaust a11y_client_atspi --parallel
+      - run: ctest --test-dir build -R a11y_atspi --output-on-failure --no-tests=error
+
   # AccessKit builds from the vendored crates with no network (sub-slice 1b-i).
   a11y-build:
     strategy:

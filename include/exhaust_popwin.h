@@ -6,6 +6,7 @@
 #define EXHAUST_POPWIN_H
 
 #include <stdint.h>
+#include "exhaust_a11y_adapter.h"
 #include "exhaust_fontdb.h"
 #include "exhaust_panes.h"
 #include "exhaust_render.h"
@@ -29,6 +30,7 @@ ExRenderer *ex_popwin_renderer(ExPopWin *pw);
 ExUi *ex_popwin_ui(ExPopWin *pw);
 ExPanes *ex_popwin_panes(ExPopWin *pw);
 ExWidget *ex_popwin_root(ExPopWin *pw);
+ExA11yAdapter *ex_popwin_a11y(ExPopWin *pw);              /* the window's screen reader interface (7h) */
 
 /* Shares the font database of the main window (not owned; it must outlive the window). */
 void ex_popwin_set_font_db(ExPopWin *pw, ExFontDb *db);

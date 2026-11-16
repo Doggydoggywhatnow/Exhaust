@@ -44,7 +44,7 @@ static int sync_widget(const ExUi *ui, const ExWidget *w, uint64_t parent, ExA11
     }
     if (w->type == EX_WIDGET_TREE && w->vault) { /* the visible rows are tree items below the tree */
         size_t i, rows = ex_vault_row_count(w->vault);
-        for (i = 0; i < rows && i < 65535; i++) {
+        for (i = 0; i < rows && i < 2000; i++) {                  /* the first 2000 rows: the tree is built only while a screen reader is attached, a few times a second */
             const ExNode *n = ex_vault_row(w->vault, i, NULL);
             uint64_t id = 0x100000000ull + (uint64_t)w->id * 65536u + i;
             if (n && ex_a11y_set_node(t, id, w->id, EX_A11Y_TREE_ITEM, n->name) == 0)
@@ -53,7 +53,7 @@ static int sync_widget(const ExUi *ui, const ExWidget *w, uint64_t parent, ExA11
     }
     if (w->type == EX_WIDGET_LIST) {            /* the rows are list items below the list */
         size_t i, rows = ex_list_count(w);
-        for (i = 0; i < rows && i < 65535; i++) {
+        for (i = 0; i < rows && i < 2000; i++) {
             const ExListRow *row = ex_list_row(w, i);
             uint64_t id = 0x200000000ull + (uint64_t)w->id * 65536u + i;
             if (row && ex_a11y_set_node(t, id, w->id, EX_A11Y_LIST_ITEM, row->text ? row->text : "") == 0) ex_a11y_set_actions(t, id, EX_A11Y_ACTION_CLICK);
@@ -114,4 +114,26 @@ int ex_ui_a11y_sync(ExUi *ui, ExWidget *root, ExA11yTree *t) {
     if (sync_widget(ui, root, 0, t)) return -1;
     ex_a11y_set_focus(t, ex_ui_focus(ui) ? ex_ui_focus(ui)->id : 0);
     return 0;
+}
+
+/* The widget with an id, in the tree under root. */
+static ExWidget *widget_by_id(ExWidget *w, uint64_t id) {
+    ExWidget *c;
+    for (; w; w = w->next) {
+        if (w->id == id) return w;
+        if ((c = widget_by_id(w->first_child, id)) != NULL) return c;
+    }
+    return NULL;
+}
+
+/* An action the screen reader asked for (the adapter's queue, on the interface thread): press a button, or move the focus. 0 when it was done, -1
+ * when the node is gone, hidden or cannot do that. List and tree rows are not pressed from here yet. */
+int ex_ui_a11y_action(ExUi *ui, ExWidget *root, uint64_t id, unsigned action) {
+    ExWidget *w;
+    if (id >= 0x100000000ull) return -1;
+    w = widget_by_id(root, id);
+    if (!w || w->hidden || w->disabled) return -1;
+    if (action == EX_A11Y_ACTION_CLICK && w->type == EX_WIDGET_BUTTON && w->on_click) { w->on_click(w, w->on_click_user); return 0; }
+    if (action == EX_A11Y_ACTION_FOCUS && w->focusable) { ex_ui_set_focus(ui, w); return 0; }
+    return -1;
 }

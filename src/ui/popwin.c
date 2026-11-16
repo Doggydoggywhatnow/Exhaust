@@ -5,6 +5,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "exhaust_a11y_adapter.h"
 #include "exhaust_popwin.h"
 
 struct ExPopWin {
@@ -14,6 +15,7 @@ struct ExPopWin {
     ExUi *ui;
     ExPanes *panes;
     ExWidget *root;
+    ExA11yAdapter *a11y;               /* the screen reader interface of this window (7h) */
 };
 
 /* Is the rectangle's middle on a screen that exists? */
@@ -33,7 +35,7 @@ ExPopWin *ex_popwin_create(ExWorkspace *ws, ExId window, const ExTheme *theme, f
     ExPopWin *pw = calloc(1, sizeof *pw);
     if (!pw) return NULL;
     pw->ws = ws; pw->window = window;
-    pw->r = ex_renderer_create(title ? title : "Exhaust", w > 0 ? w : 800, h > 0 ? h : 600);
+    pw->r = ex_renderer_create_hidden(title ? title : "Exhaust", w > 0 ? w : 800, h > 0 ? h : 600);
     if (!pw->r) { free(pw); return NULL; }
     ex_renderer_set_display_scale(pw->r, ex_renderer_detect_display_scale(pw->r));
     ex_renderer_set_zoom(pw->r, zoom);
@@ -54,6 +56,8 @@ ExPopWin *ex_popwin_create(ExWorkspace *ws, ExId window, const ExTheme *theme, f
         }
         SDL_SetWindowPosition(ex_renderer_window(pw->r), x, y);
     }
+    pw->a11y = ex_a11y_adapter_create(ex_renderer_window(pw->r));      /* before the window is shown (Windows needs that) */
+    ex_renderer_show(pw->r);
     return pw;
 }
 
@@ -61,6 +65,7 @@ void ex_popwin_free(ExPopWin *pw) {
     if (!pw) return;
     if (pw->panes) ex_panes_free(pw->panes);                   /* the contents are closed; their notes stay with the program. The panes' own box is in our root and goes with it. */
     if (pw->root) ex_widget_free(pw->root);
+    ex_a11y_adapter_free(pw->a11y);
     ex_ui_free(pw->ui);
     ex_renderer_destroy(pw->r);
     free(pw);
@@ -72,6 +77,7 @@ ExRenderer *ex_popwin_renderer(ExPopWin *pw) { return pw->r; }
 ExUi *ex_popwin_ui(ExPopWin *pw) { return pw->ui; }
 ExPanes *ex_popwin_panes(ExPopWin *pw) { return pw->panes; }
 ExWidget *ex_popwin_root(ExPopWin *pw) { return pw->root; }
+ExA11yAdapter *ex_popwin_a11y(ExPopWin *pw) { return pw->a11y; }
 
 void ex_popwin_set_font_db(ExPopWin *pw, ExFontDb *db) { ex_renderer_set_font_db_shared(pw->r, db); }
 

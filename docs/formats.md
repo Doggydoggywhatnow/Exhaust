@@ -849,6 +849,17 @@ Everything is in the `exhaust` table. A function that needs a permission fails w
 
 Event names for `exhaust.events.on`: `vault-open`, `file-open`, `file-save`, `file-rename`, `editor-change`. Since: 0.1.0.
 
+## Screen reader interface (7h)
+
+Each window of the program (the main window, every pop-out, the vault manager) has its own *accessibility tree* (see `exhaust_a11y.h`) and, through AccessKit, its own connection to the operating system's screen reader interface: AT-SPI on Linux (X11 and Wayland; AccessKit talks to the accessibility bus over D-Bus), UI Automation on Windows and NSAccessibility on macOS (both attached to the native window handle that SDL gives).
+
+- *Costs nothing without a screen reader.* The tree is built only while a screen reader is attached (the system asked for the tree), and then at most four times a second. A program nobody reads does not build it.
+- *Threads.* The operating system's calls arrive on its own threads. They never touch widgets: the first tree comes from the latest snapshot kept behind a lock, and actions go into a queue of 64 that the interface thread empties every pass.
+- *Actions.* `Click` presses the button with that node id (the same handler as a mouse click; a hidden or disabled button, or a widget that is gone, does nothing); `Focus` gives a focusable widget the keyboard focus. Rows of lists and of the file tree are in the tree (the first 2000 of each) but are not pressed through the interface yet.
+- *Names.* A node is named by its widget's accessible name (or its text); the focused widget is the one with the keyboard focus in that window; the window's node is the root.
+- *Windows.* On Windows the adapter is attached before the window is shown (the windows are created hidden and shown after it). On Linux under X11 the window's place is given to the screen reader; under Wayland an application cannot know it.
+- *Headless.* Under the dummy video driver the adapter is inert (no D-Bus, no operating system): the queue and the actions still work, which is what the test `a11y_adapters` uses. `EXHAUST_A11Y_ADAPTER=1` makes it real there (the AT-SPI test of CI does), `EXHAUST_NO_A11Y=1` turns it off.
+
 ## Pop-out windows (7g)
 
 A window of the workspace model other than the main one is an operating-system window of its own. It has its own renderer and its own tab strip and panes (the panes of that workspace window; there is no ribbon, no sidebar, no status bar, no banner and no find bar in it); everything else is shared with the main window: the workspace, the notes and their buffers (one buffer for each note, so an edit in either window is at once in the other), the index, the settings and the theme.

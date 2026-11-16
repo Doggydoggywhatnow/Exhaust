@@ -29,14 +29,19 @@ static void set_error(const char *what) {
 
 const char *ex_render_error(void) { return g_error; }
 
-ExRenderer *ex_renderer_create(const char *title, int width, int height) {
+static ExRenderer *create_window(const char *title, int width, int height, int hidden);
+ExRenderer *ex_renderer_create(const char *title, int width, int height) { return create_window(title, width, height, 0); }
+ExRenderer *ex_renderer_create_hidden(const char *title, int width, int height) { return create_window(title, width, height, 1); }
+void ex_renderer_show(ExRenderer *r) { if (r && r->window) SDL_ShowWindow(r->window); }
+
+static ExRenderer *create_window(const char *title, int width, int height, int hidden) {
     ExRenderer *r = calloc(1, sizeof *r);
     if (!r) return NULL;
     r->display_scale = 1.0f;
     r->zoom = 1.0f;
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) { set_error("SDL_InitSubSystem"); free(r); return NULL; }
     if (!SDL_CreateWindowAndRenderer(title, width, height,
-                                     SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY,
+                                     SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | (hidden ? SDL_WINDOW_HIDDEN : 0),
                                      &r->window, &r->renderer)) {
         set_error("SDL_CreateWindowAndRenderer");
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
