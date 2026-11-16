@@ -300,6 +300,19 @@ else()
 endif()
 
 # The index: SQLite database in the OS cache folder, the extractor and the indexer thread (sub-slices 4a, 4b).
+# yyjson (MIT), to read JSON Canvas files (6a): only the reader, the value writer for unknown keys, and the number-as-text mode are used.
+add_library(yyjson_static STATIC third_party/yyjson/src/yyjson.c)
+target_include_directories(yyjson_static PUBLIC third_party/yyjson/src)
+if(NOT MSVC)
+  target_compile_options(yyjson_static PRIVATE -w)
+  target_link_libraries(yyjson_static PUBLIC m)
+else()
+  target_compile_options(yyjson_static PRIVATE /w)
+endif()
+add_library(exhaust_canvas STATIC src/canvas/canvas.c)
+target_include_directories(exhaust_canvas PUBLIC include)
+target_link_libraries(exhaust_canvas PUBLIC yyjson_static)
+
 add_library(exhaust_index STATIC src/index/db.c src/index/extract.c src/index/props.c src/index/indexer.c src/index/store_extra.c src/index/store_v3.c src/index/links.c src/index/graph.c src/index/propquery.c src/index/propedit.c src/index/rename.c src/index/search.c src/index/query.c)
 target_include_directories(exhaust_index PUBLIC include PRIVATE src/index)
 target_link_libraries(exhaust_index PUBLIC exhaust_notes exhaust_markdown exhaust_unicode exhaust_find exhaust_ini sqlite3_static yaml_static)
@@ -386,6 +399,8 @@ install(FILES third_party/pcre2/LICENCE
   DESTINATION share/exhaust/licenses RENAME PCRE2-LICENCE.txt)
 install(FILES third_party/md4c/LICENSE.md
   DESTINATION share/exhaust/licenses RENAME md4c-LICENSE.md)
+install(FILES third_party/yyjson/LICENSE
+  DESTINATION share/exhaust/licenses RENAME yyjson-LICENSE.txt)
 install(FILES third_party/dictionaries/en_US/README_en_US.txt
   DESTINATION share/exhaust/licenses RENAME Dictionary-en_US-SCOWL.txt)
 install(FILES third_party/unicode/LICENSE.txt
@@ -455,6 +470,12 @@ if(EXHAUST_FUZZ)
   target_compile_options(fuzz_frontmatter PRIVATE -fsanitize=fuzzer,address,undefined)
   target_link_options(fuzz_frontmatter PRIVATE -fsanitize=fuzzer,address,undefined)
   target_link_libraries(fuzz_frontmatter PRIVATE exhaust_index)
+  target_compile_options(exhaust_canvas PRIVATE -fsanitize=fuzzer-no-link,address,undefined)
+  target_compile_options(yyjson_static PRIVATE -fsanitize=fuzzer-no-link,address,undefined)
+  add_executable(fuzz_canvas tests/fuzz/fuzz_canvas.c)
+  target_compile_options(fuzz_canvas PRIVATE -fsanitize=fuzzer,address,undefined)
+  target_link_options(fuzz_canvas PRIVATE -fsanitize=fuzzer,address,undefined)
+  target_link_libraries(fuzz_canvas PRIVATE exhaust_canvas)
   foreach(fz fuzz_markdown fuzz_html)
     add_executable(${fz} tests/fuzz/${fz}.c)
     target_compile_options(${fz} PRIVATE -fsanitize=fuzzer,address,undefined)
@@ -606,9 +627,20 @@ target_link_libraries(test_rename PRIVATE exhaust_index exhaust_platform)
 foreach(c wikilink embed markdown_relative markdown_url_encoded property_links heading_and_block moved_note duplicates folder_move crlf_and_bom dry_run)
   add_test(NAME rename_${c} COMMAND test_rename ${c})
 endforeach()
+add_executable(test_canvas tests/test_canvas.c)
+target_link_libraries(test_canvas PRIVATE exhaust_canvas)
+foreach(c roundtrip layouts)
+  add_test(NAME canvas_${c} COMMAND test_canvas ${c} ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/canvas/sample.canvas)
+endforeach()
+foreach(c unknown edit bad_input geometry ids)
+  add_test(NAME canvas_${c} COMMAND test_canvas ${c})
+endforeach()
 # The frontmatter fuzz target run over random mutations of sample notes (libFuzzer runs it for 60 seconds in CI).
 add_executable(test_frontmatter_random tests/fuzz/fuzz_frontmatter.c tests/fuzz/mutate_driver.c)
 target_link_libraries(test_frontmatter_random PRIVATE exhaust_index)
+add_executable(test_canvas_random tests/fuzz/fuzz_canvas.c tests/fuzz/mutate_driver.c)
+target_link_libraries(test_canvas_random PRIVATE exhaust_canvas)
+add_test(NAME canvas_random COMMAND test_canvas_random 20000 ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/canvas/sample.canvas)
 add_test(NAME frontmatter_random COMMAND test_frontmatter_random 20000 ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/links_vault/Home.md
   ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/links_vault/Beta.md ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/sample_note.md)
 

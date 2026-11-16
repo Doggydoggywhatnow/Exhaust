@@ -1,0 +1,18 @@
+{
+	"nodes":[
+		{"id":"8c2f1a9b0d3e4f51","type":"group","x":-480,"y":-300,"width":820,"height":520,"label":"Reading list","color":"4"},
+		{"id":"a1b2c3d4e5f60718","type":"text","x":-440,"y":-240,"width":300,"height":120,"text":"# Ideas\n\n- a **bold** one\n- [[Home]] and a \"quoted\" word\n\ttabbed"},
+		{"id":"0f1e2d3c4b5a6978","type":"file","x":-60,"y":-240,"width":340,"height":200,"file":"Notes/Home.md","subpath":"#Welcome","color":"#ff8800"},
+		{"id":"5e4d3c2b1a090807","type":"link","x":-440,"y":-60,"width":300,"height":120,"url":"https://jsoncanvas.org/spec/1.0/"},
+		{"id":"7766554433221100","type":"file","x":-60,"y":20,"width":340,"height":180,"file":"Attachments/diagram.png"},
+		{"id":"c0ffee00c0ffee01","type":"text","x":420,"y":-120,"width":260,"height":90,"text":"Outside the group, with an unknown key","color":"2","zIndex":7,"meta":{"tags":["a","b"],"ratio":1.50,"big":12345678901234567890,"none":null}},
+		{"id":"deadbeefdeadbeef","type":"sticker","x":420,"y":40,"width":100,"height":100,"emoji":"🙂","size":2.5e1}
+	],
+	"edges":[
+		{"id":"e000000000000001","fromNode":"a1b2c3d4e5f60718","fromSide":"right","toNode":"0f1e2d3c4b5a6978","toSide":"left","label":"see also"},
+		{"id":"e000000000000002","fromNode":"5e4d3c2b1a090807","fromSide":"right","fromEnd":"arrow","toNode":"7766554433221100","toSide":"left","toEnd":"none","color":"5"},
+		{"id":"e000000000000003","fromNode":"0f1e2d3c4b5a6978","toNode":"c0ffee00c0ffee01","color":"#3366cc","style":"dashed"},
+		{"id":"e000000000000004","fromNode":"a1b2c3d4e5f60718","fromSide":"bottom","toNode":"5e4d3c2b1a090807","toSide":"top"}
+	],
+	"metadata":{"version":"1.0-1.0","frontmatter":{"a":1}}
+}
