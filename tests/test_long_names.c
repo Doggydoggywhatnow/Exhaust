@@ -22,6 +22,7 @@
 #include "exhaust_settings.h"
 #include "exhaust_settingsview.h"
 #include "exhaust_history.h"
+#include "exhaust_shell.h"
 #include "exhaust_panels.h"
 #include "exhaust_vaultscreen.h"
 #include "exhaust_platform.h"
@@ -282,6 +283,14 @@ int main(void) {
         const char *names[3];
         memset(name60, 'W', 60); name60[60] = 0;
         names[0] = name60; names[1] = "A layout"; names[2] = name60;
+        {   /* the ribbon chooser (7f): nine labels, the longest being the name of a button */
+            static char rl[9][120];
+            const char *rls[9];
+            size_t q;
+            for (q = 0; q < 9; q++) { snprintf(rl[q], sizeof rl[q], "%s: %s", q % 2 ? "Hidden" : "Shown", ex_ribbon_item(q)->name); rls[q] = rl[q]; }
+            ex_panels_ask_choice_at(g_p, "Ribbon items (choose one to show or hide it)", rls, 9, 4, ask_nothing_choice, NULL); pump(100); check_layout(r, root, "ribbon chooser");
+            ex_panels_close_dialog(g_p);
+        }
         ex_panels_ask_text(g_p, "Save workspace layout", "Name of the layout", "", ask_nothing_text, NULL);     pump(100); check_layout(r, root, "save layout dialog"); test_text_boxes(r, root, "save layout dialog", in);
         ex_panels_close_dialog(g_p);
         ex_panels_ask_choice(g_p, "Load workspace layout", names, 3, ask_nothing_choice, NULL);               pump(100); check_layout(r, root, "load layout dialog, long names");

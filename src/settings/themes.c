@@ -19,7 +19,7 @@ struct ExThemes {
     SDL_Thread *thr;
     SDL_AtomicInt stop;
     /* inputs (under mu) */
-    char scheme[16]; int system_dark; char theme[128]; char accent[16]; char snippets[400];
+    char scheme[16]; int system_dark, hc; char theme[128]; char accent[16]; char snippets[400];
     unsigned long in_gen;
     /* output (under mu) */
     ExTheme built; ExThemeDiag diag; int have; unsigned long out_gen, taken_gen, built_in_gen;      /* built_in_gen: the inputs the theme was built for */
@@ -210,7 +210,7 @@ static const char *path_of(Entry *list, size_t n, const char *name) {
     return NULL;
 }
 
-static void build(ExThemes *t, unsigned long in_gen, const char *scheme, int system_dark, const char *theme, const char *accent, const char *snippets) {
+static void build(ExThemes *t, unsigned long in_gen, const char *scheme, int system_dark, int hc, const char *theme, const char *accent, const char *snippets) {
     ExTheme out;
     ExThemeDiag diag;
     int dark = strcmp(scheme, "light") != 0;
@@ -221,7 +221,7 @@ static void build(ExThemes *t, unsigned long in_gen, const char *scheme, int sys
     if (!strcmp(scheme, "system")) dark = system_dark;
     free_used(t);
     SDL_LockMutex(t->mu);
-    if (theme[0] && !ieq(theme, "exhaust")) { const char *p = path_of(t->themes, t->nthemes, theme); if (p) tpath = dup_str(p); }
+    if (!hc && theme[0] && !ieq(theme, "exhaust")) { const char *p = path_of(t->themes, t->nthemes, theme); if (p) tpath = dup_str(p); }
     SDL_UnlockMutex(t->mu);
     free(t->built_path);
     t->built_path = tpath ? dup_str(tpath) : NULL;
@@ -230,10 +230,11 @@ static void build(ExThemes *t, unsigned long in_gen, const char *scheme, int sys
         int base = ex_theme_text_base(text, len);
         if (base >= 0) dark = base == 0;
     }
-    if (ex_theme_init_builtin(&out, dark ? EX_THEME_DARK : EX_THEME_LIGHT) != 0) { free(text); free(tpath); return; }
+    if (ex_theme_init_builtin(&out, hc ? (dark ? EX_THEME_HC_DARK : EX_THEME_HC_LIGHT) : (dark ? EX_THEME_DARK : EX_THEME_LIGHT)) != 0) { free(text); free(tpath); return; }
     if (text) ex_theme_apply_text(&out, text, len, &diag);
     free(text); free(tpath);
-    if (accent[0]) {                                                /* the accent colour of the settings; its hover colour is the accent lightened */
+    if (accent[0] && !hc) {                                         /* with high contrast on the theme file and the accent colour are not applied (docs/formats.md) */
+                                                                    /* the accent colour of the settings; its hover colour is the accent lightened */
         ExColor c;
         if (ex_parse_color(accent, &c) == 0) {
             out.colors[EX_COLOR_ACCENT] = c;
@@ -293,13 +294,13 @@ static int worker_main(void *arg) {
     int polls = 0;
     while (!SDL_GetAtomicInt(&t->stop)) {
         char scheme[16], theme[128], accent[16], snippets[400];
-        int sys;
+        int sys, hc;
         unsigned long gen;
         int relist = polls % 8 == 0, changed, list_changed = 0;
         SDL_LockMutex(t->mu);
         snprintf(scheme, sizeof scheme, "%s", t->scheme); snprintf(theme, sizeof theme, "%s", t->theme);
         snprintf(accent, sizeof accent, "%s", t->accent); snprintf(snippets, sizeof snippets, "%s", t->snippets);
-        sys = t->system_dark; gen = t->in_gen;
+        sys = t->system_dark; hc = t->hc; gen = t->in_gen;
         SDL_UnlockMutex(t->mu);
         if (SDL_SetAtomicInt(&t->rescan_now, 0)) relist = 1;
         if (relist) {                                                /* a new file in a folder shows up within two seconds */
@@ -311,7 +312,7 @@ static int worker_main(void *arg) {
             SDL_UnlockMutex(t->mu);
         }
         changed = files_changed(t) || list_changed;
-        if (gen != built_for || changed) { build(t, gen, scheme, sys, theme, accent, snippets); built_for = gen; }
+        if (gen != built_for || changed) { build(t, gen, scheme, sys, hc, theme, accent, snippets); built_for = gen; }
         polls++;
         SDL_AddAtomicInt(&t->polls, 1);
         SDL_Delay(250);
@@ -345,6 +346,13 @@ void ex_themes_free(ExThemes *t) {
     if (t->mu) SDL_DestroyMutex(t->mu);
     free(t->vdir); free(t->gdir);
     free(t);
+}
+
+void ex_themes_set_high_contrast(ExThemes *t, int on) {
+    if (!t) return;
+    SDL_LockMutex(t->mu);
+    if (t->hc != (on != 0)) { t->hc = on != 0; t->in_gen++; }
+    SDL_UnlockMutex(t->mu);
 }
 
 void ex_themes_set_inputs(ExThemes *t, const char *scheme, int system_dark, const char *theme, const char *accent, const char *snippets) {

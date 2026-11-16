@@ -30,6 +30,10 @@ void ex_themes_free(ExThemes *t);                                /* stops the wo
  * separated list of snippet names). A change makes the worker build again. */
 void ex_themes_set_inputs(ExThemes *t, const char *scheme, int system_dark, const char *theme, const char *accent, const char *snippets);
 
+/* High contrast (7f): on builds from the built-in high contrast theme of the scheme and does not apply the theme file or the accent colour (the
+ * snippets still apply). Changing it makes the worker build again. */
+void ex_themes_set_high_contrast(ExThemes *t, int on);
+
 /* If a theme newer than the one last taken is ready, copies it into out (free it with ex_theme_free) and returns 1; else 0. diag, if given, says
  * what the files held that could not be used. Never blocks for more than a lock. */
 int ex_themes_take(ExThemes *t, ExTheme *out, ExThemeDiag *diag);

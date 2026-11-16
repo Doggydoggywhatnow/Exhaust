@@ -443,4 +443,63 @@ PY
 )
 if [ "$tcolors" = "(255, 224, 230) (224, 255, 230)" ]; then echo "ok: a theme file colours the window and a change to it shows within a second or two"; else echo "FAILED: the theme file's colours ($tcolors)"; fail=1; fi
 
+# the shell (7f): zoom from the keyboard is written to settings.ini and changes the window at once; show_ribbon and ribbon_items hide the ribbon or some of
+# its buttons; high_contrast = on gives the high contrast colours whatever theme is named; window_width and window_height give the size of the window
+shellpx() {   # file x y: the pixel as "r,g,b" and the size of the picture as "WxH" when x is -1
+python3 - "$1" "$2" "$3" <<'PY'
+import sys
+d=open(sys.argv[1],'rb').read(); parts=d.split(b'\n',3); w,h=map(int,parts[1].split()); x=int(sys.argv[2]); y=int(sys.argv[3])
+if x < 0: print("%dx%d" % (w,h))
+else:
+    i=(y*w+x)*3; print("%d,%d,%d" % tuple(parts[3][i:i+3]))
+PY
+}
+shellrow() {  # file y: the first x (from 3) whose pixel differs from the one at x=2, and, with a band, how many pixels in x 5..40 and y 10..130 differ from the background
+python3 - "$1" "$2" <<'PY'
+import sys
+d=open(sys.argv[1],'rb').read(); parts=d.split(b'\n',3); w,h=map(int,parts[1].split()); y=int(sys.argv[2]); px=parts[3]
+def at(x,yy): i=(yy*w+x)*3; return px[i:i+3]
+bg=at(2,y); first=-1
+for x in range(3,w):
+    if at(x,y)!=bg: first=x; break
+bg2=at(2,300); top=sum(1 for yy in range(10,130) for x in range(5,40) if at(x,yy)!=bg2); bottom=sum(1 for yy in range(680,720) for x in range(5,40) if at(x,yy)!=bg2)
+print(first, top, bottom)
+PY
+}
+vault="$work/shell_run"; rm -rf "$vault"; mkdir -p "$vault/.exhaust/themes"
+printf '# Welcome\n' > "$vault/Home.md"
+printf '[theme]\nname = Rose\nbase = light\n[colors]\nbackground = #ffe0e6\n' > "$vault/.exhaust/themes/rose.theme"
+rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"
+export EXHAUST_OPEN=Home.md
+printf 'wait 1200\nshot %s\nquit\n' "$work/shell_base.ppm" > "$work/shell_base.script"
+EXHAUST_SCRIPT="$work/shell_base.script" $lim "$exe" "$vault" >"$work/shell_base.log" 2>&1
+printf 'wait 800\nkey mod+=\nwait 300\nkey mod+=\nwait 1200\nshot %s\nquit\n' "$work/shell_zoom.ppm" > "$work/shell_zoom.script"
+EXHAUST_SCRIPT="$work/shell_zoom.script" $lim "$exe" "$vault" >"$work/shell_zoom.log" 2>&1
+set -- $(shellrow "$work/shell_base.ppm" 300); base_first=$1; base_top=$2; base_bottom=$3
+set -- $(shellrow "$work/shell_zoom.ppm" 300); zoom_first=$1
+if grep -q "zoom_percent = 125" "$vault/.exhaust/settings.ini" 2>/dev/null && [ "$zoom_first" -gt "$((base_first + 5))" ] 2>/dev/null; then echo "ok: Ctrl+= twice zoomed to 125 percent, written to settings.ini and drawn (ribbon edge at $base_first, then $zoom_first)"; else echo "FAILED: zoom from the keyboard (file: $(grep zoom "$vault/.exhaust/settings.ini" 2>/dev/null), ribbon edge $base_first then $zoom_first)"; fail=1; fi
+rm -f "$vault/.exhaust/settings.ini"
+printf '[interface]\nshow_ribbon = false\n' > "$vault/.exhaust/settings.ini"
+EXHAUST_SCRIPT="$work/shell_base.script" $lim "$exe" "$vault" >"$work/shell_noribbon.log" 2>&1
+set -- $(shellrow "$work/shell_base.ppm" 300); nr_first=$1
+if [ "$nr_first" -gt 150 ] 2>/dev/null && [ "$base_first" -lt 60 ]; then echo "ok: show_ribbon = false hides the ribbon (the first edge moved from $base_first to $nr_first)"; else echo "FAILED: show_ribbon = false (edge $base_first, then $nr_first)"; fail=1; fi
+printf '[interface]\nribbon_items = app.open-settings\n' > "$vault/.exhaust/settings.ini"
+EXHAUST_SCRIPT="$work/shell_base.script" $lim "$exe" "$vault" >"$work/shell_items.log" 2>&1
+set -- $(shellrow "$work/shell_base.ppm" 300); it_first=$1; it_top=$2; it_bottom=$3
+if [ "$base_top" -gt 100 ] && [ "$it_top" -lt 5 ] && [ "$it_bottom" -gt 20 ] 2>/dev/null; then echo "ok: ribbon_items = app.open-settings keeps the settings button and drops the others ($base_top then $it_top pixels at the top, $it_bottom at the bottom)"; else echo "FAILED: ribbon_items (top $base_top then $it_top, bottom $it_bottom)"; fail=1; fi
+printf '[appearance]\nhigh_contrast = on\ncolor_scheme = dark\ntheme = Rose\n' > "$vault/.exhaust/settings.ini"
+printf 'wait 1500\nshot %s\nquit\n' "$work/shell_hc.ppm" > "$work/shell_hc.script"
+EXHAUST_SCRIPT="$work/shell_hc.script" $lim "$exe" "$vault" >"$work/shell_hc.log" 2>&1
+hcpx=$(shellpx "$work/shell_hc.ppm" 600 500)
+printf '[appearance]\ncolor_scheme = dark\ntheme = Rose\n' > "$vault/.exhaust/settings.ini"
+EXHAUST_SCRIPT="$work/shell_hc.script" $lim "$exe" "$vault" >"$work/shell_nohc.log" 2>&1
+nohcpx=$(shellpx "$work/shell_hc.ppm" 600 500)
+if [ "$hcpx" = "0,0,0" ] && [ "$nohcpx" = "255,224,230" ]; then echo "ok: high_contrast = on gives the high contrast colours and not the named theme's ($hcpx; without it $nohcpx)"; else echo "FAILED: high contrast ($hcpx, without it $nohcpx)"; fail=1; fi
+printf '[appearance]\nwindow_width = 900\nwindow_height = 600\n' > "$vault/.exhaust/settings.ini"
+EXHAUST_SCRIPT="$work/shell_base.script" $lim "$exe" "$vault" >"$work/shell_size.log" 2>&1
+szpx=$(shellpx "$work/shell_base.ppm" -1 0)
+if [ "$szpx" = "900x600" ]; then echo "ok: window_width and window_height give the size of the window"; else echo "FAILED: the window size ($szpx)"; fail=1; fi
+unset EXHAUST_OPEN
+rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"
+
 exit $fail

@@ -22,6 +22,7 @@ static const ExSettingsRow rows[] = {
 
     /* ---- Appearance ---- */
     S("appearance", "Colors", "appearance", "color_scheme", "Base color scheme", "Dark, light, or follow the setting of the operating system.", "Dark|Light|Follow the system"),
+    S("appearance", "Colors", "appearance", "high_contrast", "High contrast", "Stronger colors that are easy to tell apart. When it is on, the theme and the accent color are not used. The system choice follows the operating system where it can be asked.", "Off|On|Follow the system"),
     C("appearance", "Colors", "appearance", "accent_color", "Accent color", "A color written as # and six hex digits, for buttons, links and the focus ring. Empty uses the theme's own."),
     X("appearance", "Colors", "appearance", "theme", "Theme", "The name of the theme in use (a file in the themes folder of the vault, or the built-in one)."),
     X("appearance", "Colors", "appearance", "snippets_enabled", "Style snippets", "The style snippets that are switched on, separated by commas."),
@@ -34,11 +35,13 @@ static const ExSettingsRow rows[] = {
     T("appearance", "Window", "appearance", "translucent_window", "Translucent window", "Let the desktop show through the window. macOS only."),
     N("appearance", "Window", "appearance", "window_width", "Width of a new window", "The width, in pixels, of the window when no earlier size is remembered.", 600, 4000, 50),
     N("appearance", "Window", "appearance", "window_height", "Height of a new window", "The height, in pixels, of the window when no earlier size is remembered.", 400, 3000, 50),
+    A("appearance", "Window", "Use the size of this window", "Make the size of the window you are looking at the size of a new window.", "Use this size|window_size"),
 
     /* ---- Interface ---- */
     T("interface", "Window", "interface", "show_tab_title_bar", "Show the title bar of tabs", "Under the tabs of each pane: back and forward, the note's name, the reading switch and a menu."),
     T("interface", "Window", "interface", "show_ribbon", "Show the ribbon", "The strip of buttons on the far left."),
-    X("interface", "Window", "interface", "ribbon_items", "Ribbon buttons", "The buttons the ribbon shows, separated by commas. Empty shows all of them."),
+    X("interface", "Window", "interface", "ribbon_items", "Ribbon buttons", "The commands whose buttons the ribbon shows, separated by commas. Empty shows all of them and none shows none. Use the button below to choose from a list."),
+    A("interface", "Window", "Choose ribbon buttons", "A list of the ribbon buttons: choose one to show or hide it.", "Choose...|ribbon_items"),
     N("interface", "Window", "interface", "zoom_percent", "Zoom", "How large the whole interface is, in percent of its normal size.", 50, 400, 5),
     T("interface", "Window", "interface", "native_menus", "Native menus", "Use the operating system's own menus where there are any."),
     S("interface", "Window", "interface", "window_frame", "Window frame", "Draw the title bar yourself, use the system's, or hide it.", "Custom|Native|Hidden"),

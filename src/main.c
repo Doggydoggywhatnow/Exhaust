@@ -19,6 +19,9 @@
 #include "exhaust_platform.h"
 #include "exhaust_render.h"
 #include "exhaust_session.h"
+#include "exhaust_ribbon.h"
+#include "exhaust_shell.h"
+#include "exhaust_statusbar.h"
 #include "exhaust_settings.h"
 #include "exhaust_hotkeys.h"
 #include "exhaust_themes.h"
@@ -74,7 +77,10 @@ typedef struct App {
     ExGraphModel *gm_local;        /* the local graph's (5c), while a local graph tab exists */
     ExGraphOptions gopts;          /* the graph's settings (5b): filters, groups, forces, display; kept in the session's [graph] section */
     char *graph_note;              /* the note last open in a tab: drawn in the focus color (the graph's own tab is not a note) */
-    ExWidget *rb_switcher, *rb_graph, *rb_canvas, *rb_palette, *rb_mode, *rb_left, *rb_right, *rb_theme, *rb_settings;   /* the ribbon */
+    ExRibbon *ribbon;                        /* the ribbon (7f) */
+    ExWidget *ribbon_line, *rb_graph, *rb_mode, *rb_left, *rb_right;   /* the line beside it, and the buttons the program keeps track of */
+    ExStatusBar *sbar;                       /* the status bar (7f) */
+    char sb_mode[16]; int sb_save, sb_poll;  /* what the bar shows now, so it is only touched when something changes */
     void (*sel_chosen)(void *, size_t);      /* the choice a settings select is waiting for (7a) */
     void *sel_arg;
     int main_collapsed, main_prev_width; ExSide main_collapsed_side;   /* app.toggle-main-text-view: the main text view is a handle, and what to give back */
@@ -110,6 +116,7 @@ typedef struct App {
     ExSettings *settings;
     ExHotkeys *hotkeys;                      /* hotkeys.ini and the shortcuts (7c) */
     ExThemes *themes;                        /* the theme files and snippets, built on a worker thread (7d) */
+    int sys_hc;                              /* does the system ask for high contrast: -1 not asked yet (7f) */
     void (*cap_cb)(void *, const char *);    /* the settings screen is waiting for a key press to make a shortcut of (7c) */
     void *cap_arg;
     Uint64 swallow_text_until;               /* the text event that follows a captured key press is not typed anywhere */
@@ -118,14 +125,12 @@ typedef struct App {
     ExWidget *left_content;
     ExPanels *panels;
     char *sel_path; size_t sel_offset;   /* put the caret here once the note is showing */
-    float zoom_now;
     TabNote *tabnotes; size_t ntabnotes, captabnotes;
     ExId focus_tab;            /* the tab whose editor should get the focus when it exists */
     ExId menu_group;           /* the pane whose three-dot menu is open (5d) */
     int right_tabs, had_side_tabs;   /* the right sidebar shows its tabs, not its panels; it had tabs the frame before (5e) */
     Banner banner_kind;
     int blink_on;
-    float zoom;
 } App;
 
 static char *dup_text(const char *s) { size_t n = strlen(s); char *p = malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
@@ -593,9 +598,13 @@ static int settings_set_feature(void *u, const char *key, int enabled) { return 
 
 static int theme_sync(App *a);
 static void apply_history(App *a);
+static void apply_zoom(App *a);
+static void apply_ribbon(App *a);
 static void settings_action(void *u, const char *id);
 static void settings_changed(void *u, const char *section, const char *key) {
     App *a = u;
+    if (!strcmp(section, "interface") && !strcmp(key, "zoom_percent")) apply_zoom(a);
+    if (!strcmp(section, "interface") && (!strcmp(key, "show_ribbon") || !strcmp(key, "ribbon_items"))) apply_ribbon(a);
     if (!strcmp(section, "file_recovery")) apply_history(a);                   /* the interval or the days kept (7e) */
     if (!strcmp(section, "appearance")) theme_sync(a);                         /* the colour scheme, the theme, the accent colour or the snippets changed */
     (void)key;
@@ -736,12 +745,13 @@ static void on_new_note(ExWidget *w, const char *parent_rel, void *user) {
     if (n) open_path(a, 0, ex_note_path(n));
 }
 
+static int high_contrast_now(App *a);
 static void on_toggle_theme(ExWidget *w, void *user) {
     App *a = user;
     ExTheme next;
     int to_dark = !a->theme.is_dark;
     (void)w;
-    if (ex_theme_init_builtin(&next, to_dark ? EX_THEME_DARK : EX_THEME_LIGHT) == 0) {
+    if (ex_theme_init_builtin(&next, high_contrast_now(a) ? (to_dark ? EX_THEME_HC_DARK : EX_THEME_HC_LIGHT) : (to_dark ? EX_THEME_DARK : EX_THEME_LIGHT)) == 0) {
         ex_theme_free(&a->theme);
         a->theme = next;
         ex_ui_set_theme(a->ui, &a->theme);
@@ -757,6 +767,14 @@ static void on_toggle_theme(ExWidget *w, void *user) {
 
 /* The theme from the settings, built by the worker (7d): hands it what the settings say now and takes a newer theme when one is ready. Returns 1 when the
  * theme on screen changed (the caller draws again). */
+/* Is high contrast on: the setting, or the system's when the setting says system. The system is asked once (and again after the setting was changed). */
+static int high_contrast_now(App *a) {
+    const char *hc = ex_settings_get(a->settings, "appearance", "high_contrast");
+    if (hc && !strcmp(hc, "system")) { if (a->sys_hc < 0) a->sys_hc = ex_platform_high_contrast(); /* ui-ok: one short question to the system, when the user chose it */ }
+    else a->sys_hc = -1;
+    return ex_high_contrast_resolve(hc, a->sys_hc > 0);
+}
+
 static int theme_sync(App *a) {
     ExTheme next;
     const char *scheme, *theme, *accent, *snippets;
@@ -765,6 +783,7 @@ static int theme_sync(App *a) {
     theme = ex_settings_get(a->settings, "appearance", "theme");
     accent = ex_settings_get(a->settings, "appearance", "accent_color");
     snippets = ex_settings_get(a->settings, "appearance", "snippets_enabled");
+    ex_themes_set_high_contrast(a->themes, high_contrast_now(a));
     ex_themes_set_inputs(a->themes, scheme ? scheme : "dark", SDL_GetSystemTheme() != SDL_SYSTEM_THEME_LIGHT, theme ? theme : "", accent ? accent : "", snippets ? snippets : "");
     if (!ex_themes_take(a->themes, &next, NULL)) return 0;
     ex_theme_free(&a->theme);
@@ -778,9 +797,6 @@ static const ExTheme *current_theme_cb(void *u) { return &((App *)u)->theme; }
 static void toggle_side(App *a, ExSide side) {
     ex_ws_set_sidebar(a->ws, side, !ex_ws_sidebar_visible(a->ws, side), ex_ws_sidebar_width(a->ws, side));
 }
-static void on_toggle_left(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "app.toggle-left-sidebar"); }
-static void on_toggle_mode_button(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "app.toggle-live-preview-source-mode"); }
-static void on_toggle_right(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "app.toggle-right-sidebar"); }
 
 /* ---- commands ---- */
 
@@ -1289,10 +1305,11 @@ static void on_files_feature(const char *id, int enabled, void *user) {
     if (a->left_content) a->left_content->hidden = !enabled;
 }
 
+static void apply_ribbon(App *a);
 static void on_graph_feature(const char *id, int enabled, void *user) {
     App *a = user;
-    (void)id;
-    if (a->rb_graph) a->rb_graph->hidden = !enabled;
+    (void)id; (void)enabled;
+    apply_ribbon(a);                                                        /* the graph button needs the feature */
 }
 
 /* graph-view.open-graph-view: the graph tab, in the active group; one that is already open comes to the front. */
@@ -1322,7 +1339,6 @@ static void cmd_open_settings(void *u) {
     else t = ex_ws_new_tab(a->ws, ex_ws_active_group(a->ws), "", "settings");
     a->focus_tab = t;
 }
-static void on_ribbon_settings(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "app.open-settings"); }
 
 /* graph-view.open-local-graph: the local graph tab (the open note and the notes around it), in the active group; an open one comes to the front. */
 static void cmd_open_local_graph(void *u) {
@@ -1348,7 +1364,80 @@ static int has_graph(void *u) { return active_graph(u) != NULL; }
 /* graph-view.start-graph-timelapse-animation: the notes appear in the order they were created (the wand button does the same). */
 static void cmd_graph_animation(void *u) { ExWidget *g = active_graph(u); if (g) ex_graphview_animation_toggle(g); }
 
-static void on_ribbon_graph(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "graph-view.open-graph-view"); }
+
+/* ---- the ribbon and the status bar (7f) ---- */
+
+static void ribbon_run(void *user, const char *command_id) { ex_commands_run(((App *)user)->commands, command_id); }
+
+/* The ribbon from the settings: the bar at all, and which buttons. */
+static void apply_ribbon(App *a) {
+    int show;
+    if (!a->ribbon || !a->settings) return;
+    show = ex_settings_get_bool(a->settings, "interface", "show_ribbon");
+    ex_ribbon_apply(a->ribbon, show, ex_settings_get(a->settings, "interface", "ribbon_items"), a->features ? ex_features_enabled(a->features, "graph") : 1);
+    if (a->ribbon_line) a->ribbon_line->hidden = !show;
+}
+
+/* Once a frame: the items of the status bar that follow the active note. Touches a label only when its value changed. */
+static void update_statusbar(App *a) {
+    const char *mode = NULL;
+    int save = EX_SAVE_NONE, poll;
+    if (!a->sbar) return;
+    if (a->note) {
+        ExId tab = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+        const ExTab *t = tab ? ex_ws_tab(a->ws, tab) : NULL;
+        mode = t && t->mode && t->mode[0] ? t->mode : "live";
+        save = ex_note_error(a->note) ? EX_SAVE_FAILED : !ex_note_exists_on_disk(a->note) && !ex_note_dirty(a->note) ? EX_SAVE_NONE : ex_note_dirty(a->note) ? EX_SAVE_EDITING : EX_SAVE_SAVED;
+    }
+    {
+        char key[16];
+        int on = ex_settings_get_bool(a->settings, "editor", "show_mode_in_status_bar");
+        snprintf(key, sizeof key, "%s%s", on ? "+" : "-", mode ? mode : "");
+        if (strcmp(key, a->sb_mode)) { snprintf(a->sb_mode, sizeof a->sb_mode, "%s", key); ex_statusbar_set_mode(a->sbar, mode, on); }
+    }
+    if (save != a->sb_save) { a->sb_save = save; ex_statusbar_set_save(a->sbar, (ExSaveState)save); }
+    poll = a->notes ? ex_notes_watcher_polling(a->notes) : 0;
+    if (poll != a->sb_poll) { a->sb_poll = poll; ex_statusbar_set_polling(a->sbar, poll); }
+}
+
+/* The ribbon chooser (the Interface page's button): a list of the buttons with Shown or Hidden before each; choosing one flips it and the list opens again. */
+static void ribbon_choose(App *a, size_t selected);
+static void ribbon_flip(size_t index, void *arg) {
+    App *a = arg;
+    const ExRibbonItem *it = ex_ribbon_item(index);
+    char *next;
+    if (!it) return;
+    next = ex_ribbon_set(ex_settings_get(a->settings, "interface", "ribbon_items"), it->id, !ex_ribbon_shown(ex_settings_get(a->settings, "interface", "ribbon_items"), it->id));
+    if (next) { ex_settings_set(a->settings, "interface", "ribbon_items", next); free(next); }
+    apply_ribbon(a);
+    ribbon_choose(a, index);
+}
+static void ribbon_choose(App *a, size_t selected) {
+    size_t n = ex_ribbon_item_count(), i;
+    static char text[16][110];
+    const char *labels[16];
+    const char *list = ex_settings_get(a->settings, "interface", "ribbon_items");
+    if (!a->panels || n > 16) return;
+    for (i = 0; i < n; i++) {
+        snprintf(text[i], sizeof text[i], "%s: %s", ex_ribbon_shown(list, ex_ribbon_item(i)->id) ? "Shown" : "Hidden", ex_ribbon_item(i)->name);
+        labels[i] = text[i];
+    }
+    ex_panels_ask_choice_at(a->panels, "Ribbon items (choose one to show or hide it)", labels, n, selected, ribbon_flip, a);
+}
+
+/* ---- zoom (7f) ---- */
+
+/* The interface zoom from the settings: at once, whoever changed the setting (a command, the slider on the Appearance page, the file). */
+static void apply_zoom(App *a) {
+    ex_renderer_set_zoom(a->r, (float)ex_zoom_clamp(ex_settings_get_int(a->settings, "interface", "zoom_percent")) / 100.0f);
+}
+static void set_zoom(App *a, int percent) {
+    ex_settings_set_int(a->settings, "interface", "zoom_percent", percent);        /* written at once */
+    apply_zoom(a);
+}
+static void cmd_zoom_in(void *u) { App *a = u; set_zoom(a, ex_zoom_step(ex_settings_get_int(a->settings, "interface", "zoom_percent"), 1)); }
+static void cmd_zoom_out(void *u) { App *a = u; set_zoom(a, ex_zoom_step(ex_settings_get_int(a->settings, "interface", "zoom_percent"), -1)); }
+static void cmd_zoom_reset(void *u) { set_zoom(u, 100); }
 
 /* ---- workspaces (7e): saved layouts ---- */
 
@@ -1491,6 +1580,17 @@ static void clear_history_answer(int button, void *arg) {
 /* The File recovery page's buttons (7e) and the other actions of the settings screen. */
 static void settings_action(void *u, const char *id) {
     App *a = u;
+    if (!strcmp(id, "ribbon_items")) { ribbon_choose(a, 0); return; }
+    if (!strcmp(id, "window_size")) {
+        int w = 0, h = 0;
+        char msg[120];
+        SDL_GetWindowSize(ex_renderer_window(a->r), &w, &h);
+        ex_settings_set_int(a->settings, "appearance", "window_width", ex_window_size_clamp(w));
+        ex_settings_set_int(a->settings, "appearance", "window_height", ex_window_size_clamp(h));
+        snprintf(msg, sizeof msg, "New windows will start at %d by %d.", ex_window_size_clamp(w), ex_window_size_clamp(h));
+        set_status(a, msg);
+        return;
+    }
     if (!strcmp(id, "clear_history") && a->panels && a->notes)
         ex_panels_ask_confirm(a->panels, "Clear the history", "Delete every snapshot of every note?\nThe copies kept when a note was changed on disk and in Exhaust at the same time stay.", "Delete", "Cancel", NULL, clear_history_answer, a);
 }
@@ -1589,6 +1689,9 @@ static void register_features_and_commands(App *a) {
     ex_commands_bind(a->commands, "workspaces.load-workspace-layout", cmd_layout_load, has_saved_layouts, a);
     ex_commands_bind(a->commands, "workspaces.manage-workspace-layouts", cmd_layout_manage, has_saved_layouts, a);
     ex_commands_bind(a->commands, "file-recovery.open-local-history", cmd_history, has_note_tab, a);
+    ex_commands_bind(a->commands, "app.zoom-in", cmd_zoom_in, NULL, a);
+    ex_commands_bind(a->commands, "app.zoom-out", cmd_zoom_out, NULL, a);
+    ex_commands_bind(a->commands, "app.reset-zoom", cmd_zoom_reset, NULL, a);
 }
 
 /* A key press as a chord of the hotkeys module (7c). Printable keys are their lower case character; a key that is only a modifier gives 0. */
@@ -1869,6 +1972,7 @@ static void sync_ui(App *a) {
         free(a->sel_path); a->sel_path = NULL;
     } else if (a->sel_path && a->note && !a->editor && !strcmp(ex_note_path(a->note), a->sel_path)) { free(a->sel_path); a->sel_path = NULL; }
     update_wordcount(a);
+    update_statusbar(a);
     if (a->findbar && ex_findbar_is_open(a->findbar)) { if (a->editor) ex_findbar_set_target(a->findbar, a->editor); ex_findbar_update(a->findbar); }
     if (a->diff_doc && a->banner_kind == BANNER_HISTORY && a->note != a->banner_note) { stop_showing_diff(a); free(a->hist_old); a->hist_old = NULL; banner_for_note(a, a->note); }   /* another tab: the comparison ends */
     if (a->note != a->banner_note && !a->diff_doc) banner_for_note(a, a->note);
@@ -2143,19 +2247,6 @@ static int host_file_op(void *u, int what, const char *path, const char *arg) {
     return rc;
 }
 
-static ExWidget *ribbon_icon(App *a, int icon, const char *name, ExClickFn fn, int disabled) {
-    ExWidget *b = ex_widget_button(a->ui, name, fn, a);
-    if (!b) return NULL;
-    ex_widget_set_icon(b, icon);
-    b->bg_token = -1; b->border_token = -1;
-    if (disabled) { b->disabled = 1; b->focusable = 0; }
-    return b;
-}
-
-static void on_ribbon_switcher(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "quick-switcher.open-quick-switcher"); }
-static void on_ribbon_palette(ExWidget *w, void *user) { (void)w; ex_commands_run(((App *)user)->commands, "command-palette.open-command-palette"); }
-
-
 /* ---- the vault manager window and opening vaults ---- */
 
 static const char *g_exe = "exhaust";
@@ -2303,7 +2394,6 @@ int main(int argc, char **argv) {
     ExMessage job;
     ExWidget *row, *col, *ribbon, *status, *left_content;
     ExPanesHooks hooks;
-    float zoom = 1.0f;
     int running = 1, clicks = 0;
     Uint64 last_click = 0;
     const char *intro = "Welcome to Exhaust.\n\nOpen a folder of notes with:  exhaust FOLDER\n\nEnglish, \xD8\xB9\xD8\xB1\xD8\xA8\xD9\x8A (Arabic), "
@@ -2339,7 +2429,6 @@ int main(int argc, char **argv) {
         }
     }
     memset(&app, 0, sizeof app);
-    app.zoom = 1.0f;
     app.blink_on = 1;
     {
         const char *folder = argc > 1 ? argv[1] : g_first_folder;
@@ -2384,15 +2473,15 @@ int main(int argc, char **argv) {
         dark = strcmp(scheme, "light") != 0;
         if (strcmp(scheme, "system") == 0) dark = SDL_GetSystemTheme() != SDL_SYSTEM_THEME_LIGHT;
         free(global_scheme);
-        if (ex_theme_init_builtin(&app.theme, dark ? EX_THEME_DARK : EX_THEME_LIGHT) != 0) return 1;
+        app.sys_hc = -1;
+        if (ex_theme_init_builtin(&app.theme, high_contrast_now(&app) ? (dark ? EX_THEME_HC_DARK : EX_THEME_HC_LIGHT) : (dark ? EX_THEME_DARK : EX_THEME_LIGHT)) != 0) return 1;
     }
     ex_renderer_set_display_scale(app.r, ex_renderer_detect_display_scale(app.r));
     {
         long fs = ex_settings_get_int(app.settings, "appearance", "font_size");
         long zp = ex_settings_get_int(app.settings, "interface", "zoom_percent");
         app.ui = ex_ui_create(app.r, &app.theme, (float)(fs < 8 ? 8 : fs > 48 ? 48 : fs));
-        zoom = (float)(zp < 50 ? 50 : zp > 400 ? 400 : zp) / 100.0f;
-        ex_renderer_set_zoom(app.r, zoom);
+        ex_renderer_set_zoom(app.r, (float)ex_zoom_clamp(zp) / 100.0f);
     }
     app.demo_doc = ex_doc_create(intro, strlen(intro));
     app.ws = ex_ws_create();
@@ -2449,40 +2538,22 @@ int main(int argc, char **argv) {
     app.root->bg_token = EX_COLOR_BACKGROUND;
     row = ex_widget_box(app.ui, 0, "workspace");
     row->width = ex_size_grow(); row->height = ex_size_grow();
-    ribbon = ex_widget_box(app.ui, 1, "ribbon");
-    ribbon->width = ex_size_token(EX_SIZE_RIBBON_WIDTH, 1.0f);
-    ribbon->height = ex_size_grow();
-    ribbon->bg_token = EX_COLOR_BACKGROUND_ALT;
-    ribbon->pad_x = 0.5f; ribbon->pad_y = 1.0f; ribbon->gap = 0.5f; ribbon->align_x = 1;     /* the icons sit in the middle of the bar */
-    /* the ribbon: the actions at the top, the view switches at the bottom; drawn icons, each with its name for screen readers. The
-     * graph and canvas stay disabled until those views exist; the settings button comes with the settings screens (sub-slice 7a). */
-    app.rb_switcher = ribbon_icon(&app, EX_ICON_SEARCH, "Quick switcher", on_ribbon_switcher, 0);
-    app.rb_graph = ribbon_icon(&app, EX_ICON_GRAPH, "Graph view", on_ribbon_graph, 0);
-    app.rb_canvas = ribbon_icon(&app, EX_ICON_CANVAS, "Canvas (not available yet)", NULL, 1);
-    app.rb_palette = ribbon_icon(&app, EX_ICON_PALETTE, "Command palette", on_ribbon_palette, 0);
-    ex_widget_add(ribbon, app.rb_switcher);
-    ex_widget_add(ribbon, app.rb_graph);
-    ex_widget_add(ribbon, app.rb_canvas);
-    ex_widget_add(ribbon, app.rb_palette);
-    {   ExWidget *gap = ex_widget_box(app.ui, 1, "ribbon space");
-        gap->width = ex_size_grow(); gap->height = ex_size_grow();
-        ex_widget_add(ribbon, gap);
+    {   /* the ribbon: the actions at the top, the view switches at the bottom (src/ui/ribbon.c); the buttons are commands, and the settings choose which show (7f) */
+        ExRibbonHooks rh;
+        rh.user = &app; rh.run = ribbon_run;
+        app.ribbon = ex_ribbon_create(app.ui, &rh);
+        ribbon = ex_ribbon_widget(app.ribbon);
+        app.rb_graph = ex_ribbon_button(app.ribbon, "graph-view.open-graph-view");
+        app.rb_mode = ex_ribbon_button(app.ribbon, "app.toggle-live-preview-source-mode");
+        app.rb_left = ex_ribbon_button(app.ribbon, "app.toggle-left-sidebar");
+        app.rb_right = ex_ribbon_button(app.ribbon, "app.toggle-right-sidebar");
     }
-    app.rb_mode = ribbon_icon(&app, EX_ICON_MODE, "Live preview or source mode of this note", on_toggle_mode_button, 0);
-    app.rb_left = ribbon_icon(&app, EX_ICON_SIDEBAR_LEFT, "Show or hide the left sidebar", on_toggle_left, 0);
-    app.rb_right = ribbon_icon(&app, EX_ICON_SIDEBAR_RIGHT, "Show or hide the right sidebar", on_toggle_right, 0);
-    app.rb_theme = ribbon_icon(&app, EX_ICON_THEME, "Switch between light and dark", on_toggle_theme, 0);
-    app.rb_settings = ribbon_icon(&app, EX_ICON_GEAR, "Settings", on_ribbon_settings, 0);
-    ex_widget_add(ribbon, app.rb_mode);
-    ex_widget_add(ribbon, app.rb_left);
-    ex_widget_add(ribbon, app.rb_right);
-    ex_widget_add(ribbon, app.rb_theme);
-    ex_widget_add(ribbon, app.rb_settings);
     ex_widget_add(row, ribbon);
     {   /* a thin line between the ribbon and the file explorer */
         ExWidget *line = ex_widget_box(app.ui, 1, "Ribbon separator");
         line->width = ex_size_px(app.ui, 1); line->height = ex_size_grow(); line->bg_token = EX_COLOR_BORDER;
         ex_widget_add(row, line);
+        app.ribbon_line = line;
     }
 
     left_content = app.vault ? ex_explorer_sidebar(app.ui, app.vault, on_open_file, &app, &app.tree) : info_label(&app, "No vault is open.");
@@ -2563,29 +2634,16 @@ int main(int argc, char **argv) {
         ex_widget_add(row, app.right_sb);
         ex_widget_add(row, ex_sidebar_edge_create(app.right_sb));  /* the handle of a hidden right sidebar, at the window's edge */
     }
-    status = ex_widget_label(app.ui, app.vault ? "Typing, selecting, several cursors (Ctrl+Alt+Up or Down, Alt+click), undo and redo work. Ctrl+Plus and Ctrl+Minus zoom."
-                                                : "No vault is open. Start with:  exhaust FOLDER");
-    status->text_token = EX_COLOR_TEXT_MUTED;
-    status->text_scale = 0.85f;
-    status->width = ex_size_grow();
-    status->pad_x = 1.0f; status->pad_y = 0.5f;
-    status->bg_token = EX_COLOR_BACKGROUND_ALT;
-    {
-        ExWidget *srow = ex_widget_box(app.ui, 0, "Status");
-        srow->width = ex_size_grow();
-        srow->bg_token = EX_COLOR_BACKGROUND_ALT;
-        status->bg_token = -1;
-        app.wordcount = ex_widget_label(app.ui, "");
-        app.wordcount->text_token = EX_COLOR_TEXT_MUTED;
-        app.wordcount->text_scale = 0.85f;
-        app.wordcount->pad_x = 1.0f; app.wordcount->pad_y = 0.5f;
-        ex_widget_add(srow, status);
-        ex_widget_add(srow, app.wordcount);
-        ex_widget_add(app.root, row);
-        ex_widget_add(app.root, srow);
-        on_wordcount_feature("word_count", ex_features_enabled(app.features, "word_count"), &app);
-    }
+    app.sbar = ex_statusbar_create(app.ui);                                 /* the status bar (src/ui/statusbar.c, 7f) */
+    status = ex_statusbar_message_label(app.sbar);
+    app.wordcount = ex_statusbar_words(app.sbar);
+    ex_statusbar_message(app.sbar, app.vault ? "Typing, selecting, several cursors (Ctrl+Alt+Up or Down, Alt+click), undo and redo work. Ctrl+Plus and Ctrl+Minus zoom."
+                                             : "No vault is open. Start with:  exhaust FOLDER");
+    ex_widget_add(app.root, row);
+    ex_widget_add(app.root, ex_statusbar_widget(app.sbar));
+    on_wordcount_feature("word_count", ex_features_enabled(app.features, "word_count"), &app);
     app.status = status;
+    apply_ribbon(&app);
 
     if (app.vault && !app.notes) set_status(&app, "Warning: the recovery journal could not be opened, so notes cannot be edited safely.");
     else if (app.notes && ex_notes_unsaved_count(app.notes) > 0) {
@@ -2716,20 +2774,6 @@ int main(int argc, char **argv) {
                 else if (under && under->editor) ex_editor_scroll(under->editor, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 break;
             }
-            case SDL_EVENT_KEY_DOWN:
-                if (ex_mods_from_sdl() & EX_MOD_PRIMARY) {
-                    float before = zoom;
-                    if (e.key.key == SDLK_EQUALS || e.key.key == SDLK_PLUS) zoom *= 1.1f;
-                    else if (e.key.key == SDLK_MINUS) zoom /= 1.1f;
-                    else if (e.key.key == SDLK_0) zoom = 1.0f;
-                    if (zoom < 0.5f) zoom = 0.5f;
-                    if (zoom > 4.0f) zoom = 4.0f;
-                    if (zoom != before) {
-                        ex_renderer_set_zoom(app.r, zoom);
-                        ex_settings_set_int(app.settings, "interface", "zoom_percent", (long)(zoom * 100.0f + 0.5f));   /* written at once */
-                    }
-                }
-                break;
             default: break;
             }
         }

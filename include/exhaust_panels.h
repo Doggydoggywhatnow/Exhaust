@@ -124,6 +124,8 @@ void ex_panels_close_dialog(ExPanels *p);
 /* Questions the application asks (7e). The answer comes in the callback, after the dialog has closed; Cancel and Escape call nothing. */
 void ex_panels_ask_text(ExPanels *p, const char *title, const char *label, const char *initial, void (*cb)(const char *text, void *arg), void *arg);
 void ex_panels_ask_choice(ExPanels *p, const char *title, const char *const *labels, size_t n, void (*cb)(size_t index, void *arg), void *arg);
+/* the same with row `selected` chosen when it opens */
+void ex_panels_ask_choice_at(ExPanels *p, const char *title, const char *const *labels, size_t n, size_t selected, void (*cb)(size_t index, void *arg), void *arg);
 /* up to three buttons; the callback gets 1, 2 or 3 */
 void ex_panels_ask_confirm(ExPanels *p, const char *title, const char *message, const char *b1, const char *b2, const char *b3, void (*cb)(int button, void *arg), void *arg);
 /* File recovery (7e): lists the earlier versions of a note (read from `dir` on the service thread), asks which one, and hands it to the host's

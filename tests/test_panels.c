@@ -773,6 +773,13 @@ int main(void) {
         key(EX_KEY_DOWN, 0); key(EX_KEY_ENTER, 0);
         pump(50);
         CHECK(g_ask_choice == 1);
+        /* the same list with a row chosen when it opens (the ribbon chooser opens again on the row it changed) */
+        g_ask_choice = -1;
+        ex_panels_ask_choice_at(F.p, "Ribbon", labels, 3, 2, ask_choice_cb, NULL);
+        pump(50);
+        key(EX_KEY_ENTER, 0);
+        pump(50);
+        CHECK(g_ask_choice == 2);
 
         /* the versions of Alpha.md: two snapshots and the other side of a conflict, listed newest first; choosing one gives its text and the changes */
         CHECK(ex_history_take(hd, "Alpha.md", "# Alpha\n\nOld text.\n", 19, 1700000000, EX_SNAP_AUTO) == 0);

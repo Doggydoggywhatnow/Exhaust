@@ -45,17 +45,18 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 | `quick_font_size` | bool | `true` | 0.1.0 |
 | `app_icon` | path | empty (stub) | 0.1.0 |
 | `translucent_window` | bool | `false` (macOS only) | 0.1.0 |
-| `window_width` | int | `1100` | 0.1.0 |
-| `window_height` | int | `750` | 0.1.0 |
+| `high_contrast` | enum(off\|on\|system) | `off` | 0.1.0 (7f). See *Shell: status bar, ribbon, zoom, high contrast and window size (7f)*. |
+| `window_width` | int | `1100` | 0.1.0. Since 7f the size of a window that has no saved size, between 400 and 10000. |
+| `window_height` | int | `750` | 0.1.0. Since 7f as `window_width`. |
 
 ### [interface]
 
 | Name | Type | Default | Since |
 | --- | --- | --- | --- |
 | `show_tab_title_bar` | bool | `true` | 0.1.0. **Works since 5d:** it shows or hides the pane header, the strip of back and forward arrows, the title, the reading switch and the three-dot menu under the tab strip of every pane (the plan of 5d called the switch `show_pane_header`; this key, from the settings page "Show tab title bar", is the same thing and is used instead of a second name). |
-| `show_ribbon` | bool | `true` | 0.1.0 |
-| `ribbon_items` | list | empty (all) | 0.1.0 |
-| `zoom_percent` | percent | `100` | 0.1.0 |
+| `show_ribbon` | bool | `true` | 0.1.0. Works since 7f. |
+| `ribbon_items` | list | empty (all) | 0.1.0. Works since 7f: the command ids whose buttons the ribbon shows; see *Shell*. |
+| `zoom_percent` | percent | `100` | 0.1.0. Works while the program runs since 7f: 50 to 400. |
 | `native_menus` | bool | `false` | 0.1.0 |
 | `window_frame` | enum(custom\|native\|hidden) | `hidden` | 0.1.0 |
 | `settings_in_new_window` | bool | `false` | 0.1.0 |
@@ -421,7 +422,7 @@ The code's table of commands (`ex_command_table`) is generated from this table a
 | `editor.remove-heading` | Remove heading |  | yes |
 | `app.rename-file` | Rename file | `F2` |  |
 | `editor.rename-this-heading` | Rename this heading... |  | yes |
-| `app.reset-zoom` | Reset zoom |  |  |
+| `app.reset-zoom` | Reset zoom | `Ctrl+0` |  |
 | `app.save-current-file` | Save current file | `Ctrl+S` |  |
 | `app.search-and-replace-in-current-file` | Search & replace in current file | `Ctrl+H` |  |
 | `app.search-current-file` | Search current file | `Ctrl+F` |  |
@@ -505,8 +506,8 @@ The code's table of commands (`ex_command_table`) is generated from this table a
 | `workspaces.save-workspace-layout` | Workspaces: Save workspace layout |  |  |
 | `workspaces.load-workspace-layout` | Workspaces: Load workspace layout |  |  |
 | `workspaces.manage-workspace-layouts` | Workspaces: Manage workspace layouts |  |  |
-| `app.zoom-in` | Zoom in |  |  |
-| `app.zoom-out` | Zoom out |  |  |
+| `app.zoom-in` | Zoom in | `Ctrl+=, Ctrl++` |  |
+| `app.zoom-out` | Zoom out | `Ctrl+-` |  |
 
 ## workspaces.ini
 
@@ -847,6 +848,41 @@ Everything is in the `exhaust` table. A function that needs a permission fails w
 | `exhaust.http.get(url)` | `network` |
 
 Event names for `exhaust.events.on`: `vault-open`, `file-open`, `file-save`, `file-rename`, `editor-change`. Since: 0.1.0.
+
+## Shell: status bar, ribbon, zoom, high contrast and window size (7f)
+
+**Status bar.** The line at the bottom of the window. On the left, the last message (a save that failed, a layout saved, a spelling hint) or, when there is none, nothing. On the right, from left to right, only the items that apply:
+
+| Item | Shown when | Text |
+| --- | --- | --- |
+| Editing mode | the active tab is a note and `[editor] show_mode_in_status_bar` is on | `Live preview`, `Source mode` or `Reading view` |
+| Save state | the active tab is a note | `Saved`; `Editing` while there are edits not yet on disk or a save is running; `Not saved` when the last save failed (the text is safe in the journal) |
+| File watching | the system gave no change notices and Exhaust looks at the files by polling | `Checking for outside changes by polling` |
+| Word count | the feature `word_count` is on and the active tab is a note | as before: `n words, m characters`, or `k of n words, m characters` for a selection |
+
+Each item has an accessible name that is its text, and the bar is a single row that never wraps: when the window is narrower than the items, the left message is cut with an ellipsis first.
+
+**Ribbon.** `[interface] show_ribbon = false` hides the whole ribbon (the commands stay in the palette and on their shortcuts). `[interface] ribbon_items` is a comma separated list of command ids; the ribbon shows the buttons of the commands in the list, in its own fixed order, and an empty list shows all of them. An id this version does not know is ignored and kept. The buttons (id, name, what it does):
+
+| Id | Button | Place |
+| --- | --- | --- |
+| `quick-switcher.open-quick-switcher` | Quick switcher | top |
+| `graph-view.open-graph-view` | Graph view | top (also needs the feature `graph`) |
+| `canvas.create-new-canvas` | Canvas (not available yet) | top; a disabled stub until 6a |
+| `command-palette.open-command-palette` | Command palette | top |
+| `app.toggle-live-preview-source-mode` | Live preview or source mode | bottom |
+| `app.toggle-left-sidebar` | Show or hide the left sidebar | bottom |
+| `app.toggle-right-sidebar` | Show or hide the right sidebar | bottom |
+| `app.change-theme` | Switch between light and dark | bottom |
+| `app.open-settings` | Settings | bottom |
+
+The Interface page of the settings has a button *Choose ribbon items*: a list of the nine with `Shown` or `Hidden` before each; choosing one flips it and the list opens again, Cancel closes it. A list that shows all nine is stored as an empty value. The change applies at once.
+
+**Zoom.** `[interface] zoom_percent` is the interface zoom, 50 to 400. The commands `app.zoom-in`, `app.zoom-out` and `app.reset-zoom` (default shortcuts `Ctrl+=` and `Ctrl++`, `Ctrl+-`, `Ctrl+0`; `Cmd` on macOS) move to the next or previous *level* and back to 100; the levels are 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300 and 400 percent. From a value between two levels (the slider on the Appearance page writes any whole number) zoom in goes to the next level above it and zoom out to the next level below it. Every change is written to `settings.ini` at once and applies at once, also when it is made on the settings page. (Before 7f the program read the keys `Ctrl+=` and `Ctrl+-` itself and stepped by ten percent; that is gone.)
+
+**High contrast.** `[appearance] high_contrast`: `off`; `on`, which uses the built-in *Exhaust High Contrast Dark* or *Light* (the colour scheme picks which; see the Palette table) instead of the built-in dark or light theme; `system`, which is `on` when the operating system asks for high contrast (Windows: the High Contrast setting; Linux: GNOME's `org.gnome.desktop.a11y.interface high-contrast`; macOS: not detected in 0.1.0, so `system` is `off` there) and `off` otherwise. With high contrast on, the theme file named by `theme` and `accent_color` are **not applied** (they could lower the contrast) and the Theme page says so; the enabled snippets still apply. The change applies at once.
+
+**Size of a window.** `window_width` and `window_height` (400 to 10000, in pixels at 100% zoom) are the size of a window that has no size of its own: the first window of a vault, and, from 7g, a new pop-out window. The Appearance page has a button *Use the size of this window* that writes the current size into both keys.
 
 ## Settings screen
 

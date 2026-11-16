@@ -53,11 +53,15 @@ void ex_panels_ask_text(ExPanels *p, const char *title, const char *label, const
     dialog_prompt(p, title, label, initial ? initial : "", text_done, a);
 }
 
-void ex_panels_ask_choice(ExPanels *p, const char *title, const char *const *labels, size_t n, void (*cb)(size_t index, void *arg), void *arg) {
+void ex_panels_ask_choice_at(ExPanels *p, const char *title, const char *const *labels, size_t n, size_t selected, void (*cb)(size_t index, void *arg), void *arg) {
     Ask *a = new_ask(p);
     if (!a) return;
     a->choice = cb; a->arg = arg;
-    dialog_choice(p, title, (const char **)labels, n, 0, choice_done, a);
+    dialog_choice(p, title, (const char **)labels, n, selected, choice_done, a);
+}
+
+void ex_panels_ask_choice(ExPanels *p, const char *title, const char *const *labels, size_t n, void (*cb)(size_t index, void *arg), void *arg) {
+    ex_panels_ask_choice_at(p, title, labels, n, 0, cb, arg);
 }
 
 void ex_panels_ask_confirm(ExPanels *p, const char *title, const char *message, const char *b1, const char *b2, const char *b3, void (*cb)(int button, void *arg), void *arg) {

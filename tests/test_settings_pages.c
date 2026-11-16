@@ -296,6 +296,20 @@ int main(int argc, char **argv) {
     ex_settingsview_search(SV, "");
     frame();
     CHECK(ex_settingsview_rows_shown(SV) > 0);                        /* the page again */
+    {   /* the button rows of the Interface and Appearance pages (7f) tell the application which action they are */
+        const char *pages[2] = { "interface", "appearance" }, *names[2] = { "Choose ribbon buttons", "Use the size of this window" }, *ids[2] = { "ribbon_items", "window_size" };
+        size_t k;
+        for (k = 0; k < 2; k++) {
+            ExWidget *b;
+            CHECK(ex_settingsview_show(SV, pages[k]) == 0);
+            frame(); frame();
+            b = find_button(ROOT, names[k]);
+            ACTION_ID[0] = 0;
+            CHECK(b != NULL);
+            if (b) { ex_ui_scroll_into_view(UI, b); frame(); frame(); click(b); }
+            CHECK(!strcmp(ACTION_ID, ids[k]));
+        }
+    }
     {   /* a result is a working control */
         long before;
         ExWidget *c;

@@ -210,7 +210,7 @@ add_custom_command(
   COMMAND gen_tables ${CMAKE_CURRENT_SOURCE_DIR}/docs/formats.md ${SETTINGS_SCHEMA_C} ${COMMAND_TABLE_C}
   DEPENDS gen_tables ${CMAKE_CURRENT_SOURCE_DIR}/docs/formats.md
   COMMENT "Generating the settings and command tables from docs/formats.md")
-add_library(exhaust_settings STATIC src/settings/slash.c src/settings/settings.c src/settings/hotkeys.c src/settings/registry.c src/settings/apply.c ${SETTINGS_SCHEMA_C} ${COMMAND_TABLE_C})
+add_library(exhaust_settings STATIC src/settings/slash.c src/settings/settings.c src/settings/hotkeys.c src/settings/shell.c src/settings/registry.c src/settings/apply.c ${SETTINGS_SCHEMA_C} ${COMMAND_TABLE_C})
 target_include_directories(exhaust_settings PUBLIC include)
 target_link_libraries(exhaust_settings PUBLIC exhaust_workspace exhaust_buffer exhaust_platform SDL3::SDL3-static)
 
@@ -346,7 +346,7 @@ endif()
 add_library(exhaust_theme STATIC src/ui/theme.c src/ui/theme_data.c src/settings/themes.c ${THEME_C})
 target_include_directories(exhaust_theme PUBLIC include)
 target_link_libraries(exhaust_theme PUBLIC exhaust_ini exhaust_platform SDL3::SDL3-static)
-add_library(exhaust_ui STATIC src/ui/graphview.c src/ui/slider.c src/ui/graph_panel.c src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/editor.c src/ui/editor_layout.c src/ui/editor_fold.c src/ui/editor_keys.c src/ui/editor_format.c src/ui/editor_table.c src/ui/settings_view.c src/ui/settings_rows.c src/ui/findbar.c src/ui/reading_view.c src/ui/ui.c src/ui/list.c src/ui/icons.c src/ui/service.c src/ui/views.c src/ui/dialogs.c src/ui/history_dialog.c src/ui/panels.c src/ui/fileactions.c src/ui/fileprops.c src/ui/panes.c src/ui/vault_screen.c)
+add_library(exhaust_ui STATIC src/ui/graphview.c src/ui/slider.c src/ui/graph_panel.c src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/editor.c src/ui/editor_layout.c src/ui/editor_fold.c src/ui/editor_keys.c src/ui/editor_format.c src/ui/editor_table.c src/ui/settings_view.c src/ui/settings_rows.c src/ui/findbar.c src/ui/reading_view.c src/ui/ui.c src/ui/list.c src/ui/icons.c src/ui/service.c src/ui/views.c src/ui/ribbon.c src/ui/statusbar.c src/ui/dialogs.c src/ui/history_dialog.c src/ui/panels.c src/ui/fileactions.c src/ui/fileprops.c src/ui/panes.c src/ui/vault_screen.c)
 target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
 target_link_libraries(exhaust_ui PUBLIC exhaust_theme exhaust_layout exhaust_nav exhaust_index exhaust_spell exhaust_settings exhaust_find exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace exhaust_markdown clay_impl)
 if(NOT MSVC)
@@ -703,6 +703,10 @@ add_executable(test_title_scroll tests/test_title_scroll.c)
 target_link_libraries(test_title_scroll PRIVATE exhaust_ui exhaust_markdown)
 target_include_directories(test_title_scroll PRIVATE src/ui)
 add_test(NAME title_scroll COMMAND test_title_scroll)
+
+add_executable(test_shell_ui tests/test_shell_ui.c)
+target_link_libraries(test_shell_ui PRIVATE exhaust_ui exhaust_theme)
+add_test(NAME shell_ui COMMAND test_shell_ui)
 
 add_executable(test_layouts tests/test_layouts.c)
 target_link_libraries(test_layouts PRIVATE exhaust_workspace exhaust_buffer)

@@ -160,3 +160,26 @@ void ex_platform_match_cursor_size(void) {
     }
 #endif
 }
+
+/* ---- high contrast ---- */
+
+int ex_platform_high_contrast(void) {
+#if defined(_WIN32)
+    HIGHCONTRASTW hc;
+    memset(&hc, 0, sizeof hc);
+    hc.cbSize = sizeof hc;
+    if (SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof hc, &hc, 0)) return (hc.dwFlags & HCF_HIGHCONTRASTON) != 0;
+    return 0;
+#elif defined(__linux__)
+    FILE *p = popen("gsettings get org.gnome.desktop.a11y.interface high-contrast 2>/dev/null", "r");
+    char line[32];
+    int on = 0;
+    if (!p) return 0;
+    if (fgets(line, sizeof line, p)) on = strncmp(line, "true", 4) == 0;
+    pclose(p);
+    return on;
+#else
+    return 0;
+#endif
+}
+
