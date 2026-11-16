@@ -10,6 +10,8 @@ fail=0
 export SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software
 export XDG_CONFIG_HOME="$work/cfg" XDG_DATA_HOME="$work/data" XDG_CACHE_HOME="$work/cache" HOME="$work/home"
 mkdir -p "$work/cfg" "$work/data" "$work/cache" "$work/home"
+# the program keeps its state in XDG folders on Linux and in $HOME/Library on a Mac, so a reset clears both
+reset_state() { rm -rf "$work/data" "$work/cfg" "$work/cache" "$work/home"; mkdir -p "$work/cfg" "$work/data" "$work/cache" "$work/home"; }
 
 run() {   # name script-text open-note
     vault="$work/$1"
@@ -370,13 +372,13 @@ export EXHAUST_OPEN=Home.md
 EXHAUST_SCRIPT="$work/hk_default.script" $lim "$exe" "$vault" >"$work/hk_default.log" 2>&1
 hsession=$(find "$work" -name session.ini -newer "$work/hk_default.script" | head -1)
 if [ -n "$hsession" ] && grep -q "view = settings" "$hsession"; then echo "ok: Ctrl+, opens the settings (the default shortcut)"; else echo "FAILED: the default shortcut Ctrl+,"; fail=1; fi
-rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"
+reset_state
 printf '[hotkeys]\napp.open-settings = Ctrl+Alt+J\n' > "$vault/.exhaust/hotkeys.ini"
 printf 'wait 600\nkey mod+comma\nwait 600\nmove 21 604\ndown 21 604\nup 21 604\nwait 1500\nquit\n' > "$work/hk_old.script"
 EXHAUST_SCRIPT="$work/hk_old.script" $lim "$exe" "$vault" >"$work/hk_old.log" 2>&1
 hsession=$(find "$work" -name session.ini -newer "$work/hk_old.script" | head -1)
 if [ -n "$hsession" ] && ! grep -q "view = settings" "$hsession"; then echo "ok: a shortcut that was taken away does nothing"; else echo "FAILED: the old shortcut still works"; fail=1; fi
-rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"
+reset_state
 EXHAUST_SCRIPT="$work/hk_custom.script" $lim "$exe" "$vault" >"$work/hk_custom.log" 2>&1
 hsession=$(find "$work" -name session.ini -newer "$work/hk_custom.script" | head -1)
 if [ -n "$hsession" ] && grep -q "view = settings" "$hsession"; then echo "ok: the shortcut from hotkeys.ini opens the settings"; else echo "FAILED: the shortcut from hotkeys.ini"; fail=1; fi
@@ -389,14 +391,14 @@ printf '# Welcome\n\nHello.\n' > "$vault/Home.md"
 printf '[hotkeys]\nfile-recovery.open-local-history = Ctrl+Alt+H\n' > "$vault/.exhaust/hotkeys.ini"
 printf 'wait 800\nmove 420 250\ndown 420 250\nup 420 250\nwait 200\ntext  typed more\nwait 2500\nquit\n' > "$work/hist_type.script"
 printf 'wait 800\nkey ctrl+alt+h\nwait 800\nkey enter\nwait 1200\nmove 560 20\ndown 560 20\nup 560 20\nwait 2500\nquit\n' > "$work/hist_restore.script"
-rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"
+reset_state
 export EXHAUST_OPEN=Home.md
 EXHAUST_SCRIPT="$work/hist_type.script" $lim "$exe" "$vault" >"$work/hist_type.log" 2>&1
-hfirst=$(find "$work/data" -name 'Home.md.*.snap' | head -1)
+hfirst=$(find "$work" -name 'Home.md.*.snap' | head -1)
 if grep -q "typed more" "$vault/Home.md" && [ -n "$hfirst" ] && [ "$(cat "$hfirst")" = "$(printf '# Welcome\n\nHello.')" ]; then echo "ok: the first save kept the text the note had before"; else echo "FAILED: no snapshot of the text before the first save"; fail=1; fi
 EXHAUST_SCRIPT="$work/hist_restore.script" $lim "$exe" "$vault" >"$work/hist_restore.log" 2>&1
 if [ "$(cat "$vault/Home.md")" = "$(printf '# Welcome\n\nHello.')" ]; then echo "ok: Restore put the earlier version back"; else echo "FAILED: Restore did not put the earlier version back"; fail=1; fi
-if grep -l "typed more" $(find "$work/data" -name 'Home.md.*.snap') >/dev/null 2>&1; then echo "ok: the text that was replaced is in the history"; else echo "FAILED: the text a restore replaced was not kept"; fail=1; fi
+if grep -l "typed more" $(find "$work" -name 'Home.md.*.snap') >/dev/null 2>&1; then echo "ok: the text that was replaced is in the history"; else echo "FAILED: the text a restore replaced was not kept"; fail=1; fi
 unset EXHAUST_OPEN
 
 # workspaces (7e): a layout saved under a name comes back after the tabs changed, and it is in workspaces.ini
@@ -406,18 +408,18 @@ printf '[features]\nworkspaces = true\n' > "$vault/.exhaust/settings.ini"
 printf '[hotkeys]\nworkspaces.save-workspace-layout = Ctrl+Alt+W\nworkspaces.load-workspace-layout = Ctrl+Alt+L\n' > "$vault/.exhaust/hotkeys.ini"
 printf 'wait 800\nkey ctrl+alt+w\nwait 500\ntext Writing\nwait 200\nkey enter\nwait 600\nmove 405 15\ndown 405 15\nup 405 15\nwait 500\nkey ctrl+alt+l\nwait 500\nkey enter\nwait 800\nmove 21 604\ndown 21 604\nup 21 604\nwait 1500\nquit\n' > "$work/layout.script"
 printf 'wait 800\nmove 405 15\ndown 405 15\nup 405 15\nwait 500\nmove 21 604\ndown 21 604\nup 21 604\nwait 1500\nquit\n' > "$work/layout_control.script"
-rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"       # only this vault has a session folder, so the one find picks is the right one
+reset_state       # only this vault has a session folder, so the one find picks is the right one
 export EXHAUST_OPEN=Home.md
 EXHAUST_SCRIPT="$work/layout_control.script" $lim "$exe" "$vault" >"$work/layout_control.log" 2>&1
-lsession=$(find "$work/data" -name session.ini | head -1)
+lsession=$(find "$work" -name session.ini | head -1)
 lcontrol=$(grep -c '^\[tab\.' "$lsession" 2>/dev/null)
-rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"
+reset_state
 EXHAUST_SCRIPT="$work/layout.script" $lim "$exe" "$vault" >"$work/layout.log" 2>&1
-lsession=$(find "$work/data" -name session.ini | head -1)
+lsession=$(find "$work" -name session.ini | head -1)
 ltabs=$(grep -c '^\[tab\.' "$lsession" 2>/dev/null)
 if [ "$lcontrol" = "2" ] && [ "$ltabs" = "1" ]; then echo "ok: loading a saved layout brought back its one tab"; else echo "FAILED: loading a saved layout (tabs without a load: $lcontrol, with one: $ltabs)"; fail=1; fi
 if grep -q '^\[workspace.Writing\]' "$vault/.exhaust/workspaces.ini" 2>/dev/null; then echo "ok: the layout is in workspaces.ini"; else echo "FAILED: workspaces.ini has no layout"; fail=1; fi
-rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"
+reset_state
 unset EXHAUST_OPEN
 
 # themes (7d): the theme file named in the settings colours the window, and a change to the file shows without a restart
@@ -469,7 +471,7 @@ PY
 vault="$work/shell_run"; rm -rf "$vault"; mkdir -p "$vault/.exhaust/themes"
 printf '# Welcome\n' > "$vault/Home.md"
 printf '[theme]\nname = Rose\nbase = light\n[colors]\nbackground = #ffe0e6\n' > "$vault/.exhaust/themes/rose.theme"
-rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"
+reset_state
 export EXHAUST_OPEN=Home.md
 printf 'wait 1200\nshot %s\nquit\n' "$work/shell_base.ppm" > "$work/shell_base.script"
 EXHAUST_SCRIPT="$work/shell_base.script" $lim "$exe" "$vault" >"$work/shell_base.log" 2>&1
@@ -500,6 +502,6 @@ EXHAUST_SCRIPT="$work/shell_base.script" $lim "$exe" "$vault" >"$work/shell_size
 szpx=$(shellpx "$work/shell_base.ppm" -1 0)
 if [ "$szpx" = "900x600" ]; then echo "ok: window_width and window_height give the size of the window"; else echo "FAILED: the window size ($szpx)"; fail=1; fi
 unset EXHAUST_OPEN
-rm -rf "$work/data" "$work/cfg"; mkdir -p "$work/data" "$work/cfg"
+reset_state
 
 exit $fail
