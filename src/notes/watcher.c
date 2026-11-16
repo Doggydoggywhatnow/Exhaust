@@ -16,6 +16,7 @@
 #include "exhaust_notes.h"
 #include "exhaust_platform.h"
 #include "exhaust_vault.h"
+#include "exhaust_watch_native.h"
 #include "exhaust_worker.h"
 
 /* ---- the operating system's backend (inotify on Linux) ---- */
@@ -28,20 +29,10 @@ typedef struct Ino {
     char **dir;          /* the watched folder (vault-relative) for each watch */
     size_t n, cap;
     char root[1024];
-    char **pending; size_t npending, cappending;
+    ExPathQueue *q;      /* what changed and has not been read: a path waits only once, so a burst is one report for each file (7i) */
 } Ino;
 
-static void ino_push(Ino *in, const char *rel) {
-    if (in->npending == in->cappending) {
-        size_t nc = in->cappending ? in->cappending * 2 : 32;
-        char **np = realloc(in->pending, nc * sizeof *np);
-        if (!np) return;
-        in->pending = np;
-        in->cappending = nc;
-    }
-    in->pending[in->npending] = malloc(strlen(rel) + 1);
-    if (in->pending[in->npending]) strcpy(in->pending[in->npending++], rel);
-}
+static void ino_push(Ino *in, const char *rel) { ex_pathq_push(in->q, rel); }
 
 typedef struct IterNames { char **v; size_t n, cap; } IterNames;
 
@@ -71,6 +62,17 @@ static int ino_add_dir(Ino *in, const char *rel, int depth) {
     snprintf(abs, sizeof abs, "%s%s%s", in->root, rel[0] ? "/" : "", rel);
     wd = inotify_add_watch(in->fd, abs, IN_CLOSE_WRITE | IN_MOVED_TO | IN_MOVED_FROM | IN_CREATE | IN_DELETE | IN_MODIFY | IN_ATTRIB | IN_DELETE_SELF);
     if (wd < 0) return -1;                        /* ENOSPC: the OS refuses more watches */
+    {   /* the same folder under another name (it was renamed): the kernel gives the same watch, so it keeps the new path from now on (7i) */
+        size_t k;
+        for (k = 0; k < in->n; k++) if (in->wd[k] == wd) {
+            char *np = malloc(strlen(rel) + 1);
+            if (!np) return -1;
+            strcpy(np, rel);
+            free(in->dir[k]);
+            in->dir[k] = np;
+            goto subfolders;
+        }
+    }
     if (in->n == in->cap) {
         size_t nc = in->cap ? in->cap * 2 : 64;
         int *nw = realloc(in->wd, nc * sizeof *nw);
@@ -82,6 +84,7 @@ static int ino_add_dir(Ino *in, const char *rel, int depth) {
     in->dir[in->n] = malloc(strlen(rel) + 1);
     if (!in->dir[in->n]) return -1;
     strcpy(in->dir[in->n++], rel);
+subfolders:
     /* its subfolders */
     {
         IterNames names = {0};
@@ -131,11 +134,13 @@ static void *ino_start(const char *root) {
     Ino *in = calloc(1, sizeof *in);
     if (!in) return NULL;
     snprintf(in->root, sizeof in->root, "%s", root);
+    in->q = ex_pathq_create();
     in->fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
-    if (in->fd < 0 || ino_add_dir(in, "", 0) != 0) {
+    if (!in->q || in->fd < 0 || ino_add_dir(in, "", 0) != 0) {
         size_t i;
         if (in->fd >= 0) close(in->fd);
         for (i = 0; i < in->n; i++) free(in->dir[i]);
+        ex_pathq_free(in->q);
         free(in->wd); free(in->dir); free(in);
         return NULL;
     }
@@ -146,12 +151,13 @@ static int ino_read(void *ctx, char *rel, size_t cap) {
     Ino *in = ctx;
     char buf[16384] __attribute__((aligned(8)));
     ssize_t len;
-    while (in->npending == 0 && (len = read(in->fd, buf, sizeof buf)) > 0) {
+    while (ex_pathq_count(in->q) == 0 && (len = read(in->fd, buf, sizeof buf)) > 0) {
         char *p = buf;
         while (p < buf + len) {
             struct inotify_event *ev = (struct inotify_event *)p;
             size_t i;
             const char *dir = "";
+            if (ev->mask & IN_Q_OVERFLOW) ex_pathq_overflow(in->q);                 /* the kernel dropped events: everything may have changed */
             for (i = 0; i < in->n; i++) if (in->wd[i] == ev->wd) { dir = in->dir[i]; break; }
             if (ev->len > 0 && ev->name[0] != '.') {
                 char path[2200];
@@ -162,12 +168,7 @@ static int ino_read(void *ctx, char *rel, size_t cap) {
             p += sizeof *ev + ev->len;
         }
     }
-    if (in->npending == 0) return 0;
-    snprintf(rel, cap, "%s", in->pending[0]);
-    free(in->pending[0]);
-    memmove(in->pending, in->pending + 1, (in->npending - 1) * sizeof *in->pending);
-    in->npending--;
-    return 1;
+    return ex_pathq_pop(in->q, rel, cap);
 }
 
 static void ino_stop(void *ctx) {
@@ -175,11 +176,24 @@ static void ino_stop(void *ctx) {
     size_t i;
     close(in->fd);
     for (i = 0; i < in->n; i++) free(in->dir[i]);
-    for (i = 0; i < in->npending; i++) free(in->pending[i]);
-    free(in->wd); free(in->dir); free(in->pending); free(in);
+    ex_pathq_free(in->q);
+    free(in->wd); free(in->dir); free(in);
 }
 
 static const ExWatchBackend NATIVE = {"inotify", ino_start, ino_read, ino_stop};
+#define HAVE_NATIVE 1
+#elif defined(_WIN32) || defined(__APPLE__)
+/* ReadDirectoryChangesW and FSEvents (src/platform/watch_native.c) */
+static void *nat_start(const char *root) { return ex_native_watch_start(root); }
+static int nat_read(void *ctx, char *rel, size_t cap) { return ex_native_watch_read(ctx, rel, cap); }
+static void nat_stop(void *ctx) { ex_native_watch_stop(ctx); }
+static const ExWatchBackend NATIVE = {
+#if defined(_WIN32)
+    "ReadDirectoryChangesW",
+#else
+    "FSEvents",
+#endif
+    nat_start, nat_read, nat_stop};
 #define HAVE_NATIVE 1
 #else
 #define HAVE_NATIVE 0

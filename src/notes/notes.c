@@ -671,8 +671,8 @@ void ex_notes_tick(ExNotes *m) {
     if (m->watcher) {
         int tree_changed = 0;
         while (ex_watcher_poll(m->watcher, rel, sizeof rel)) {
-            ExNote *open = find_by_rel(m, rel);
-            if (open) open->check_disk = 1;
+            if (!rel[0]) { ExNote *o; for (o = m->notes; o; o = o->next) o->check_disk = 1; }     /* the empty path: events were lost, any open note may have changed */
+            else { ExNote *open = find_by_rel(m, rel); if (open) open->check_disk = 1; }
             tree_changed = 1;
         }
         if (tree_changed) push_event(m, EX_NOTE_EVENT_TREE_CHANGED, NULL, "", NULL);

@@ -48,13 +48,14 @@ typedef struct ExWatchBackend {
      * watches): the watcher then polls modification times instead. */
     void *(*start)(const char *root);
     /* Non-blocking: copies the vault-relative path of one changed file or folder into rel and
-     * returns 1, or returns 0 if there is nothing new. */
+     * returns 1, or returns 0 if there is nothing new. The empty path means events were lost and
+     * anything may have changed. A path that is already waiting is not reported again (7i). */
     int (*read)(void *ctx, char *rel, size_t cap);
     void (*stop)(void *ctx);
 } ExWatchBackend;
 
 typedef struct ExWatcher ExWatcher;
-/* backend NULL: the operating system's (inotify on Linux; elsewhere polling for now). Excluded
+/* backend NULL: the operating system's (inotify on Linux, ReadDirectoryChangesW on Windows, FSEvents on macOS; polling when it refuses). Excluded
  * files are never reported. poll_ms is the polling interval (the README says 2000). */
 ExWatcher *ex_watcher_start(const char *root, const ExWatchBackend *backend, const char *const *excluded, size_t nexcluded, int poll_ms);
 /* Returns 1 and fills rel when something changed, else 0. Never blocks. */
