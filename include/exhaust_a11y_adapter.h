@@ -35,6 +35,8 @@ ExA11yTree *ex_a11y_adapter_tree(ExA11yAdapter *a);               /* the tree to
 int ex_a11y_adapter_wants_update(ExA11yAdapter *a, uint64_t now_ms);
 /* Sends the tree to the operating system (and keeps a snapshot for the next activation). */
 void ex_a11y_adapter_commit(ExA11yAdapter *a);
+/* Whether the window has the keyboard focus: a screen reader on Linux reports a widget as focused only inside a focused window. Windows and macOS see it themselves (no-op). */
+void ex_a11y_adapter_set_focus(ExA11yAdapter *a, int focused);
 /* The window's place on the screen in pixels, for the screen reader's idea of where things are (X11). */
 void ex_a11y_adapter_set_window_bounds(ExA11yAdapter *a, int x, int y, int w, int h);
 

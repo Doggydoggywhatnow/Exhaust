@@ -2205,6 +2205,11 @@ static void a11y_window(ExA11yAdapter *ad, ExUi *ui, ExWidget *root, SDL_Window 
         SDL_GetWindowPosition(win, &x, &y);
         SDL_GetWindowSize(win, &w, &h);
         ex_a11y_adapter_set_window_bounds(ad, x, y, w, h);
+        {   /* a headless window (the dummy video driver) has no window manager to focus it: it counts as focused */
+            const char *drv = SDL_GetCurrentVideoDriver();
+            int f = (SDL_GetWindowFlags(win) & SDL_WINDOW_INPUT_FOCUS) != 0 || (drv && !strcmp(drv, "dummy"));
+            ex_a11y_adapter_set_focus(ad, f);
+        }
         ex_a11y_adapter_commit(ad);
     }
 }

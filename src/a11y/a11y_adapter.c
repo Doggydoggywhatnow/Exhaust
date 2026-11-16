@@ -29,6 +29,7 @@ struct ExA11yAdapter {
     uint64_t last_update_ms;
     unsigned long commits;
     int platform;
+    int focus_known, focused;           /* the window focus last told to the operating system (Linux only: Windows and macOS see the window's own focus) */
 #if defined(EX_ADAPTER_UNIX)
     struct accesskit_unix_adapter *ak;
 #elif defined(EX_ADAPTER_WIN)
@@ -171,6 +172,15 @@ void ex_a11y_adapter_commit(ExA11yAdapter *a) {
     if (a->ak) { struct accesskit_windows_queued_events *ev = accesskit_windows_subclassing_adapter_update_if_active(a->ak, update_factory, a); if (ev) accesskit_windows_queued_events_raise(ev); }
 #elif defined(EX_ADAPTER_MAC)
     if (a->ak) { struct accesskit_macos_queued_events *ev = accesskit_macos_subclassing_adapter_update_if_active(a->ak, update_factory, a); if (ev) accesskit_macos_queued_events_raise(ev); }
+#endif
+}
+
+void ex_a11y_adapter_set_focus(ExA11yAdapter *a, int focused) {
+    focused = focused != 0;
+    if (!a || (a->focus_known && a->focused == focused)) return;
+    a->focus_known = 1; a->focused = focused;
+#if defined(EX_ADAPTER_UNIX)
+    if (a->ak) accesskit_unix_adapter_update_window_focus_state(a->ak, focused);
 #endif
 }
 
