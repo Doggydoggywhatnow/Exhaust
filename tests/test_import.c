@@ -136,6 +136,17 @@ int main(void) {
         for (i = 0; i < sizeof w / sizeof *w; i++) { char *md = ex_html_to_markdown(w[i], strlen(w[i]), NULL, NULL); CHECK(md != NULL); free(md); }
     }
 
+    {   /* an output whose last character fills the buffer exactly: the final newline needs room (the fuzz target found it in CI) */
+        size_t n;
+        for (n = 1000; n < 1100; n++) {
+            char *in = malloc(n + 1), *md;
+            memset(in, 'a', n); in[n] = 0;
+            md = ex_html_to_markdown(in, n, NULL, NULL);
+            CHECK(md != NULL && strlen(md) == n + 1 && md[n] == '\n');
+            free(md); free(in);
+        }
+    }
+
     /* ---- CSV ---- */
     {
         Rows r;

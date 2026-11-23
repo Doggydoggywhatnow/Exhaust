@@ -518,8 +518,8 @@ char *ex_html_to_markdown(const char *html, size_t len, char **title, size_t *ou
                 w = e;
                 break;
             }
-            if (w) o->p[w++] = '\n';
             o->n = w; o->p[w] = 0;
+            if (w) bc(o, '\n');                                  /* through bput: the buffer may be exactly full (found by the fuzz target in CI, run 45185859148) */
         }
         {   size_t lead = 0; while (o->p && lead < o->n && (o->p[lead] == '\n' || o->p[lead] == ' ')) lead++; if (lead) { memmove(o->p, o->p + lead, o->n - lead + 1); o->n -= lead; } }
     }
