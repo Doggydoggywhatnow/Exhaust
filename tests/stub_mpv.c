@@ -51,13 +51,13 @@ static double now_s(void) {
 
 static void advance(Ctx *c) {
     double t = now_s();
-    if (c->loaded && !c->paused && !c->ended) { c->pos += t - c->t_last; if (c->pos >= c->duration) { c->pos = c->duration; c->ended = 1; } }
+    if (c->loaded && !c->paused && !c->ended) { c->pos += t - c->t_last; if (c->pos >= c->duration) { c->pos = c->duration; c->ended = 1; c->paused = 1; } }      /* keep-open=yes: libmpv pauses at the end of the file (a slow macOS runner reached the end while the test played, and the stub went on running while the player said "paused": ISSUES 76) */
     c->t_last = t;
 }
 
 MPV_EXPORT unsigned long mpv_client_api_version(void) { return MPV_MAKE_VERSION(2, 5); }
 MPV_EXPORT const char *mpv_error_string(int e) { return e == MPV_ERROR_LOADING_FAILED ? "loading failed" : e == MPV_ERROR_INVALID_PARAMETER ? "invalid parameter" : "error"; }
-MPV_EXPORT mpv_handle *mpv_create(void) { Ctx *c = calloc(1, sizeof *c); if (c) { c->paused = 1; c->volume = 100.0; c->duration = 2.0; c->t_last = now_s(); MUTEX_INIT(&c->mu); } return (mpv_handle *)c; }
+MPV_EXPORT mpv_handle *mpv_create(void) { Ctx *c = calloc(1, sizeof *c); if (c) { c->paused = 1; c->volume = 100.0; c->duration = (getenv("EXHAUST_STUB_MPV_SECONDS") && atof(getenv("EXHAUST_STUB_MPV_SECONDS")) > 0.5) ? atof(getenv("EXHAUST_STUB_MPV_SECONDS")) : 2.0; c->t_last = now_s(); MUTEX_INIT(&c->mu); } return (mpv_handle *)c; }
 MPV_EXPORT int mpv_initialize(mpv_handle *h) { (void)h; return 0; }
 MPV_EXPORT void mpv_terminate_destroy(mpv_handle *h) { if (h) MUTEX_FREE(&((Ctx *)h)->mu); free(h); }
 MPV_EXPORT int mpv_set_option_string(mpv_handle *h, const char *n, const char *d) { (void)h; (void)n; (void)d; return 0; }

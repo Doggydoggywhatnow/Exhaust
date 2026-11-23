@@ -127,3 +127,13 @@ jobs:
         run: mkdir -p corpus/import && cp tests/data/import/seed*.bin corpus/import/ && ./build-fuzz/fuzz_import -max_total_time=60 -max_len=4096 corpus/import
       - name: Bases files, 60 seconds
         run: mkdir -p corpus/base && cp tests/data/base/*.base corpus/base/ && ./build-fuzz/fuzz_base -max_total_time=60 -max_len=4096 corpus/base
+      - name: Keep what a fuzzer found
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: |
+            crash-*
+            timeout-*
+            oom-*
+          if-no-files-found: ignore

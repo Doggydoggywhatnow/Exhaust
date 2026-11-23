@@ -86,6 +86,7 @@ int main(int argc, char **argv) {
     CHECK(externals == 1);
 
     /* ---- with the stand-in ---- */
+    SDL_setenv_unsafe("EXHAUST_STUB_MPV_SECONDS", "40", 1);                       /* a file that no runner plays to its end before the first pause: at two seconds a slow macOS runner reached the end first, Space then meant "play again" and the test went out of step (ISSUES 76) */
     CHECK(ex_mpv_load(STUB, err, sizeof err) == 1);
     loads = 0;
     open_view("/media/b.mp4");
@@ -114,8 +115,8 @@ int main(int argc, char **argv) {
     WAIT_FOR(!st.playing);
     CHECK(!st.playing);
     click(st.bar_x + st.bar_w * 0.75f, st.bar_y);
-    WAIT_FOR(ex_mpv_position(PLAYER) > 1.35 && ex_mpv_position(PLAYER) < 1.65);
-    CHECK(ex_mpv_position(PLAYER) > 1.35 && ex_mpv_position(PLAYER) < 1.65);       /* three quarters of 2 seconds */
+    WAIT_FOR(ex_mpv_position(PLAYER) > 29.5 && ex_mpv_position(PLAYER) < 30.5);
+    CHECK(ex_mpv_position(PLAYER) > 29.5 && ex_mpv_position(PLAYER) < 30.5);       /* three quarters of 40 seconds */
     key(EX_KEY_HOME);
     WAIT_FOR(ex_mpv_position(PLAYER) < 0.1);
     CHECK(ex_mpv_position(PLAYER) < 0.1);
