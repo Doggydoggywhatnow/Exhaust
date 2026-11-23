@@ -14,6 +14,7 @@
 
 struct ExGraph;
 struct ExBaseResult;
+struct ExImage;
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,6 +51,8 @@ typedef struct ExPanelsHost {
     void (*file_text)(void *user, const char *key, const char *text);
     /* a base view run (6b-iii), asked for with ex_panels_run_base: the callback takes the result (NULL: error holds the reason) */
     void (*base_result)(void *user, unsigned long req, struct ExBaseResult *result, const char *error);
+    /* a picture decoded on the service thread (6c-i), asked for with ex_panels_load_image: the callback takes the picture (NULL: error says why) */
+    void (*image_result)(void *user, const char *path, int svg_width, struct ExImage *image, const char *error);
 } ExPanelsHost;
 
 typedef struct ExPanelsInit {
@@ -129,6 +132,8 @@ void ex_panels_file_text(ExPanels *p, const char *key);
  * answer (host.base_result) carries, or 0 when the index is not ready. */
 /* Grows whenever the index changed (a note was saved and read again, the first index finished): views of the vault's data run again. */
 unsigned long ex_panels_index_generation(const ExPanels *p);
+/* Asks the service thread to read and decode a picture of the vault (6c-i); the answer goes to host.image_result. */
+void ex_panels_load_image(ExPanels *p, const char *path, int svg_width);
 unsigned long ex_panels_run_base(ExPanels *p, const char *text, size_t len, size_t view, const char *this_path);
 void ex_panels_open_switcher(ExPanels *p);
 void ex_panels_open_palette(ExPanels *p);

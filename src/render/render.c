@@ -128,6 +128,47 @@ void ex_fill_rect(ExRenderer *r, float x, float y, float w, float h, ExColor c) 
     SDL_RenderFillRect(r->renderer, &rect);
 }
 
+/* ---- pictures ---- */
+
+struct ExTexture { SDL_Texture *tex; int w, h; };
+
+ExTexture *ex_texture_create(ExRenderer *r, int w, int h) {
+    ExTexture *t;
+    if (!r || w < 1 || h < 1) return NULL;
+    t = calloc(1, sizeof *t);
+    if (!t) return NULL;
+    t->tex = SDL_CreateTexture(r->renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, w, h);
+    if (!t->tex) { free(t); return NULL; }
+    SDL_SetTextureBlendMode(t->tex, SDL_BLENDMODE_BLEND);
+    t->w = w; t->h = h;
+    return t;
+}
+
+int ex_texture_max_size(ExRenderer *r) {
+    SDL_PropertiesID p = r ? SDL_GetRendererProperties(r->renderer) : 0;
+    long long v = p ? SDL_GetNumberProperty(p, SDL_PROP_RENDERER_MAX_TEXTURE_SIZE_NUMBER, 0) : 0;
+    return v > 0 && v < 1000000 ? (int)v : 4096;
+}
+
+int ex_texture_update_rows(ExTexture *t, const uint8_t *rgba, int y0, int rows) {
+    SDL_Rect rc;
+    if (!t || !rgba || y0 < 0 || rows < 1 || y0 + rows > t->h) return -1;
+    rc.x = 0; rc.y = y0; rc.w = t->w; rc.h = rows;
+    return SDL_UpdateTexture(t->tex, &rc, rgba + (size_t)y0 * (size_t)t->w * 4, t->w * 4) ? 0 : -1;
+}
+
+void ex_texture_draw(ExRenderer *r, ExTexture *t, float sx, float sy, float sw, float sh, float x, float y, float w, float h, uint8_t alpha, int smooth) {
+    SDL_FRect src, dst;
+    if (!r || !t || w <= 0.0f || h <= 0.0f) return;
+    dst.x = x; dst.y = y; dst.w = w; dst.h = h;
+    SDL_SetTextureScaleMode(t->tex, smooth ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
+    SDL_SetTextureAlphaMod(t->tex, alpha);
+    if (sw > 0.0f && sh > 0.0f) { src.x = sx; src.y = sy; src.w = sw; src.h = sh; SDL_RenderTexture(r->renderer, t->tex, &src, &dst); }
+    else SDL_RenderTexture(r->renderer, t->tex, NULL, &dst);
+}
+
+void ex_texture_free(ExTexture *t) { if (t) { if (t->tex) SDL_DestroyTexture(t->tex); free(t); } }
+
 /* ---- rounded rectangles ---- */
 
 #define RR_MAX_POINTS 128

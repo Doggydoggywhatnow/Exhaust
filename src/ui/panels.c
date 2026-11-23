@@ -435,6 +435,7 @@ void ex_panels_update(ExPanels *p) {
                 break;
             case QJ_HISTORY: history_result(p, r); break;
             case QJ_FILETEXT: if (p->in.host.file_text && r->rows.n) p->in.host.file_text(p->in.host.user, r->rows.v[0].text, r->ok ? r->text : NULL); break;
+            case QJ_IMAGE: if (p->in.host.image_result && r->rows.n) { struct ExImage *im = r->ok ? r->image : NULL; if (im) r->image = NULL; p->in.host.image_result(p->in.host.user, r->rows.v[0].text, (int)r->total, im, im ? NULL : r->summary); } break;
             case QJ_BASE: if (p->in.host.base_result) { struct ExBaseResult *b = r->ok ? r->base : NULL; if (b) r->base = NULL; p->in.host.base_result(p->in.host.user, r->req, b, b ? NULL : r->summary); } break;
             case QJ_EXPAND: if (r->ok && r->text && p->in.host.query_results) p->in.host.query_results(p->in.host.user, r->summary, r->text); break;
             default: views_result(p, r); break;
@@ -521,6 +522,16 @@ void ex_panels_file_text(ExPanels *p, const char *key) {
     j = qjob_new(QJ_FILETEXT, ++p->next_req);
     if (!j) return;
     j->a = dup_s(key);
+    send_job(p, j);
+}
+
+void ex_panels_load_image(ExPanels *p, const char *path, int svg_width) {
+    QJob *j;
+    if (!p || !path || !path[0]) return;
+    j = qjob_new(QJ_IMAGE, ++p->next_req);
+    if (!j) return;
+    j->a = dup_s(path);
+    j->i1 = svg_width;
     send_job(p, j);
 }
 

@@ -12,6 +12,7 @@
 #include "exhaust_commands.h"
 #include "exhaust_canvasview.h"
 #include "exhaust_baseview.h"
+#include "exhaust_imageview.h"
 #include "exhaust_graphview.h"
 #include "exhaust_history.h"
 #include "exhaust_layouts.h"
@@ -80,6 +81,7 @@ typedef struct App {
     ExWidget *title;               /* the inline title of the active tab (a child of its editor), or NULL */
     ExGraphModel *gm;              /* the graph's data and layout, while a graph tab exists */
     ExGraphModel *gm_local;        /* the local graph's (5c), while a local graph tab exists */
+    ExImageCache *icache;          /* the textures of pictures: image tabs, canvas image cards (6c-i) */
     unsigned long base_gen_seen;   /* the index generation the open bases were run at (6b-iii) */
     ExCanvasCache *ccache;         /* the start of the notes that canvas cards show (6a) */
     ExGraphOptions gopts;          /* the graph's settings (5b): filters, groups, forces, display; kept in the session's [graph] section */
@@ -664,6 +666,8 @@ static void host_file_text(void *u, const char *key, const char *text) { App *a 
 static void canvas_open_file(void *u, const char *path, const char *sub, int new_tab) { (void)sub; host_open_note(u, path, (size_t)-1, new_tab); }
 static void canvas_open_url(void *u, const char *url) { on_reading_link(EX_RSK_LINK_EXTERNAL, url, u); }
 static void canvas_message(void *u, const char *text) { set_status(u, text); }
+static void image_want(void *u, const char *path, int svg_width) { App *a = u; if (a->panels) ex_panels_load_image(a->panels, path, svg_width); }
+static void host_image_result(void *u, const char *path, int svg_width, ExImage *img, const char *err) { App *a = u; ex_imagecache_result(a->icache, path, svg_width, img, err); }
 
 static int same_text_nocase(const char *a, const char *b, size_t n) { size_t i; for (i = 0; i < n; i++) if (tolower((unsigned char)a[i]) != tolower((unsigned char)b[i])) return 0; return 1; }
 
@@ -738,7 +742,7 @@ static ExWidget *make_canvas(App *a, ExNote *n, ExOpenResult res, const ExTab *t
     char key[700];
     const char *saved;
     memset(&h, 0, sizeof h);
-    h.user = a; h.panels = a->panels; h.settings = a->settings; h.cache = a->ccache;
+    h.user = a; h.panels = a->panels; h.settings = a->settings; h.cache = a->ccache; h.images = a->icache;
     h.want_text = canvas_want_text; h.open_file = canvas_open_file; h.open_url = canvas_open_url; h.resolve = canvas_resolve; h.create_note = canvas_create_note; h.message = canvas_message;
     cw = ex_widget_canvas(a->ui, ex_note_doc(n), t->path, &h);
     if (!cw) return NULL;
@@ -937,6 +941,7 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
     if (strcmp(t->view, "graph") == 0) return make_graph(a);
     if (strcmp(t->view, "localgraph") == 0) return make_local_graph(a);
     if (!t->path[0]) return info_label(a, "An empty tab. Open a note from the file explorer, or create one with New note.");
+    if (!strcmp(t->view, "image")) return ex_widget_imageview(a->ui, a->icache, t->path);                  /* a picture: read and decoded on the service thread (6c-i) */
     if (!a->notes) return info_label(a, "Notes cannot be edited because the recovery journal could not be opened.");
     n = note_for_tab(a, t->id);                                                 /* switching between reading and editing keeps the note open */
     if (!n) n = ex_notes_open(a->notes, t->path, &res);
@@ -1006,6 +1011,7 @@ static void open_path(App *a, ExId group, const char *rel) {
     ExId t = ex_ws_find_tab(a->ws, rel);
     if (t) { ex_ws_activate(a->ws, t); a->focus_tab = t; return; }
     if (ex_file_kind(rel) == EX_KIND_CANVAS) { t = ex_ws_new_tab(a->ws, group, rel, "canvas"); a->focus_tab = t; return; }
+    if (ex_file_kind(rel) == EX_KIND_IMAGE) { t = ex_ws_new_tab(a->ws, group, rel, "image"); a->focus_tab = t; return; }
     if (ex_file_kind(rel) == EX_KIND_BASE && (!a->features || ex_features_enabled(a->features, "bases"))) { t = ex_ws_new_tab(a->ws, group, rel, "base"); a->focus_tab = t; return; }
     t = ex_ws_new_tab(a->ws, group, rel, "note");
     if (t && strcmp(ex_settings_get(a->settings, "editor", "default_view"), "reading") == 0) ex_ws_set_tab_mode(a->ws, t, "reading");
@@ -1033,9 +1039,9 @@ static int drop_file(ExPanes *p, ExId group, const char *path, void *user) {
 static void on_open_file(ExWidget *w, const char *rel, void *user) {
     App *a = user;
     (void)w;
-    if (ex_file_kind(rel) != EX_KIND_MARKDOWN && ex_file_kind(rel) != EX_KIND_BASE && ex_file_kind(rel) != EX_KIND_CANVAS) {
+    if (ex_file_kind(rel) != EX_KIND_MARKDOWN && ex_file_kind(rel) != EX_KIND_BASE && ex_file_kind(rel) != EX_KIND_CANVAS && ex_file_kind(rel) != EX_KIND_IMAGE) {
         char msg[400];
-        snprintf(msg, sizeof msg, "%s cannot be shown yet (images, audio, video and PDF viewers come in sub-slice 6c).", rel);
+        snprintf(msg, sizeof msg, "%s cannot be shown yet (audio, video and PDF viewers come in sub-slices 6c-ii to 6c-iv).", rel);
         set_status(a, msg);
         return;
     }
@@ -2231,6 +2237,7 @@ static void sync_ui(App *a) {
     ExId g, t;
     ExWidget *c;
     bases_follow_index(a);
+    ex_imagecache_pump(a->icache, a->main_r);
     ex_sidebar_sync(a->left_sb);
     ex_sidebar_sync(a->right_sb);
     {   /* the main text view squeezed to less than a character's width is hidden; the two divider strips next to it are its handle (GitHub issue 2) */
@@ -2541,6 +2548,7 @@ static void handle_note_events(App *a) {
         case EX_NOTE_EVENT_TREE_CHANGED:
             ex_vault_rescan(a->vault);
             if (a->panels) ex_panels_tree_changed(a->panels);
+            ex_imagecache_invalidate(a->icache, "");                                 /* a picture may have changed: every open one is read again */
             break;
         }
     }
@@ -2651,7 +2659,7 @@ static void host_open_note(void *u, const char *path, size_t offset, int new_tab
         if (nn) open_path(a, 0, ex_note_path(nn));
         return;
     }
-    if (ex_file_kind(path) != EX_KIND_MARKDOWN && ex_file_kind(path) != EX_KIND_BASE && ex_file_kind(path) != EX_KIND_CANVAS) { on_open_file(NULL, path, a); return; }
+    if (ex_file_kind(path) != EX_KIND_MARKDOWN && ex_file_kind(path) != EX_KIND_BASE && ex_file_kind(path) != EX_KIND_CANVAS && ex_file_kind(path) != EX_KIND_IMAGE) { on_open_file(NULL, path, a); return; }
     open_path(a, 0, path);
     free(a->sel_path);
     a->sel_path = offset != (size_t)-1 ? dup_text(path) : NULL;
@@ -3013,6 +3021,8 @@ int main(int argc, char **argv) {
     app.demo_doc = ex_doc_create(intro, strlen(intro));
     app.ws = ex_ws_create();
     app.ccache = ex_canvascache_create();
+    app.icache = ex_imagecache_create(0);
+    ex_imagecache_set_loader(app.icache, image_want, &app);
 
     if (app.vault) {
         ExRegistry *reg = ex_registry_load(NULL);
@@ -3098,7 +3108,7 @@ int main(int argc, char **argv) {
         pi.host.user = &app;
         pi.host.open_note = host_open_note; pi.host.active_path = host_active_path; pi.host.active_text = host_active_text; pi.host.read_text = host_read_text;
         pi.host.replace_text = host_replace_text; pi.host.select_range = host_select_range; pi.host.move_file = host_move_file; pi.host.file_op = host_file_op; pi.host.message = host_message;
-        pi.host.history_version = host_history_version; pi.host.file_text = host_file_text; pi.host.base_result = host_base_result; pi.host.graph_data = host_graph_data; pi.host.local_graph_data = host_local_graph_data; pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
+        pi.host.history_version = host_history_version; pi.host.file_text = host_file_text; pi.host.image_result = host_image_result; pi.host.base_result = host_base_result; pi.host.graph_data = host_graph_data; pi.host.local_graph_data = host_local_graph_data; pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
         pi.wake = wake_ui;
         app.panels = ex_panels_create(&pi);
         if (app.panels) {
@@ -3204,7 +3214,7 @@ int main(int argc, char **argv) {
         ExKey key;
         int mods;
         script_step(&app);
-        int animating = (app.gm && ex_graphmodel_animating(app.gm)) || (app.gm_local && ex_graphmodel_animating(app.gm_local)) || ex_graphview_animations_running() > 0;        /* the graph's layout is still moving the nodes: a frame every 16 ms */
+        int animating = (app.gm && ex_graphmodel_animating(app.gm)) || (app.gm_local && ex_graphmodel_animating(app.gm_local)) || ex_graphview_animations_running() > 0 || ex_imagecache_busy(app.icache);        /* the graph's layout is still moving the nodes: a frame every 16 ms */
         int timed_out = !SDL_WaitEventTimeout(&e, animating ? 16 : 100); /* wakes ten times a second for autosave and the watcher */
         static int idle_ticks;
         if (g_signal) running = 0;
@@ -3301,12 +3311,13 @@ int main(int argc, char **argv) {
                 float density = SDL_GetWindowPixelDensity(ex_renderer_window(app.r));
                 ExWidget *wheel_root = app.panels && ex_panels_modal(app.panels) ? ex_panels_overlay(app.panels) : app.root;
                 ExWidget *under = ex_ui_widget_at(wheel_root, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
-                while (under && !under->scrollable && (under->no_wheel || (under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE && under->type != EX_WIDGET_GRAPH && under->type != EX_WIDGET_CANVAS && under->type != EX_WIDGET_BASE))) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
+                while (under && !under->scrollable && (under->no_wheel || (under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE && under->type != EX_WIDGET_GRAPH && under->type != EX_WIDGET_CANVAS && under->type != EX_WIDGET_BASE && under->type != EX_WIDGET_IMAGE))) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
                 if (under && under->parent && (under->parent->type == EX_WIDGET_EDITOR || under->parent->type == EX_WIDGET_READING)) under = under->parent;   /* over the title: the note scrolls */
                 if (!under && wheel_root == app.root && app.editor && pop_of_widget(&app, app.editor) == app.cur_pop) under = app.editor;
                 if (under && under->scrollable) ex_ui_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));                       /* a scroll box: the settings screens (7a) */
                 else if (under && under->type == EX_WIDGET_GRAPH) ex_graphview_wheel(under, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);   /* zoom about the pointer */
                 else if (under && under->type == EX_WIDGET_CANVAS) ex_canvasview_wheel(under, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);   /* pan, or zoom (the setting) */
+                else if (under && under->type == EX_WIDGET_IMAGE) ex_imageview_wheel(under, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
                 else if (under && under->type == EX_WIDGET_BASE) ex_baseview_wheel(under, e.wheel.x, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
                 else if (under && under->type == EX_WIDGET_TREE) ex_tree_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 else if (under && under->type == EX_WIDGET_LIST) ex_list_scroll(under, -e.wheel.y * 3.0f * ex_list_row_height(under));
@@ -3363,6 +3374,7 @@ int main(int argc, char **argv) {
     ex_graphmodel_free(app.gm);
     ex_graphmodel_free(app.gm_local);
     ex_canvascache_free(app.ccache);
+    ex_imagecache_free(app.icache);
     free(app.graph_note);
     ex_findbar_free(app.findbar);
     ex_slash_free(app.slash);

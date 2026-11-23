@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "exhaust_base_index.h"
+#include "exhaust_image.h"
 #include "exhaust_history.h"
 #include "exhaust_platform.h"
 #include "exhaust_notes.h"
@@ -34,6 +35,7 @@ void qres_free(QRes *r) {
     ex_switcher_free(r->snapshot);
     if (r->graph) { ex_graph_free(r->graph); free(r->graph); }
     if (r->base) { ex_base_result_free(r->base); free(r->base); }
+    if (r->image) { ex_image_free(r->image); free(r->image); }
     ex_rename_report_free(&r->report);
     free(r);
 }
@@ -387,6 +389,32 @@ static void do_expand(QService *s, QJob *j, QRes *res) {
     res->ok = res->text != NULL;
 }
 
+/* A picture read and decoded (6c-i): the file's bytes, then pixels no bigger than 4096 on a side. */
+static void do_image(QService *s, QJob *j, QRes *res) {
+    char *abs = NULL, err[200] = "";
+    ExPathInfo pi;
+    size_t len = 0;
+    uint8_t *bytes;
+    ExImage *im;
+    const char *rel = j->a ? j->a : "";
+    qrows_add(&res->rows, rel, NULL, NULL, 0, 0, 0, 0, 0, 0, 0);
+    res->total = (size_t)(j->i1 > 0 ? j->i1 : 0);
+    res->ok = 0;
+    if (strstr(rel, "..") && (strstr(rel, "../") || strstr(rel, "/..") || !strcmp(rel, ".."))) { snprintf(res->summary, sizeof res->summary, "This path is outside the vault."); return; }
+    abs = malloc(strlen(s->root) + strlen(rel) + 2);
+    if (!abs) return;
+    sprintf(abs, "%s/%s", s->root, rel);
+    if (ex_platform_path_info(abs, &pi) != 0 || !pi.is_file) { snprintf(res->summary, sizeof res->summary, "This file does not exist any more."); free(abs); return; }
+    if (pi.size > (int64_t)64 * 1024 * 1024) { snprintf(res->summary, sizeof res->summary, "This picture file is too big (over 64 MB)."); free(abs); return; }
+    bytes = (uint8_t *)ex_platform_read_file(abs, &len);
+    free(abs);
+    if (!bytes) { snprintf(res->summary, sizeof res->summary, "This file cannot be read."); return; }
+    im = calloc(1, sizeof *im);
+    if (im && ex_image_decode(bytes, len, 4096, j->i1, im, err, sizeof err) == 0) { res->image = im; res->ok = 1; }
+    else { free(im); snprintf(res->summary, sizeof res->summary, "%s", err[0] ? err : "This picture cannot be opened."); }
+    free(bytes);
+}
+
 /* A base view run over the vault (6b-iii). */
 static void do_base(QService *s, QJob *j, QRes *res) {
     char err[200] = "";
@@ -479,6 +507,7 @@ static void service_job(ExWorker *self, const ExMessage *m, void *user) {
     if (!res) return;
     res->kind = j->kind; res->req = j->req;
     if (j->kind == QJ_HISTORY) do_history(j, res);
+    else if (j->kind == QJ_IMAGE) do_image(s, j, res);                     /* a picture needs no index */
     else {
     if (!s->r) s->r = ex_index_open(s->index_path, 0, err, sizeof err);
     if (!s->r) snprintf(res->summary, sizeof res->summary, "The index is not ready yet");

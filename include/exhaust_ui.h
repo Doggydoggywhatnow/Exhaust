@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-typedef enum ExWidgetType { EX_WIDGET_BOX, EX_WIDGET_LABEL, EX_WIDGET_BUTTON, EX_WIDGET_EDITOR, EX_WIDGET_TREE, EX_WIDGET_READING, EX_WIDGET_LIST, EX_WIDGET_GRAPH, EX_WIDGET_CANVAS, EX_WIDGET_BASE, EX_WIDGET_TYPE_COUNT } ExWidgetType;
+typedef enum ExWidgetType { EX_WIDGET_BOX, EX_WIDGET_LABEL, EX_WIDGET_BUTTON, EX_WIDGET_EDITOR, EX_WIDGET_TREE, EX_WIDGET_READING, EX_WIDGET_LIST, EX_WIDGET_GRAPH, EX_WIDGET_CANVAS, EX_WIDGET_BASE, EX_WIDGET_IMAGE, EX_WIDGET_TYPE_COUNT } ExWidgetType;
 
 typedef enum ExRole { EX_ROLE_WINDOW, EX_ROLE_GROUP, EX_ROLE_LABEL, EX_ROLE_BUTTON, EX_ROLE_TEXT_INPUT, EX_ROLE_TREE, EX_ROLE_LIST } ExRole;
 
@@ -221,6 +221,7 @@ float ex_ui_base_size(const ExUi *ui);
 void ex_graphview_draw(ExUi *ui, ExWidget *w);
 void ex_canvasview_draw(ExUi *ui, ExWidget *w);
 void ex_baseview_draw(ExUi *ui, ExWidget *w);
+void ex_imageview_draw(ExUi *ui, ExWidget *w);
 /* Used by ui.c. */
 void ex_list_draw(ExUi *ui, ExWidget *w);
 void ex_list_key(ExUi *ui, ExWidget *w, ExKey key);

@@ -22,6 +22,7 @@
 #ifndef EXHAUST_CANVASVIEW_H
 #define EXHAUST_CANVASVIEW_H
 #include "exhaust_canvas.h"
+#include "exhaust_imagecache.h"
 #include "exhaust_panels.h"
 #include "exhaust_ui.h"
 
@@ -44,6 +45,7 @@ typedef struct ExCanvasHandlers {
     ExPanels *panels;                                   /* for the menus and the questions; may be NULL (then there are none) */
     ExSettings *settings;                               /* the `[canvas]` settings, read every frame; may be NULL (the defaults) */
     ExCanvasCache *cache;
+    ExImageCache *images;                               /* the pictures of image file cards (6c-i); may be NULL (the file name is shown) */
     /* the application reads the text of the note on a worker and calls ex_canvascache_set */
     void (*want_text)(void *user, const char *path);
     /* a double click on a file card, or Enter on it; subpath is "" or "#heading" or "#^block" */

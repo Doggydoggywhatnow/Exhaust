@@ -431,6 +431,18 @@ static void ensure_text(View *v, const char *path, const char **text, int *state
     if (e) { *text = e->text; *state = e->state; }
 }
 
+static int is_image_file(const char *path) {
+    static const char *const ext[] = { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".avif", ".svg" };
+    size_t n = strlen(path), i;
+    for (i = 0; i < sizeof ext / sizeof *ext; i++) {
+        size_t e = strlen(ext[i]), k;
+        if (n < e) continue;
+        for (k = 0; k < e; k++) { char c = path[n - e + k]; if (c >= 'A' && c <= 'Z') c = (char)(c + 32); if (c != ext[i][k]) break; }
+        if (k == e) return 1;
+    }
+    return 0;
+}
+
 static void draw_card(View *v, ExWidget *w, ExRenderer *r, const ExTheme *t, ExCanvasNode *n, int show_content, ExColor c_text, ExColor c_muted, ExColor c_surface, ExColor c_border, ExColor c_accent) {
     float sx, sy, sw, sh, rad, size, pad, lh = 0.0f;
     ExColor col, fill, line;
@@ -451,6 +463,21 @@ static void draw_card(View *v, ExWidget *w, ExRenderer *r, const ExTheme *t, ExC
     if (n->kind == EX_CN_TEXT && n->text) {
         if (v->edit && v->edit_node == (int)(n - v->c->nodes)) return;                         /* the editor shows it */
         draw_text_box(v, r, n->text, strlen(n->text), sx + pad, sy + pad, sw - 2 * pad, sh - 2 * pad, size, c_text, c_text);
+    } else if (n->kind == EX_CN_FILE && n->file && v->h.images && is_image_file(n->file)) {
+        ExImageRef ref;
+        size_t nl = 0;
+        const char *nm = base_name(n->file, &nl);
+        ex_imagecache_get(v->h.images, r, n->file, (int)(sw > 0.0f ? sw : 256.0f), &ref);
+        if (ref.state == EX_IMAGE_READY && ref.tex && ref.w > 0 && ref.h > 0) {            /* the picture, as large as fits the card and not distorted */
+            float iw = sw - 2.0f * pad, ih = sh - 2.0f * pad, k = iw / (float)ref.w < ih / (float)ref.h ? iw / (float)ref.w : ih / (float)ref.h;
+            if (iw > 4.0f && ih > 4.0f) ex_texture_draw(r, ref.tex, 0, 0, 0, 0, sx + (sw - (float)ref.w * k) / 2.0f, sy + (sh - (float)ref.h * k) / 2.0f, (float)ref.w * k, (float)ref.h * k, 255, k < 3.0f);
+        } else {
+            char msg[300];
+            snprintf(msg, sizeof msg, "%.*s", (int)(nl > 200 ? 200 : nl), nm);
+            ex_ui_clip_to(v->ui, sx, sy, sw, sh);
+            ex_text_draw(r, f, size, sx + pad, sy + pad, ref.state == EX_IMAGE_LOADING ? "..." : msg, ref.state == EX_IMAGE_LOADING ? 3 : strlen(msg), c_muted);
+            ex_ui_clip_restore(v->ui);
+        }
     } else if (n->kind == EX_CN_FILE && n->file) {
         const char *text; int state;
         size_t nl = 0;

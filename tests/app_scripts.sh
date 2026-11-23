@@ -560,4 +560,23 @@ EXHAUST_OPEN=One.md EXHAUST_SCRIPT="$work/bases_new.script" $lim "$exe" "$vault"
 if [ -f "$vault/Untitled.base" ] && grep -q 'type: table' "$vault/Untitled.base"; then echo "ok: Create new base made Untitled.base with a table view"; else echo "FAILED: the new base ($(ls "$vault"); $(cat "$vault/Untitled.base" 2>/dev/null | tr '\n' ' '))"; fail=1; fi
 reset_state
 
+# pictures (6c-i): a picture file opens in a tab of its own, is read and decoded on the service thread and is never changed; a file that is not a picture
+# shows a message and the program goes on
+images_dir=$(dirname "$0")/data/images
+reset_state
+vault="$work/images_open"; rm -rf "$vault"; mkdir -p "$vault"
+printf '# Welcome\n' > "$vault/Home.md"
+cp "$images_dir/pattern.png" "$vault/pic.png"; cp "$images_dir/pattern.avif" "$vault/pic.avif"; cp "$images_dir/shapes.svg" "$vault/logo.svg"
+head -c 3000 /dev/urandom > "$vault/broken.png" 2>/dev/null || printf 'not a picture at all' > "$vault/broken.png"
+cp "$vault/pic.png" "$work/pic.orig"; cp "$vault/broken.png" "$work/broken.orig"
+printf 'wait 1500\nwheel 600 300 -2\nwait 800\nquit\n' > "$work/images_open.script"
+for f in pic.png pic.avif logo.svg broken.png; do
+    EXHAUST_OPEN=$f EXHAUST_SCRIPT="$work/images_open.script" $lim "$exe" "$vault" >"$work/images_open.log" 2>&1
+    rc=$?
+    if [ $rc -eq 0 ]; then echo "ok: $f opened in a tab and the program ended normally"; else echo "FAILED: opening $f ended with status $rc"; fail=1; fi
+done
+if cmp -s "$vault/pic.png" "$work/pic.orig" && cmp -s "$vault/broken.png" "$work/broken.orig"; then echo "ok: opening pictures does not change them"; else echo "FAILED: a picture file was changed by opening it"; fail=1; fi
+if grep -q 'image' $(find "$work" -name session.ini | head -1) 2>/dev/null; then echo "ok: the picture tab is in the session"; else echo "FAILED: the picture tab is not in the session"; fail=1; fi
+reset_state
+
 exit $fail

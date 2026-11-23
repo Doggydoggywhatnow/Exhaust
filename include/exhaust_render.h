@@ -53,6 +53,17 @@ void ex_renderer_set_font_db(ExRenderer *r, struct ExFontDb *db);
 /* The same database for another renderer (a pop-out window): not owned, so the owner must outlive it. */
 void ex_renderer_set_font_db_shared(ExRenderer *r, struct ExFontDb *db);
 
+/* Pictures as textures (6c-i). A texture is made empty and filled with rows of RGBA pixels (a few at a time, so no frame waits for a whole big picture);
+ * it is drawn scaled into a rectangle, smoothed or as hard pixels. */
+typedef struct ExTexture ExTexture;
+ExTexture *ex_texture_create(ExRenderer *r, int w, int h);
+int ex_texture_max_size(ExRenderer *r);
+/* Copies rows y0 .. y0+rows-1 of `rgba` (w * h * 4 bytes, the whole picture) into the texture. 0, or -1. */
+int ex_texture_update_rows(ExTexture *t, const uint8_t *rgba, int y0, int rows);
+/* Draws the part of the texture (sx, sy, sw, sh in texture pixels; sw <= 0 for all of it) into the rectangle; alpha 0..255. */
+void ex_texture_draw(ExRenderer *r, ExTexture *t, float sx, float sy, float sw, float sh, float x, float y, float w, float h, uint8_t alpha, int smooth);
+void ex_texture_free(ExTexture *t);
+
 /* Output size in pixels. */
 void ex_renderer_size(ExRenderer *r, int *w, int *h);
 
