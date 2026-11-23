@@ -58,7 +58,7 @@ typedef struct ExPdfCheck {
     int pages;
     int fonts, fonts_embedded, fonts_subset, fonts_tounicode;
     int images;
-    int dark_fills;         /* fill colors with a luminance under 0.5 used by a rectangle or shape (an export is light-styled) */
+    int dark_fills;         /* rectangles of 200 by 200 points or more filled with a dark color (luminance under 0.5): a dark page or panel; an export is light-styled */
     char *text;             /* the text of every page recovered through the fonts' ToUnicode maps, one page after another, malloc'ed */
     char err[160];
 } ExPdfCheck;

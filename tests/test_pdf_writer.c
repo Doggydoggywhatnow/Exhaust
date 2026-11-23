@@ -96,8 +96,9 @@ int main(int argc, char **argv) {
         ExPdfDoc *d2c = ex_pdfw_create();
         ExPdfCheck c2;
         unsigned char *o2; size_t l2;
-        ex_pdfw_page_begin(d2c, 100, 100);
-        ex_pdfw_rect(d2c, 0, 0, 100, 100, 0, &dark, NULL, 0);
+        ex_pdfw_page_begin(d2c, 400, 400);
+        ex_pdfw_rect(d2c, 0, 0, 300, 300, 0, &dark, NULL, 0);
+        ex_pdfw_rect(d2c, 0, 0, 20, 20, 0, &dark, NULL, 0);               /* a small dark box is not a dark page */
         CHECK(ex_pdfw_finish(d2c, &o2, &l2) == 0);
         CHECK(ex_pdfw_check(o2, l2, &c2) == 0 && c2.dark_fills == 1);
         ex_pdfw_check_free(&c2); free(o2); ex_pdfw_free(d2c);

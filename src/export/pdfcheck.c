@@ -217,7 +217,16 @@ static void scan_fills(const unsigned char *cs, size_t n, ExPdfCheck *c) {
                 const unsigned char *close = find(q, (size_t)(stop - q), "\nQ\n");
                 size_t span = close ? (size_t)(close - q) : (size_t)(stop - q);
                 int text = find(q, span, "BT ") != NULL;
-                if (!text && lum(v[0], v[1], v[2]) < 0.5) c->dark_fills++;
+                int big = 0;
+                {   /* a rectangle of at least 200 by 200 points: a background, not a rule or a box */
+                    const unsigned char *re = find(q, span, "re\n");
+                    if (re) {
+                        double a, b, w, h;
+                        const unsigned char *pp = q + 3;                        /* after "rg\n" */
+                        if (parse_num(&pp, re, &a) && parse_num(&pp, re, &b) && parse_num(&pp, re, &w) && parse_num(&pp, re, &h)) big = w >= 200 && h >= 200;
+                    }
+                }
+                if (!text && big && lum(v[0], v[1], v[2]) < 0.5) c->dark_fills++;
             }
         }
     }

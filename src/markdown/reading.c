@@ -983,3 +983,32 @@ char *ex_reading_dump(const ExReading *r) {
     if (!o.p) o.p = dup_n("", 0);
     return o.p;
 }
+
+/* ---- embeds: file kinds and the parts of `name|size#fragment` (moved here from the reading view in 6e-iv: the PDF export needs them too) ---- */
+
+static int ci_ext(const char *name, const char *ext) {
+    size_t n = strlen(name), e = strlen(ext), i;
+    if (n < e) return 0;
+    for (i = 0; i < e; i++) { char c = name[n - e + i]; if (c >= 'A' && c <= 'Z') c = (char)(c + 32); if (c != ext[i]) return 0; }
+    return 1;
+}
+int ex_embed_media_kind(const char *name) {
+    static const char *const img[] = { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".avif", ".svg" };
+    static const char *const aud[] = { ".flac", ".m4a", ".mp3", ".ogg", ".wav", ".3gp" };
+    static const char *const vid[] = { ".mkv", ".mov", ".mp4", ".ogv", ".webm" };
+    size_t i;
+    for (i = 0; i < sizeof img / sizeof *img; i++) if (ci_ext(name, img[i])) return 1;
+    for (i = 0; i < sizeof aud / sizeof *aud; i++) if (ci_ext(name, aud[i])) return 2;
+    for (i = 0; i < sizeof vid / sizeof *vid; i++) if (ci_ext(name, vid[i])) return 3;
+    if (ci_ext(name, ".pdf")) return 4;
+    if (ci_ext(name, ".canvas")) return 5;
+    return 0;
+}
+void ex_embed_split(const char *target, char *name, size_t ncap, char *size, size_t scap, char *frag, size_t fcap) {
+    const char *bar = strchr(target, '|'), *hash = strchr(target, '#'), *end_name = target + strlen(target);
+    if (bar && bar < end_name) end_name = bar;
+    if (hash && hash < end_name) end_name = hash;
+    if (name && ncap) snprintf(name, ncap, "%.*s", (int)(end_name - target), target);
+    if (size && scap) { size[0] = 0; if (bar) { const char *e = hash && hash > bar ? hash : target + strlen(target); snprintf(size, scap, "%.*s", (int)(e - bar - 1), bar + 1); } }
+    if (frag && fcap) { frag[0] = 0; if (hash) { const char *e = bar && bar > hash ? bar : target + strlen(target); snprintf(frag, fcap, "%.*s", (int)(e - hash - 1), hash + 1); } }
+}

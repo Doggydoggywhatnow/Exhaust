@@ -340,9 +340,10 @@ add_library(exhaust_text STATIC src/text/font.c
 target_include_directories(exhaust_text PUBLIC include PRIVATE src/text)
 target_link_libraries(exhaust_text PUBLIC exhaust_unicode freetype harfbuzz sheenbidi exhaust_platform)
 
-add_library(exhaust_export STATIC src/export/fontsubset.c src/export/pdfwrite.c src/export/pdfcheck.c)
+add_library(exhaust_export STATIC src/export/fontsubset.c src/export/pdfwrite.c src/export/pdfcheck.c src/export/pdfexport.c)
 target_include_directories(exhaust_export PUBLIC include)
-target_link_libraries(exhaust_export PUBLIC harfbuzz exhaust_text zlib_static)
+target_include_directories(exhaust_export PRIVATE src/text)
+target_link_libraries(exhaust_export PUBLIC harfbuzz exhaust_text zlib_static exhaust_markdown exhaust_diagram exhaust_image exhaust_theme exhaust_platform)
 
 add_library(exhaust_diagram STATIC src/diagram/diagram.c src/diagram/layered.c src/diagram/flowchart.c src/diagram/sequence.c src/diagram/classdiagram.c src/diagram/statediagram.c src/diagram/erdiagram.c src/diagram/pie.c src/diagram/gantt.c)
 target_include_directories(exhaust_diagram PUBLIC include PRIVATE src/diagram)
@@ -1072,6 +1073,10 @@ add_test(NAME font_subset COMMAND test_font_subset ${CMAKE_CURRENT_SOURCE_DIR}/t
 add_executable(test_pdf_writer tests/test_pdf_writer.c)
 target_link_libraries(test_pdf_writer PRIVATE exhaust_export exhaust_text exhaust_platform)
 add_test(NAME pdf_writer COMMAND test_pdf_writer ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts)
+
+add_executable(test_pdf_export tests/test_pdf_export.c)
+target_link_libraries(test_pdf_export PRIVATE exhaust_export exhaust_text exhaust_platform)
+add_test(NAME pdf_export COMMAND test_pdf_export ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/images)
 
 add_executable(test_font_cache tests/test_font_cache.c)
 target_link_libraries(test_font_cache PRIVATE exhaust_text)

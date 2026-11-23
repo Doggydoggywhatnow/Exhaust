@@ -324,32 +324,6 @@ static void flow(Lay *L, const ExRSpan *sp, size_t n, unsigned base_style, float
 
 /* ---- embedded media (6c-v) ---- */
 
-static int ci_ext(const char *name, const char *ext) {
-    size_t n = strlen(name), e = strlen(ext), i;
-    if (n < e) return 0;
-    for (i = 0; i < e; i++) { char c = name[n - e + i]; if (c >= 'A' && c <= 'Z') c = (char)(c + 32); if (c != ext[i]) return 0; }
-    return 1;
-}
-int ex_embed_media_kind(const char *name) {
-    static const char *const img[] = { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".avif", ".svg" };
-    static const char *const aud[] = { ".flac", ".m4a", ".mp3", ".ogg", ".wav", ".3gp" };
-    static const char *const vid[] = { ".mkv", ".mov", ".mp4", ".ogv", ".webm" };
-    size_t i;
-    for (i = 0; i < sizeof img / sizeof *img; i++) if (ci_ext(name, img[i])) return 1;
-    for (i = 0; i < sizeof aud / sizeof *aud; i++) if (ci_ext(name, aud[i])) return 2;
-    for (i = 0; i < sizeof vid / sizeof *vid; i++) if (ci_ext(name, vid[i])) return 3;
-    if (ci_ext(name, ".pdf")) return 4;
-    if (ci_ext(name, ".canvas")) return 5;
-    return 0;
-}
-void ex_embed_split(const char *target, char *name, size_t ncap, char *size, size_t scap, char *frag, size_t fcap) {
-    const char *bar = strchr(target, '|'), *hash = strchr(target, '#'), *end_name = target + strlen(target);
-    if (bar && bar < end_name) end_name = bar;
-    if (hash && hash < end_name) end_name = hash;
-    if (name && ncap) snprintf(name, ncap, "%.*s", (int)(end_name - target), target);
-    if (size && scap) { size[0] = 0; if (bar) { const char *e = hash && hash > bar ? hash : target + strlen(target); snprintf(size, scap, "%.*s", (int)(e - bar - 1), bar + 1); } }
-    if (frag && fcap) { frag[0] = 0; if (hash) { const char *e = bar && bar > hash ? bar : target + strlen(target); snprintf(frag, fcap, "%.*s", (int)(e - hash - 1), hash + 1); } }
-}
 void ex_readingview_set_media(ExReadingView *v, const ExReadingMedia *m) { if (v) { if (m) v->media = *m; else memset(&v->media, 0, sizeof v->media); v->dirty = 1; } }
 
 static char *own(ExReadingView *v, const char *s) {
