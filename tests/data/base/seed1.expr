@@ -1,0 +1,1 @@
+[1,2,3,4].filter(value > 2).map(value * index + 1).reduce(acc + value, 0) + "x".repeat(2).length - (date("2024-12-01") + "1M" + "4h" - date("2025-01-01")).days

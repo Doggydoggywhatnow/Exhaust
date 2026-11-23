@@ -1,0 +1,1 @@
+file.hasTag("a", "b/c") && file.inFolder("Notes") || !file.hasLink(this.file) && link("[[Note#Head|Shown]]").asFile().properties.keys().length > 0 || now().relative() == "x" && /a.c/i.matches(title)
