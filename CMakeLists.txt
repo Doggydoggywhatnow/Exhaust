@@ -71,9 +71,9 @@ target_compile_definitions(freetype PRIVATE FT_CONFIG_OPTION_USE_PNG)
 target_link_libraries(freetype PRIVATE $<BUILD_INTERFACE:png_static>)
 
 # HarfBuzz: the single-file build, OpenType shaping with FreeType table access.
-add_library(harfbuzz STATIC third_party/harfbuzz/src/harfbuzz.cc)
+add_library(harfbuzz STATIC third_party/harfbuzz/src/harfbuzz-world.cc)
 target_include_directories(harfbuzz PUBLIC third_party/harfbuzz/src)
-target_compile_definitions(harfbuzz PRIVATE HAVE_FREETYPE=1 HAVE_FT_GET_VAR_BLEND_COORDINATES=1
+target_compile_definitions(harfbuzz PRIVATE HB_HAS_FREETYPE=1 HAVE_FREETYPE=1 HAVE_FT_GET_VAR_BLEND_COORDINATES=1
   HAVE_FT_SET_VAR_BLEND_COORDINATES=1 HAVE_FT_DONE_MM_VAR=1 HAVE_FT_GET_TRANSFORM=1 HB_NO_PRAGMA_GCC_DIAGNOSTIC)
 target_link_libraries(harfbuzz PUBLIC freetype)
 set_target_properties(harfbuzz PROPERTIES CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)

@@ -1088,16 +1088,19 @@ static void cmd_tpl_time(void *u) {
     ex_date_format(out, sizeof out, c.now_ms, c.tz_min, c.time_format && *c.time_format ? c.time_format : "HH:mm");
     insert_text_at_carets(a, out);
 }
-typedef struct TplList { char **abs; size_t n, cap; size_t root_len; } TplList;
-static int tpl_walk(const char *path, int is_dir, int64_t mtime, void *user) {
-    TplList *l = user;
-    size_t n = strlen(path);
-    (void)mtime;
-    if (is_dir || n < 4 || strcmp(path + n - 3, ".md")) return 0;
-    if (l->n == l->cap) { size_t nc = l->cap ? l->cap * 2 : 16; char **t = realloc(l->abs, nc * sizeof *t); if (!t) return 0; l->abs = t; l->cap = nc; }
-    l->abs[l->n] = malloc(n + 1);
-    if (l->abs[l->n]) { memcpy(l->abs[l->n], path, n + 1); l->n++; }
-    return 0;
+typedef struct TplList { char **abs; size_t n, cap; } TplList;
+/* the notes under a folder of the vault, from the tree held in memory (no disk is read) */
+static void tpl_collect(const ExVault *v, const ExNode *dir, TplList *l, int depth) {
+    size_t i;
+    if (!dir || depth > 8) return;
+    for (i = 0; i < dir->nkids; i++) {
+        const ExNode *k = dir->kids[i];
+        if (k->is_dir) { tpl_collect(v, k, l, depth + 1); continue; }
+        if (k->kind != EX_KIND_MARKDOWN) continue;
+        if (l->n == l->cap) { size_t nc = l->cap ? l->cap * 2 : 16; char **t = realloc(l->abs, nc * sizeof *t); if (!t) return; l->abs = t; l->cap = nc; }
+        l->abs[l->n] = ex_vault_abs_path(v, k->rel);
+        if (l->abs[l->n]) l->n++;
+    }
 }
 static int tpl_cmp(const void *x, const void *y) { return strcmp(*(char *const *)x, *(char *const *)y); }
 static void tpl_choose(size_t index, void *arg) {
@@ -1143,7 +1146,7 @@ static void cmd_tpl_insert(void *u) {
     memset(&l, 0, sizeof l);
     abs = ex_vault_abs_path(a->vault, folder ? folder : "");
     if (!abs) return;
-    ex_platform_walk(abs, tpl_walk, &l);
+    tpl_collect(a->vault, folder && *folder ? ex_vault_find(a->vault, folder) : ex_vault_root(a->vault), &l, 0);
     if (l.n == 0) { set_status(a, folder && *folder ? "There are no templates in the template folder (Templates settings)." : "Choose a template folder in the Templates settings first."); free(abs); free(l.abs); return; }
     qsort(l.abs, l.n, sizeof *l.abs, tpl_cmp);
     for (i = 0; i < a->tpl_n; i++) free(a->tpl_abs[i]);
