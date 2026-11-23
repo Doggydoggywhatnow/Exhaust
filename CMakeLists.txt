@@ -1044,6 +1044,10 @@ add_executable(test_slides tests/test_slides.c)
 target_link_libraries(test_slides PRIVATE exhaust_markdown)
 add_test(NAME slides COMMAND test_slides)
 
+add_executable(test_format_converter tests/test_format_converter.c)
+target_link_libraries(test_format_converter PRIVATE exhaust_index exhaust_platform)
+add_test(NAME format_converter COMMAND test_format_converter)
+
 add_executable(test_compose tests/test_compose.c)
 target_link_libraries(test_compose PRIVATE exhaust_index exhaust_templates exhaust_platform)
 add_test(NAME compose COMMAND test_compose)

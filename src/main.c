@@ -1135,6 +1135,19 @@ static void tpl_choose(size_t index, void *arg) {
     free(note); free(tpl);
 }
 /* templates.insert-template: the notes of the template folder, to pick from. */
+static void convert_answer(int button, void *arg) {
+    App *a = arg;
+    if (button == 1) ex_panels_convert_frontmatter(a->panels);
+}
+
+static void cmd_format_convert(void *arg) {
+    App *a = arg;
+    ex_panels_ask_confirm(a->panels, "Convert frontmatter",
+        "This rewrites the property keys alias, tag and cssclass to aliases, tags and cssclasses in every note that has them. "
+        "Only the key names change, but the notes are edited on disk: back up your vault first. A note that already has the new key is left alone.",
+        "Convert", "Cancel", NULL, convert_answer, a);
+}
+
 static void cmd_tpl_insert(void *u) {
     App *a = u;
     const char *folder = ex_settings_get(a->settings, "templates", "folder");
@@ -2489,6 +2502,7 @@ static void register_features_and_commands(App *a) {
     ex_commands_bind(a->commands, "templates.insert-current-time", cmd_tpl_time, has_editor, a);
     ex_commands_bind(a->commands, "templates.insert-template", cmd_tpl_insert, has_editor, a);
     ex_commands_bind(a->commands, "slides.start-presentation", cmd_slides_start, has_notes, a);
+    ex_commands_bind(a->commands, "format-converter.frontmatter-migration", cmd_format_convert, has_notes, a);
     ex_commands_bind(a->commands, "unique-note-creator.create-new-unique-note", cmd_unique_new, has_notes, a);
     ex_commands_bind(a->commands, "unique-note-creator.add-unique-internal-link", cmd_unique_link, has_editor, a);
     ex_commands_bind(a->commands, "note-composer.extract-current-selection", cmd_extract_selection, has_editor, a);

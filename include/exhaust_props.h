@@ -64,6 +64,10 @@ void ex_note_io_free(ExNoteIO *io);
 
 /* The user's actions over the whole vault. *changed counts the notes that were rewritten. */
 int ex_props_rename_everywhere(ExIndex *r, const ExNoteIO *io, const char *vault_root, const char *from, const char *to, size_t *changed);
+/* The format converter (6e-iv): alias -> aliases, tag -> tags, cssclass -> cssclasses in the properties of every note that has the old key. Only the key's
+ * own characters change. A note that already has the new key too is left alone (counted in skipped). Index 0 alias, 1 tag, 2 cssclass. */
+typedef struct ExMigrateReport { size_t renamed[3], skipped[3]; int failed; } ExMigrateReport;
+int ex_props_migrate_frontmatter(ExIndex *r, const ExNoteIO *io, const char *vault_root, ExMigrateReport *rep);
 int ex_props_retype_everywhere(ExIndex *r, const ExNoteIO *io, const char *vault_root, const char *name, int type, size_t *changed);
 
 #ifdef __cplusplus

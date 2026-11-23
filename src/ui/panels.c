@@ -433,6 +433,18 @@ void ex_panels_merge_notes(ExPanels *p, const char *from, const char *into, cons
     if (p->in.host.message) p->in.host.message(p->in.host.user, "Merging...");
 }
 
+void ex_panels_convert_frontmatter(ExPanels *p) {
+    QJob *j;
+    if (!p) return;
+    if (!p->index_ready) { if (p->in.host.message) p->in.host.message(p->in.host.user, "The index is not ready yet: try again in a moment."); return; }
+    if (p->in.host.flush_notes) p->in.host.flush_notes(p->in.host.user);
+    j = qjob_new(QJ_PROPOP, p->req_propop = ++p->next_req);
+    if (!j) return;
+    j->i1 = 2;
+    send_job(p, j);
+    if (p->in.host.message) p->in.host.message(p->in.host.user, "Converting...");
+}
+
 static void finish_merge(ExPanels *p, QRes *r) {
     char msg[700];
     size_t i;

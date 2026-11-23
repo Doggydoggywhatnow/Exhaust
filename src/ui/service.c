@@ -399,7 +399,18 @@ static void do_merge(QService *s, QJob *j, QRes *res) {
 static void do_propop(QService *s, QJob *j, QRes *res) {
     ExNoteIO io = ex_note_io_files(s->root);
     size_t changed = 0;
-    int rc = j->i1 == 0 ? ex_props_rename_everywhere(s->r, &io, s->root, j->a, j->b, &changed) : ex_props_retype_everywhere(s->r, &io, s->root, j->a, j->i2, &changed);
+    int rc;
+    if (j->i1 == 2) {                                                                    /* the format converter (6e-iv) */
+        ExMigrateReport mr;
+        rc = ex_props_migrate_frontmatter(s->r, &io, s->root, &mr);
+        ex_note_io_free(&io);
+        res->ok = rc == 0;
+        res->changed = mr.renamed[0] + mr.renamed[1] + mr.renamed[2];
+        snprintf(res->summary, sizeof res->summary, "Converted: alias %zu, tag %zu, cssclass %zu%s", mr.renamed[0], mr.renamed[1], mr.renamed[2],
+                 mr.skipped[0] + mr.skipped[1] + mr.skipped[2] ? " (notes that already had the new key were left alone)" : "");
+        return;
+    }
+    rc = j->i1 == 0 ? ex_props_rename_everywhere(s->r, &io, s->root, j->a, j->b, &changed) : ex_props_retype_everywhere(s->r, &io, s->root, j->a, j->i2, &changed);
     ex_note_io_free(&io);
     res->ok = rc == 0;
     res->changed = changed;

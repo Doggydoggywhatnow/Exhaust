@@ -307,6 +307,33 @@ int ex_props_rename_everywhere(ExIndex *r, const ExNoteIO *io, const char *root,
     return rc;
 }
 
+int ex_props_migrate_frontmatter(ExIndex *r, const ExNoteIO *io, const char *root, ExMigrateReport *rep) {
+    static const char *const from[3] = {"alias", "tag", "cssclass"}, *const to[3] = {"aliases", "tags", "cssclasses"};
+    ExMigrateReport local;
+    int k;
+    if (!rep) rep = &local;
+    memset(rep, 0, sizeof *rep);
+    for (k = 0; k < 3; k++) {
+        char **paths;
+        size_t n, i;
+        int old_type;
+        if (paths_with_prop(r, from[k], &paths, &n) != 0) { rep->failed = 1; continue; }
+        for (i = 0; i < n; i++) {
+            size_t len = 0, olen = 0;
+            char *text = io->read(io->user, paths[i], &len), *out;
+            if (!text) { rep->failed = 1; continue; }
+            out = ex_prop_text_rename(text, len, from[k], to[k], &olen);
+            if (!out) rep->skipped[k]++;
+            else { if (io->write(io->user, paths[i], out, olen) == 0) rep->renamed[k]++; else rep->failed = 1; free(out); }
+            free(text);
+        }
+        ex_paths_free(paths, n);
+        old_type = root ? ex_prop_type_get(root, from[k]) : -1;
+        if (old_type >= 0 && ex_prop_type_get(root, to[k]) < 0) ex_prop_type_set(root, to[k], old_type);
+    }
+    return rep->failed ? -1 : 0;
+}
+
 int ex_props_retype_everywhere(ExIndex *r, const ExNoteIO *io, const char *root, const char *name, int type, size_t *changed) {
     char **paths;
     size_t n, i, c = 0;

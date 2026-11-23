@@ -129,6 +129,8 @@ void ex_panels_rename_file(ExPanels *p, const char *path);
 /* Merges the note `from` into the note `into` (6e-ii): open notes are saved, then on the service thread the text of `from` is added to `into` (their properties merged,
  * with the composer's template `tpl` of `tpl_len` bytes when not NULL) and every link to `from` is made to point at `into`; when that has gone well `from` is deleted
  * (by files.trash_mode) and `into` is opened. The status bar says how it went. */
+/* The format converter (6e-iv): renames alias, tag and cssclass to aliases, tags and cssclasses in every note (a job on the service thread). The caller has asked first. */
+void ex_panels_convert_frontmatter(ExPanels *p);
 void ex_panels_merge_notes(ExPanels *p, const char *from, const char *into, const char *tpl, size_t tpl_len);
 /* Renames a note to new_name (no folder, no extension) in its own folder, through the link-safe flow; the link question is asked as
  * for any rename. Returns 0 if it was started, -1 (with a message in the status line) if the name is not valid or is taken. */
