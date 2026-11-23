@@ -106,3 +106,4 @@ and what was left out of the vendored copy.
   Built as `pcre2_8` with `HAVE_CONFIG_H`, `SUPPORT_UNICODE`, `PCRE2_CODE_UNIT_WIDTH=8` and
   `PCRE2_STATIC`; warnings of the vendored code are switched off.
 - **English (US) dictionary**: the two files as downloaded, unchanged, with the README that holds the license; the build embeds them with `tools/embed.c` (about 550 KB).
+- **Lua**: 5.4.7 (tag `v5.4.7`, commit `1ab3208a1fceb12fca8f24ba57d6e13c5bff15e3` of https://github.com/lua/lua; MIT, the license printed at the end of `lua.h` is `third_party/lua/LICENSE`). The core, the base, table, string, math, utf8 and coroutine libraries are compiled (`lua_static`); `lua.c`, `luac.c`, `lua.hpp`, the `io`, `os`, `package`, `debug` and `loadlib` libraries and `linit.c` are left out (a plugin cannot reach them: `docs/formats.md`, *The runtime (8b)*). Built with warnings off. About 870 KB of source.

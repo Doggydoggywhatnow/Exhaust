@@ -63,7 +63,7 @@ static void host_action(void *u, const char *id) { (void)u; snprintf(ACTION_ID, 
 
 static int FEATURES;                                              /* 1: the 7b pages */
 static int in_page_section(const char *s) {
-    if (!FEATURES) return !strcmp(s, "general") || !strcmp(s, "appearance") || !strcmp(s, "interface") || !strcmp(s, "editor") || !strcmp(s, "files") || !strcmp(s, "export_pdf");
+    if (!FEATURES) return !strcmp(s, "general") || !strcmp(s, "appearance") || !strcmp(s, "interface") || !strcmp(s, "editor") || !strcmp(s, "files") || !strcmp(s, "export_pdf") || !strcmp(s, "plugins");
     return !strcmp(s, "features") || !strcmp(s, "backlinks") || !strcmp(s, "canvas") || !strcmp(s, "command_palette") || !strcmp(s, "daily_notes") || !strcmp(s, "file_recovery") || !strcmp(s, "importer") ||
            !strcmp(s, "note_composer") || !strcmp(s, "page_preview") || !strcmp(s, "quick_switcher") || !strcmp(s, "templates") || !strcmp(s, "unique_note");
 }

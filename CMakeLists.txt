@@ -513,7 +513,7 @@ target_include_directories(exhaust_theme PUBLIC include)
 target_link_libraries(exhaust_theme PUBLIC exhaust_ini exhaust_platform SDL3::SDL3-static)
 add_library(exhaust_ui STATIC src/ui/diagramdraw.c src/ui/graphview.c src/ui/canvasview.c src/ui/baseview.c src/ui/imageview.c src/ui/imagecache.c src/ui/audioview.c src/ui/mediaview.c src/ui/pdfview.c src/ui/slider.c src/ui/graph_panel.c src/ui/explorer.c src/ui/sample_window.c src/ui/ui_a11y.c src/ui/editor.c src/ui/editor_layout.c src/ui/editor_fold.c src/ui/editor_keys.c src/ui/editor_format.c src/ui/editor_table.c src/ui/settings_view.c src/ui/settings_rows.c src/ui/findbar.c src/ui/reading_view.c src/ui/ui.c src/ui/list.c src/ui/icons.c src/ui/service.c src/ui/views.c src/ui/popwin.c src/ui/ribbon.c src/ui/statusbar.c src/ui/dialogs.c src/ui/history_dialog.c src/ui/panels.c src/ui/fileactions.c src/ui/fileprops.c src/ui/panes.c src/ui/vault_screen.c)
 target_include_directories(exhaust_ui PUBLIC include PRIVATE src/ui)
-target_link_libraries(exhaust_ui PUBLIC exhaust_diagram exhaust_pdf exhaust_mpv exhaust_audio exhaust_image exhaust_base exhaust_canvas exhaust_theme exhaust_layout exhaust_nav exhaust_index exhaust_spell exhaust_settings exhaust_find exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace exhaust_markdown clay_impl)
+target_link_libraries(exhaust_ui PUBLIC exhaust_plugins exhaust_diagram exhaust_pdf exhaust_mpv exhaust_audio exhaust_image exhaust_base exhaust_canvas exhaust_theme exhaust_layout exhaust_nav exhaust_index exhaust_spell exhaust_settings exhaust_find exhaust_render exhaust_buffer exhaust_vault exhaust_a11y exhaust_workspace exhaust_markdown clay_impl)
 if(NOT MSVC)
   target_link_libraries(exhaust_ui PUBLIC m)
 endif()
@@ -1093,6 +1093,15 @@ add_executable(test_import tests/test_import.c)
 target_link_libraries(test_import PRIVATE exhaust_import exhaust_platform)
 add_test(NAME importers COMMAND test_import)
 
+add_executable(test_plugins tests/test_plugins.c)
+target_link_libraries(test_plugins PRIVATE exhaust_plugins exhaust_settings exhaust_platform SDL3::SDL3-static)
+add_test(NAME plugins COMMAND test_plugins)
+add_executable(test_plugins_page tests/test_plugins_page.c)
+target_link_libraries(test_plugins_page PRIVATE exhaust_ui exhaust_plugins exhaust_settings exhaust_platform)
+add_test(NAME plugins_page COMMAND test_plugins_page)
+set_tests_properties(plugins_page PROPERTIES TIMEOUT 120)
+set_tests_properties(plugins PROPERTIES TIMEOUT 120)
+
 add_executable(test_font_cache tests/test_font_cache.c)
 target_link_libraries(test_font_cache PRIVATE exhaust_text)
 add_test(NAME font_cache COMMAND test_font_cache ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts)
@@ -1123,3 +1132,21 @@ set_tests_properties(search_perf ui_not_blocked index_cold frame_budget graph_fr
 add_library(exhaust_import STATIC src/import/import.c src/import/csv.c src/import/zip.c src/import/html2md.c src/import/importjob.c)
 target_include_directories(exhaust_import PUBLIC include)
 target_link_libraries(exhaust_import PUBLIC exhaust_templates exhaust_vault exhaust_buffer exhaust_platform zlib_static)
+
+# Plugins (8b): Lua 5.4 (the core and the base, table, string, math, utf8 and coroutine libraries: no io, os, package or debug) in a sandbox.
+add_library(lua_static STATIC
+  third_party/lua/lapi.c third_party/lua/lauxlib.c third_party/lua/lbaselib.c third_party/lua/lcode.c third_party/lua/lcorolib.c third_party/lua/lctype.c
+  third_party/lua/ldebug.c third_party/lua/ldo.c third_party/lua/ldump.c third_party/lua/lfunc.c third_party/lua/lgc.c third_party/lua/llex.c
+  third_party/lua/lmathlib.c third_party/lua/lmem.c third_party/lua/lobject.c third_party/lua/lopcodes.c third_party/lua/lparser.c third_party/lua/lstate.c
+  third_party/lua/lstring.c third_party/lua/lstrlib.c third_party/lua/ltable.c third_party/lua/ltablib.c third_party/lua/ltm.c third_party/lua/lundump.c
+  third_party/lua/lutf8lib.c third_party/lua/lvm.c third_party/lua/lzio.c)
+target_include_directories(lua_static PUBLIC third_party/lua)
+if(NOT MSVC)
+  target_compile_options(lua_static PRIVATE -w)
+else()
+  target_compile_definitions(lua_static PRIVATE _CRT_SECURE_NO_WARNINGS)
+  target_compile_options(lua_static PRIVATE /wd4244 /wd4267 /wd4996 /wd4334)
+endif()
+add_library(exhaust_plugins STATIC src/plugins/manifest.c src/plugins/plugins.c)
+target_include_directories(exhaust_plugins PUBLIC include)
+target_link_libraries(exhaust_plugins PUBLIC lua_static exhaust_settings exhaust_ini exhaust_buffer exhaust_platform exhaust_core)

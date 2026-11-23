@@ -26,6 +26,7 @@
 #include "exhaust_panels.h"
 #include "exhaust_vaultscreen.h"
 #include "exhaust_platform.h"
+#include "exhaust_plugins.h"
 
 static int failures;
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "%s:%d: check failed: %s\n", __FILE__, __LINE__, #c); failures++; } } while (0)
@@ -516,9 +517,28 @@ int main(void) {
         }
         {   /* the settings screen (7a): every page, long text in every field, and a pane as narrow as a sidebar */
             ExSettings *ss = ex_settings_open("long_names_data/.exhaust", NULL);
-            ExSettingsView *sv = ss ? ex_settingsview_create(g_ui, ss, NULL) : NULL;
+            ExSettingsHost sh;
+            ExPluginHost ph;
+            ExPlugins *plugs;
+            ExSettingsView *sv;
             ExWidget *sbox = ex_widget_box(g_ui, 1, "settings box");
-            size_t pg;
+            size_t pg, ln;
+            char longtext[1200];
+            for (ln = 0; ln < sizeof longtext - 1; ln++) longtext[ln] = (char)('a' + (ln % 26)), longtext[ln] = ln % 7 == 6 ? ' ' : longtext[ln];
+            longtext[sizeof longtext - 1] = 0;
+            {   char man[3000];                                                              /* the Plugins page (8b): a plugin whose name, author and description are very long */
+                snprintf(man, sizeof man, "[plugin]\nid = longone\nname = %.110s\nversion = 1.0.0\napi = 1\nauthor = %.110s\ndescription = %.390s\npermissions = vault.read, vault.write, editor.read, editor.write, commands.register, ui.pane, ui.notice, settings.own, network\n", longtext, longtext, longtext);
+                put(".exhaust/plugins/longone/manifest.ini", man);
+                put(".exhaust/plugins/longone/main.lua", "");
+                put(".exhaust/plugins/not-valid/manifest.ini", "[plugin]\nid = other\n");
+            }
+            memset(&ph, 0, sizeof ph);
+            plugs = ex_plugins_create(V, NULL, &ph, NULL, NULL);
+            ex_plugins_rescan(plugs);
+            for (ln = 0; ln < 200 && ex_plugins_busy(plugs); ln++) SDL_Delay(5);             /* a test may wait (tools/check_ui_blocking.sh looks at src/ui) */
+            memset(&sh, 0, sizeof sh);
+            sh.plugins = plugs;
+            sv = ss ? ex_settingsview_create(g_ui, ss, &sh) : NULL;
             CHECK(sv != NULL);
             if (sv) {
                 sbox->width = ex_size_grow(); sbox->height = ex_size_grow();
@@ -551,6 +571,7 @@ int main(void) {
             }
             ex_ui_release(g_ui, sbox);
             ex_widget_free(sbox);
+            ex_plugins_free(plugs);
             ex_settings_close(ss);
         }
         ex_findbar_free(fb);

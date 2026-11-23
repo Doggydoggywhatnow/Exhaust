@@ -56,6 +56,7 @@
 #include "exhaust_importjob.h"
 #include "exhaust_props.h"
 #include "exhaust_workspace.h"
+#include "exhaust_plugins.h"
 
 /* The system font scan runs on a worker thread and hands its result to the UI
  * thread as a message; the queue wakes the UI loop with an SDL event. */
@@ -83,7 +84,12 @@ typedef enum Banner { BANNER_NONE, BANNER_RECOVERED, BANNER_CONFLICT, BANNER_ERR
 
 typedef struct TabNote { ExId tab; ExNote *note; } TabNote;
 
+typedef struct PlugPane { char title[120]; char *markdown; } PlugPane;
 typedef struct App {
+    ExPlugins *plugins;                /* the Lua plugins (8b); NULL without a vault */
+    int plugins_allowed;               /* [plugins] allow as the runtime last heard it */
+    PlugPane plug_panes[16]; size_t nplug_panes;   /* the text of the tabs plugins opened (view "plugin") */
+    char plug_path[512]; unsigned long plug_ver;   /* the note and text version last seen, for the editor-change event */
     ExQueue *results;                  /* the interface's message queue: workers send here */
     ExExportJob *export_job;           /* the export to PDF in flight (6e-iv) */
     ExImportJob *import_job; ExImportFormat import_format; int import_dialog;   /* the import in flight (6e-v) */
@@ -173,6 +179,8 @@ typedef struct App {
 
 static char *dup_text(const char *s) { size_t n = strlen(s); char *p = malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
 static void sync_ui(App *a);
+static void plugins_frame(App *a);
+static unsigned long host_active_version(void *u);
 static ExUi *ui_of(App *a, const ExWidget *w);
 static const char *host_active_path(void *u);
 
@@ -678,6 +686,8 @@ static void apply_history(App *a);
 static void apply_zoom(App *a);
 static void apply_ribbon(App *a);
 static void settings_action(void *u, const char *id);
+static void settings_confirm(void *u, const char *title, const char *message, const char *yes, void (*done)(void *arg, int yes), void *arg);
+static ExWidget *make_plugin_pane(App *a, const ExTab *t);
 static void settings_changed(void *u, const char *section, const char *key) {
     App *a = u;
     if (!strcmp(section, "interface") && !strcmp(key, "zoom_percent")) apply_zoom(a);
@@ -692,7 +702,7 @@ static ExWidget *make_settings(App *a) {
     ExSettingsHost h;
     ExSettingsView *sv;
     memset(&h, 0, sizeof h);
-    h.user = a; h.choose = settings_choose; h.changed = settings_changed; h.version = exhaust_version(); h.set_feature = settings_set_feature; h.hotkeys = a->hotkeys; h.capture = settings_capture; h.themes = a->themes; h.current_theme = current_theme_cb; h.action = settings_action;
+    h.user = a; h.choose = settings_choose; h.changed = settings_changed; h.version = exhaust_version(); h.set_feature = settings_set_feature; h.hotkeys = a->hotkeys; h.capture = settings_capture; h.themes = a->themes; h.current_theme = current_theme_cb; h.action = settings_action; h.plugins = a->plugins; h.confirm = settings_confirm;
     sv = ex_settingsview_create(a->ui, a->settings, &h);
     return sv ? ex_settingsview_widget(sv) : info_label(a, "The settings cannot be shown.");
 }
@@ -1743,6 +1753,7 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
     ExWidget *ed;
     (void)p;
     if (strcmp(t->view, "settings") == 0) return make_settings(a);
+    if (strcmp(t->view, "plugin") == 0) return make_plugin_pane(a, t);       /* the text a plugin put in a tab (8b) */
     if (!a->vault) {
         ed = ex_widget_editor(a->ui, a->demo_doc, "Welcome");
         return ed;
@@ -1826,7 +1837,12 @@ static int strcasecmp_ascii(const char *a, const char *b) {
     return *a ? 1 : *b ? -1 : 0;
 }
 
+static void open_path_do(App *a, ExId group, const char *rel);
 static void open_path(App *a, ExId group, const char *rel) {
+    open_path_do(a, group, rel);
+    if (a->plugins && a->plugins_allowed) ex_plugins_emit(a->plugins, "file-open", rel, NULL);
+}
+static void open_path_do(App *a, ExId group, const char *rel) {
     ExId t = ex_ws_find_tab(a->ws, rel);
     if (t) { ex_ws_activate(a->ws, t); a->focus_tab = t; return; }
     if (ex_file_kind(rel) == EX_KIND_CANVAS) { t = ex_ws_new_tab(a->ws, group, rel, "canvas"); a->focus_tab = t; return; }
@@ -3079,6 +3095,7 @@ static void sync_title(App *a) {
 static void sync_ui(App *a) {
     ExId g, t;
     ExWidget *c;
+    plugins_frame(a);
     bases_follow_index(a);
     ex_imagecache_pump(a->icache, a->main_r);
     ex_sidebar_sync(a->left_sb);
@@ -3374,6 +3391,7 @@ static void handle_note_events(App *a) {
                 ex_vault_rescan(a->vault);
                 if (a->tree) ex_tree_select_path(a->tree, ev.rel);
             }
+            if (a->plugins && a->plugins_allowed) ex_plugins_emit(a->plugins, "file-save", ev.rel, NULL);
             if (a->panels) ex_panels_file_changed(a->panels, ev.rel);
             ex_canvascache_invalidate(a->ccache, ev.rel);                             /* a canvas card that shows this note asks for its text again */
             if (ev.note == a->note && a->banner_kind == BANNER_ERROR) show_banner(a, BANNER_NONE, "", NULL, NULL, NULL);
@@ -3564,6 +3582,115 @@ static int host_move_file(void *u, const char *from, const char *to) {
         for (i = 0; i < k; i++) { size_t pl = strlen(moved[i].path), tl = strlen(to); if (pl >= tl) { char back[600]; snprintf(back, sizeof back, "%s%s", from, moved[i].path + tl); open_path(a, moved[i].group, back); } }
     }
     return rc == EX_VAULT_OK ? 0 : -1;
+}
+
+
+/* ---- plugins (8b): the host the runtime calls from ex_plugins_update, on this thread ---- */
+
+static int plug_editor_get(void *u, char **text, size_t *s0, size_t *s1, size_t *cursor) {
+    App *a = u;
+    ExEditor *ed = a->editor ? a->editor->editor : NULL;
+    ExDoc *d;
+    ExSel sel;
+    size_t len = 0;
+    if (!ed) return -1;
+    d = ex_editor_doc(ed);
+    *text = ex_buffer_text(ex_doc_buffer(d), &len);
+    if (!*text) return -1;
+    sel = ex_doc_sel(d, ex_doc_primary(d));
+    *s0 = sel.anchor < sel.head ? sel.anchor : sel.head;
+    *s1 = sel.anchor < sel.head ? sel.head : sel.anchor;
+    *cursor = sel.head;
+    return 0;
+}
+static int plug_editor_replace(void *u, const char *text, size_t len, int whole) {
+    App *a = u;
+    ExEditor *ed = a->editor ? a->editor->editor : NULL;
+    ExDoc *d;
+    if (!ed) return -1;
+    d = ex_editor_doc(ed);
+    if (whole) {
+        ExChange c;
+        c.offset = 0; c.remove_len = ex_buffer_size(ex_doc_buffer(d)); c.text = text; c.text_len = len;
+        return ex_doc_apply(d, &c, 1, 0, NULL, 0) == 0 ? 0 : -1;
+    }
+    return ex_doc_replace_selections(d, text, len, 0) == 0 ? 0 : -1;
+}
+static void plug_notice(void *u, const char *text) { set_status(u, text); }
+static int plug_open_pane(void *u, const char *title, const char *markdown) {
+    App *a = u;
+    char name[120];
+    size_t i, k = a->nplug_panes;
+    ExId t;
+    char *copy;
+    snprintf(name, sizeof name, "%s", title);
+    for (i = 0; name[i]; i++) if (name[i] == '/' || name[i] == '\\') name[i] = '-';
+    if (!name[0]) return -1;
+    for (i = 0; i < a->nplug_panes; i++) if (!strcmp(a->plug_panes[i].title, name)) { k = i; break; }
+    if (k == a->nplug_panes && k >= 16) return -1;
+    copy = dup_text(markdown ? markdown : "");
+    if (!copy) return -1;
+    if (k == a->nplug_panes) { a->nplug_panes++; snprintf(a->plug_panes[k].title, sizeof a->plug_panes[k].title, "%s", name); a->plug_panes[k].markdown = NULL; }
+    free(a->plug_panes[k].markdown);
+    a->plug_panes[k].markdown = copy;
+    t = ex_ws_find_tab(a->ws, name);
+    if (t) ex_ws_close_tab(a->ws, t);                                          /* the text may have changed: build the tab again */
+    t = ex_ws_new_tab(a->ws, ex_ws_active_group(a->ws), name, "plugin");
+    if (t) { ex_ws_activate(a->ws, t); a->focus_tab = t; }
+    return t ? 0 : -1;
+}
+static ExWidget *make_plugin_pane(App *a, const ExTab *t) {
+    size_t i;
+    for (i = 0; i < a->nplug_panes; i++)
+        if (!strcmp(a->plug_panes[i].title, t->path) && a->plug_panes[i].markdown) {
+            ExWidget *rv = ex_widget_reading(a->ui, a->plug_panes[i].markdown, strlen(a->plug_panes[i].markdown), t->path);
+            if (rv) return rv;
+        }
+    return info_label(a, "This tab belongs to a plugin that is not running. Close it, or turn the plugin on in Settings, Plugins.");
+}
+static int plug_rename(void *u, const char *from, const char *to) { return host_move_file(u, from, to); }
+static void plug_changed(void *u) { (void)u; }
+
+typedef struct PlugAsk { void (*done)(void *arg, int yes); void *arg; } PlugAsk;
+static void plug_ask_answer(int button, void *arg) {
+    PlugAsk *k = arg;
+    k->done(k->arg, button == 1);
+    free(k);
+}
+static void settings_confirm(void *u, const char *title, const char *message, const char *yes, void (*done)(void *arg, int yes), void *arg) {
+    App *a = u;
+    PlugAsk *k = malloc(sizeof *k);
+    if (!k) { done(arg, 0); return; }
+    k->done = done; k->arg = arg;
+    if (!a->panels) { free(k); done(arg, 0); return; }
+    ex_panels_ask_confirm(a->panels, title, message, yes, "Cancel", NULL, plug_ask_answer, k);
+}
+
+/* Once a frame: the calls the plugins made, the master switch, and the editor-change event. */
+static void plugins_frame(App *a) {
+    int allow;
+    if (!a->plugins) return;
+    allow = ex_settings_get_bool(a->settings, "plugins", "allow");
+    if (allow != a->plugins_allowed) { a->plugins_allowed = allow; ex_plugins_set_allowed(a->plugins, allow); }
+    ex_plugins_update(a->plugins);
+    if (allow) {
+        const char *ap = host_active_path(a);
+        unsigned long v = host_active_version(a);
+        if (ap && !strcmp(ap, a->plug_path)) { if (v != a->plug_ver) { a->plug_ver = v; ex_plugins_emit(a->plugins, "editor-change", ap, NULL); } }
+        else { snprintf(a->plug_path, sizeof a->plug_path, "%s", ap ? ap : ""); a->plug_ver = v; }
+    }
+}
+static void plugins_start(App *a) {
+    ExPluginHost h;
+    if (!a->vault || a->plugins) return;
+    memset(&h, 0, sizeof h);
+    h.user = a; h.editor_get = plug_editor_get; h.editor_replace = plug_editor_replace; h.notice = plug_notice; h.open_pane = plug_open_pane; h.rename = plug_rename; h.changed = plug_changed;
+    a->plugins = ex_plugins_create(ex_vault_path(a->vault), a->commands, &h, wake_ui, NULL);
+    if (a->plugins) {
+        a->plugins_allowed = ex_settings_get_bool(a->settings, "plugins", "allow");
+        ex_plugins_set_allowed(a->plugins, a->plugins_allowed);
+        ex_plugins_emit(a->plugins, "vault-open", NULL, NULL);
+    }
 }
 
 /* The explorer menu's file operations (sub-slice 4d). */
@@ -3965,6 +4092,7 @@ int main(int argc, char **argv) {
             left_content->width = ex_size_grow(); left_content->height = ex_size_grow(); left_content->bg_token = EX_COLOR_BACKGROUND_ALT;
         }
     }
+    plugins_start(&app);                                                         /* the plugin thread (8b); nothing runs until [plugins] allow is on */
     app.left_sb = ex_sidebar_create(app.ui, app.ws, EX_SIDE_LEFT, left_content, "Left sidebar");
     ex_widget_add(row, ex_sidebar_edge_create(app.left_sb));       /* the handle of a hidden left sidebar */
     ex_widget_add(row, app.left_sb);
@@ -4234,6 +4362,9 @@ int main(int argc, char **argv) {
     free(app.graph_note);
     ex_slash_free(app.slash);
     ex_spell_free(app.spell);
+    ex_plugins_free(app.plugins);                                      /* the plugin thread stops first: nothing calls back into the application after this */
+    app.plugins = NULL;
+    { size_t i; for (i = 0; i < app.nplug_panes; i++) free(app.plug_panes[i].markdown); }
     ex_panes_free(app.panes);                                          /* contents are detached and closed; their notes are closed too (content_closed still tells the find bar) */
     ex_findbar_free(app.findbar);
     app.findbar = NULL;

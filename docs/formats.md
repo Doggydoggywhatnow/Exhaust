@@ -866,6 +866,39 @@ Everything is in the `exhaust` table. A function that needs a permission fails w
 
 Event names for `exhaust.events.on`: `vault-open`, `file-open`, `file-save`, `file-rename`, `editor-change`. Since: 0.1.0.
 
+### The runtime (8b)
+
+*Since 0.1.0.* `include/exhaust_plugins.h`, `src/plugins/`, Lua 5.4.7 vendored in `third_party/lua` (MIT; the core and the base, table, string, math, utf8 and coroutine libraries only).
+
+**Where plugins are, what is approved.** A plugin is a folder `.exhaust/plugins/<id>/` with `manifest.ini` (the keys above, in a `[plugin]` section) and its entry file. Nothing runs until `[plugins] allow` is on (*Plugins* page of the settings, off by default) **and** the user has turned that plugin on and approved its permissions. The approvals are kept in `.exhaust/plugins.ini`, not in the plugin's own folder (a copy of a plugin from a sync tool or another vault must not bring its approval along):
+
+| Section and key | Type | Default | Since |
+| --- | --- | --- | --- |
+| `[plugin.<id>]` `enabled` | bool | `false` | 0.1.0 |
+| `[plugin.<id>]` `approved` | list of permission names | empty | 0.1.0 |
+| `[plugin.<id>]` `version` | string | empty | 0.1.0 |
+
+A plugin runs only when `enabled` is true, `[plugins] allow` is true and its manifest's permissions are all in `approved`; when a plugin's folder changes its permissions or its version, the approval no longer matches, the plugin stays off and the page says why. Turning a plugin on shows its name, author, description and permission list and asks. `network` is a permission name that can be approved, and the functions behind it make no request in 0.1.0 (`exhaust.http.get` fails with *network use is off*); no plugin can reach the network.
+
+**The sandbox.** One Lua state for each plugin, all of them run on **one thread of their own** (never the interface's thread). Only the base library (without `dofile`, `loadfile`, `load`, `loadstring`, `require`, `collectgarbage` and `print`, which writes to the plugin log), `table`, `string`, `math`, `utf8` and `coroutine` exist: no `os`, `io`, `package` or `debug`, no way to read a file but through the API, no bytecode (a chunk that starts with the Lua binary signature is refused). Limits: the entry file may run for 1,000 ms when it is loaded, each callback (a command, an event, a pane's `render`) for 1,000 ms; the time spent waiting for the application is not counted; 32 MB of memory for the state. A plugin that goes over a limit gets an error (`time limit exceeded`, `not enough memory`) and is **stopped**: its commands and panes are removed and the page shows the error until the user turns it on again. A Lua error in a callback is logged (`.exhaust/plugins/<id>/log.txt`, the last 64 KB) and shown as a notice, and does not stop the plugin.
+
+**Calls into the application.** `exhaust.editor.*`, `exhaust.ui.*` and `exhaust.commands.*` are carried out by the interface thread between two frames (the plugin thread waits for the answer, at most 10 seconds, then the call fails with `the application did not answer`); `exhaust.vault.*` and `exhaust.settings.*` are done on the plugin thread. A function without its permission raises `permission denied: <name>` (a Lua error, catchable with `pcall`).
+
+**Paths** given to `exhaust.vault.*` are relative to the vault with `/` separators; an absolute path, a `..` part, a backslash, a drive letter or anything in `.exhaust` or `.trash` is refused (`path not allowed`). `vault.read` reads at most 8 MB and returns the text of the file as it is on disk (line endings and byte-order mark included); `vault.list(dir)` returns a table of names (folders end with `/`), sorted; `vault.write(path, text)` writes atomically (the old file stays if anything fails) and creates the folders; `vault.rename(from, to)` never replaces a file and does **not** update links (Exhaust's own rename does; see ISSUES 77). `vault.write` and `vault.rename` act on what the user approved when they turned the plugin on.
+
+**The editor.** `exhaust.editor.text()` returns the whole text of the note in the focused editor (or `nil` when none is focused: a reading view, a graph or a canvas has no editor). `exhaust.editor.selection()` returns three values: the selected text, and the byte offsets (from 0) of its start and its end (a caret gives an empty text); `exhaust.editor.cursor()` the byte offset of the caret (the moving end of the selection; the primary one when there are several). `replace_selection(text)` replaces every selection, `set_text(text)` the whole text; each is one undo step and returns `true`, or `nil` and `no note is open`. The edit is typing: the note is saved like any other typed change.
+
+**Commands.** `exhaust.commands.register(id, name, fn, opts)`: `id` is lowercase letters, digits and hyphens; the command becomes `plugin.<plugin id>.<id>` in the command palette and the slash menu with the name `<plugin name>: <name>` (the Hotkeys page lists only the commands of Exhaust's own table in 0.1.0, so a plugin command has no shortcut); `opts` may have `editor = true` (listed with the editor commands). `exhaust.commands.run(id)` runs one of the plugin's own commands or any command of Exhaust by its full id.
+
+**Panes.** `exhaust.ui.add_pane(id, opts)` with `opts.title` and either `opts.text` (Markdown) or `opts.render` (a function that returns Markdown): the command `plugin.<plugin id>.pane-<id>` (*<plugin name>: Open <title>*) opens the text in a tab (the reading view, read-only); it is rendered again each time the command runs.
+
+**Settings of a plugin.** `exhaust.settings.get(key)` and `exhaust.settings.set(key, value)` keep strings in `.exhaust/plugins/<id>/data.ini` (section `[data]`; key and value up to 1,000 bytes, at most 200 keys).
+
+**Events.** `exhaust.events.on(name, fn)`: `vault-open` (no argument), `file-open(path)`, `file-save(path)`, `file-rename(from, to)` and `editor-change(path)`; the last one is sent at most every 500 ms and only after the text has changed. Events are handled on the plugin thread, one after another, and are dropped when more than 64 wait.
+
+**Not in 0.1.0.** Plugin views and file types (the README's wider promise), the community directory, a way to install a plugin from inside Exhaust, `vault.rename` that updates links, panes that refresh by themselves, plugin settings pages, and any network call.
+
+
 ## Canvas (6a)
 
 A canvas is a `.canvas` file in the JSON Canvas 1.0 format (https://jsoncanvas.org): a JSON object with `nodes` and `edges`. Exhaust reads and writes all of it and keeps what it does not know.
@@ -1083,6 +1116,7 @@ The Interface page of the settings has a button *Choose ribbon items*: a list of
 - *Core plugins (7b).* The list *Core plugins* is a page of the *Options* group: one switch for every key of `[features]` (a stub feature, Sync and Publish, has a disabled switch that says it is not in this version), in groups. Below it, in the group *Core plugins* of the page list, one page for each feature that has options of its own: Backlinks (`[backlinks]`), Canvas (`[canvas]`), Command palette (`[command_palette]`), Daily notes (`[daily_notes]`), File recovery (`[file_recovery]`), Note composer (`[note_composer]`), Page preview (`[page_preview]`), Quick switcher (`[quick_switcher]`), Templates (`[templates]`), Unique note creator (`[unique_note]`) and Sync (a stub page). A switch of the list goes through the feature registry, so the feature's menus, panels and commands follow it at once. The test `feature_pages` walks these sections of the table.
 - *File recovery page (7e).* Below its two numbers the page has a button row, *Clear history*, which asks for a confirmation and then deletes every automatic snapshot (see *File recovery snapshots*). A row with a button (`EX_ROW_ACTION`) has no setting; the application does what its id says.
 - *Hotkeys (7c).* The page *Hotkeys* (in the *Options* group, after Files and links) lists every command of the Commands table in table order: its name, its shortcuts as chips (a chip with a cross removes that shortcut; a chip in red has a shortcut another command has too), a `+` button that waits for the next key press and adds it (Escape cancels; a modifier alone is waited out) and, for a command that differs from its defaults, a *Reset* button. A filter field above the list narrows it by name, id or shortcut, and *Customized only* shows just the commands with a line in `hotkeys.ini`. Only the rows near the view are built (the list has 200 rows). The test `hotkeys` covers the file and chord rules, `hotkeys_screen` the page.
+- *Plugins (8b).* The page *Plugins* (in the *Options* group, after Hotkeys) has the switch *Allow plugins* (`[plugins] allow`, off by default), and under it a card for every folder of `.exhaust/plugins` (a plugin with an unusable manifest shows its folder name and the reason): name, version, author, description, the permissions it asks for, one line of status (*Off*, *Running*, *Needs approval again: ...*, *Stopped: ...*, *On, waiting: plugins are not allowed*) and a button *Turn on* or *Turn off*. *Turn on* asks first, listing the permissions; the plugin runs after the user says yes. The cards are built again when a plugin's state changes (the scroll position is kept). The test `plugins_page` walks it.
 - *Theme (7d).* The page *Theme* of the *Options* group, after Appearance: see "Loading themes and snippets" above.
 - *Names.* Each control's accessible name is its row's name followed by its state (`Spell check: on`).
 

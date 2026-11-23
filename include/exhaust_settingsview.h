@@ -10,6 +10,7 @@
 
 #include <stddef.h>
 #include "exhaust_hotkeys.h"
+#include "exhaust_plugins.h"
 #include "exhaust_settings.h"
 #include "exhaust_themes.h"
 #include "exhaust_ui.h"
@@ -57,6 +58,10 @@ typedef struct ExSettingsHost {
     const ExTheme *(*current_theme)(void *user);
     /* A button row of a page (7e: Clear history): the application does what the id says. May be NULL. */
     void (*action)(void *user, const char *id);
+    /* The Plugins page (8b): the runtime, whose plugins the page lists, and a question with Cancel and a yes button (the approval of a plugin's permissions):
+     * done(arg, 1) after yes, done(arg, 0) otherwise. Both may be NULL: the page then only has the master switch. */
+    ExPlugins *plugins;
+    void (*confirm)(void *user, const char *title, const char *message, const char *yes, void (*done)(void *arg, int yes), void *arg);
 } ExSettingsHost;
 
 typedef struct ExSettingsView ExSettingsView;

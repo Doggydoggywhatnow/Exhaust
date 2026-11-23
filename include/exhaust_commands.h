@@ -65,7 +65,12 @@ int ex_commands_available(const ExCommands *c, const char *id);       /* bound, 
 /* 0 ran; -1 unknown id; -2 not bound; -3 not available now (its feature is off, or check failed) */
 int ex_commands_run(ExCommands *c, const char *id);
 size_t ex_commands_count(const ExCommands *c);                          /* the whole table */
-const ExCommandDef *ex_commands_at(const ExCommands *c, size_t i);
+const ExCommandDef *ex_commands_at(const ExCommands *c, size_t i);   /* the table, then the commands added while running */
+/* A command made while the program runs (a plugin's: `plugin.<id>.<command>`). The id and name are copied; the id must not exist. It has no feature switch and
+ * no default shortcut. 0, or -1. ex_commands_count and ex_commands_at include it. */
+int ex_commands_add_dynamic(ExCommands *c, const char *id, const char *name, void (*run)(void *user), int (*check)(void *user), void *user, int editor);
+/* Removes the added commands whose id starts with `prefix`; returns how many. */
+size_t ex_commands_remove_dynamic(ExCommands *c, const char *prefix);
 
 #ifdef __cplusplus
 }

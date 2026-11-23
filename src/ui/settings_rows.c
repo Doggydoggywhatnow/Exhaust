@@ -104,6 +104,9 @@ static const ExSettingsRow rows[] = {
     T("files", "Advanced", "files", "allow_uri_callbacks", "Allow links from other programs", "Let exhaust:// links open notes and run actions. Not in this version."),
     X("files", "Advanced", "files", "config_folder", "Settings folder", "The name of the folder inside a vault that holds its settings. Takes effect when the vault is opened again."),
 
+    /* ---- Plugins (8b): the master switch; the plugins found are cards the page builds itself ---- */
+    T("plugins", "Plugins", "plugins", "allow", "Allow plugins", "Plugins are Lua programs in the .exhaust/plugins folder of the vault. Nothing runs while this is off. A plugin runs only after you turn it on and approve what it may do. Exhaust's plugins never use the network in this version."),
+
     /* ---- Keychain ---- */
     { "keychain", "Keychain", NULL, NULL, EX_ROW_INFO, "Saved secrets", "Exhaust keeps no passwords or tokens. Plugins that need one will ask you to store it here. Not in this version.", 0, 0, 0, "Add a secret" },
 
@@ -195,7 +198,7 @@ static const ExSettingsRow rows[] = {
 
 static const struct { const char *id, *name, *group; } pages[] = {
     { "general", "General", "Options" }, { "appearance", "Appearance", "Options" }, { "theme", "Theme", "Options" }, { "interface", "Interface", "Options" }, { "editor", "Editor", "Options" },
-    { "files", "Files and links", "Options" }, { "export_pdf", "Export to PDF", "Options" }, { "hotkeys", "Hotkeys", "Options" }, { "keychain", "Keychain", "Options" }, { "features", "Core plugins", "Options" },
+    { "files", "Files and links", "Options" }, { "export_pdf", "Export to PDF", "Options" }, { "hotkeys", "Hotkeys", "Options" }, { "plugins", "Plugins", "Options" }, { "keychain", "Keychain", "Options" }, { "features", "Core plugins", "Options" },
     { "backlinks", "Backlinks", "Core plugins" }, { "canvas", "Canvas", "Core plugins" }, { "command_palette", "Command palette", "Core plugins" },
     { "daily_notes", "Daily notes", "Core plugins" }, { "file_recovery", "File recovery", "Core plugins" }, { "importer", "Importer", "Core plugins" }, { "note_composer", "Note composer", "Core plugins" },
     { "page_preview", "Page preview", "Core plugins" }, { "quick_switcher", "Quick switcher", "Core plugins" }, { "sync", "Sync", "Core plugins" },

@@ -39,6 +39,8 @@ struct ExSettingsView {
     struct TokCtl *toks;
     ExWidget *th_select, *th_warn;
     char th_warn_text[700];
+    /* the Plugins page (8b): a signature of what the cards show, to see when they must be built again */
+    unsigned long pl_sig;
 };
 
 struct RowCtl {
@@ -894,6 +896,115 @@ static void select_nav(ExSettingsView *sv) {
         if (sv->page_btn[i]) sv->page_btn[i]->selected = sv->query[0] == 0 && !strcmp(ex_settings_page_id(i), sv->page);
 }
 
+
+/* ---- the Plugins page (8b): one card for every plugin found, under the master switch ---- */
+
+typedef struct PlugBtn { ExSettingsView *sv; char id[64], name[120], message[700]; int on; } PlugBtn;
+
+static unsigned long plugins_signature(ExSettingsView *sv) {
+    ExPluginInfo *all;
+    size_t n, i;
+    unsigned long h = 5381;
+    if (!sv->host.plugins) return 0;
+    all = malloc(64 * sizeof *all);
+    if (!all) return 0;
+    n = ex_plugins_snapshot(sv->host.plugins, all, 64);
+    for (i = 0; i < n && i < 64; i++) {
+        const char *c;
+        for (c = all[i].id; *c; c++) h = h * 33 + (unsigned char)*c;
+        for (c = all[i].status; *c; c++) h = h * 33 + (unsigned char)*c;
+        h = h * 33 + (unsigned long)(all[i].enabled * 4 + all[i].approved * 2 + all[i].running);
+    }
+    free(all);
+    return h * 31 + n;
+}
+
+static void plug_done(void *arg, int yes) {
+    PlugBtn *b = arg;
+    if (yes && b->sv->host.plugins) ex_plugins_enable(b->sv->host.plugins, b->id, 1);
+    free(b);
+}
+static void on_plugin_toggle(ExWidget *w, void *u) {
+    PlugBtn *b = u;                      /* owned by the widget: copy what a closing dialog needs */
+    ExSettingsView *sv = b->sv;
+    (void)w;
+    if (!sv->host.plugins) return;
+    if (!b->on) { ex_plugins_enable(sv->host.plugins, b->id, 0); return; }
+    if (sv->host.confirm) {
+        PlugBtn *c = malloc(sizeof *c);
+        char title[200];
+        if (!c) return;
+        *c = *b;
+        snprintf(title, sizeof title, "Turn on %s?", b->name);
+        sv->host.confirm(sv->host.user, title, b->message, "Turn on", plug_done, c);
+    } else ex_plugins_enable(sv->host.plugins, b->id, 1);
+}
+static void free_plugbtn(void *p) { free(p); }
+
+static void build_plugins_cards(ExSettingsView *sv) {
+    ExPluginInfo *all;
+    size_t n, i, j;
+    ExWidget *h, *note;
+    if (!sv->host.plugins) return;
+    h = label(sv, "Installed plugins", EX_COLOR_TEXT, 1.15f, 1);
+    if (h) { h->pad_y = 0.0f; ex_widget_add(sv->col, h); }
+    all = malloc(64 * sizeof *all);
+    if (!all) return;
+    n = ex_plugins_snapshot(sv->host.plugins, all, 64);
+    if (n > 64) n = 64;
+    if (n == 0) {
+        note = label(sv, "No plugins found. A plugin is a folder with a manifest.ini and a Lua file in .exhaust/plugins of the vault.", EX_COLOR_TEXT_MUTED, 1.0f, 0);
+        if (note) ex_widget_add(sv->col, note);
+    }
+    for (i = 0; i < n; i++) {
+        ExPluginInfo *p = &all[i];
+        ExWidget *cd = card(sv), *top, *names, *nm, *desc, *st, *perms, *btn;
+        PlugBtn *pb;
+        char buf[600], perm[300] = "";
+        if (!cd) continue;
+        ex_widget_add(sv->col, cd);
+        top = ex_widget_box(sv->ui, sv->compact ? 1 : 0, p->name[0] ? p->name : p->id);
+        names = ex_widget_box(sv->ui, 1, "");
+        if (!top || !names) continue;
+        top->width = ex_size_grow(); top->gap = sv->compact ? 0.5f : 1.5f; top->pad_y = 0.75f; top->align_y = sv->compact ? 0 : 1;
+        names->width = ex_size_grow(); names->gap = 0.25f;
+        if (p->valid) snprintf(buf, sizeof buf, "%s  %s", p->name, p->version); else snprintf(buf, sizeof buf, "%s", p->id);
+        nm = label(sv, buf, EX_COLOR_TEXT, 1.0f, 1);
+        if (nm) ex_widget_add(names, nm);
+        if (p->valid) {
+            snprintf(buf, sizeof buf, "%s%s%s", p->author[0] ? "By " : "", p->author, p->description[0] ? (p->author[0] ? ". " : "") : "");
+            if (p->description[0]) { size_t l = strlen(buf); snprintf(buf + l, sizeof buf - l, "%s", p->description); }
+            desc = label(sv, buf, EX_COLOR_TEXT_MUTED, 0.9f, 0);
+            if (desc) ex_widget_add(names, desc);
+            for (j = 0; j < p->nperm; j++) { size_t l = strlen(perm); snprintf(perm + l, sizeof perm - l, "%s%s", j ? ", " : "", p->permissions[j]); }
+            snprintf(buf, sizeof buf, "Permissions: %s", p->nperm ? perm : "none");
+            perms = label(sv, buf, EX_COLOR_TEXT_MUTED, 0.9f, 0);
+            if (perms) ex_widget_add(names, perms);
+        }
+        snprintf(buf, sizeof buf, "%s", p->status);
+        st = label(sv, buf, p->running ? EX_COLOR_TEXT : EX_COLOR_TEXT_MUTED, 0.9f, 0);
+        if (st) ex_widget_add(names, st);
+        ex_widget_add(top, names);
+        pb = calloc(1, sizeof *pb);
+        btn = pb && p->valid ? ex_widget_button(sv->ui, p->enabled ? "Turn off" : "Turn on", on_plugin_toggle, pb) : NULL;
+        if (btn) {
+            char nmx[200];
+            pb->sv = sv; pb->on = !p->enabled;
+            snprintf(pb->id, sizeof pb->id, "%s", p->id); snprintf(pb->name, sizeof pb->name, "%s", p->name[0] ? p->name : p->id);
+            snprintf(pb->message, sizeof pb->message, "%s by %s. This plugin asks to use: %s. It can do only these things, and only while Allow plugins is on. You can turn it off at any time.",
+                     pb->name, p->author[0] ? p->author : "an unknown author", p->nperm ? perm : "nothing (it can only add commands that use no permission)");
+            btn->pad_x = 1.0f; btn->pad_y = 0.4f; btn->width = ex_size_token(EX_SIZE_SPACING, 8.0f);
+            snprintf(nmx, sizeof nmx, "%s: %s", p->enabled ? "Turn off" : "Turn on", pb->name);
+            set_name(btn, nmx);
+            btn->owned = pb; btn->free_owned = free_plugbtn;
+            ex_widget_add(top, btn);
+        } else free(pb);
+        ex_widget_add(cd, top);
+    }
+    free(all);
+    sv->pl_sig = plugins_signature(sv);
+}
+
 static void rebuild(ExSettingsView *sv) {
     size_t i, nrows = ex_settings_row_count();
     const char *group = NULL, *page = NULL;
@@ -923,6 +1034,7 @@ static void rebuild(ExSettingsView *sv) {
         if (row) ex_widget_add(cd, row);
         first_in_card = 0;
     }
+    if (!sv->query[0] && !strcmp(sv->page, "plugins")) build_plugins_cards(sv);
     if (sv->query[0] && sv->shown == 0) {
         ExWidget *l = label(sv, "No setting matches.", EX_COLOR_TEXT_MUTED, 1.0f, 0);
         if (l) ex_widget_add(sv->col, l);
@@ -977,6 +1089,13 @@ void ex_settingsview_tick(ExSettingsView *sv) {
             rebuild(sv);
             focus = ex_ui_focus(sv->ui);
         }
+    }
+    /* the Plugins page: a plugin started, stopped or changed */
+    if (!sv->query[0] && !strcmp(sv->page, "plugins") && sv->host.plugins && plugins_signature(sv) != sv->pl_sig) {
+        float keep = sv->scroll->scroll_y;
+        rebuild(sv);
+        sv->scroll->scroll_y = keep;
+        focus = ex_ui_focus(sv->ui);
     }
     /* the search box */
     if (ver != sv->search_ver) {
