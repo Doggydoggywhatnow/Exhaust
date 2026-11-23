@@ -23,10 +23,22 @@ static ExColor col(const Dc *c, int k) {
     case EXD_C_NOTE_FILL: o = ex_theme_color(c->t, EX_COLOR_HIGHLIGHT); if (o.a > 120) o.a = 120; return o;
     case EXD_C_ERROR: return ex_theme_color(c->t, EX_COLOR_ERROR);
     default:
-        if (k >= EXD_C_CAT) return ex_theme_color(c->t, (ExColorToken)(EX_COLOR_CALLOUT_NOTE + (k - EXD_C_CAT) % 13));
+        if (k >= EXD_C_CAT) {   /* categories take the callout colors in an order that keeps neighbours apart: blue, green, yellow, orange, red, purple, teal, pink ... */
+            static const unsigned char order[13] = { 0, 5, 6, 7, 9, 11, 4, 10, 1, 8, 12, 2, 3 };
+            return ex_theme_color(c->t, (ExColorToken)(EX_COLOR_CALLOUT_NOTE + order[(k - EXD_C_CAT) % 13]));
+        }
         return ex_theme_color(c->t, EX_COLOR_TEXT);
     }
 }
+
+static float lum(ExColor c) {
+    float r = (float)c.r / 255.0f, g = (float)c.g / 255.0f, b = (float)c.b / 255.0f;
+    r = r <= 0.03928f ? r / 12.92f : powf((r + 0.055f) / 1.055f, 2.4f);
+    g = g <= 0.03928f ? g / 12.92f : powf((g + 0.055f) / 1.055f, 2.4f);
+    b = b <= 0.03928f ? b / 12.92f : powf((b + 0.055f) / 1.055f, 2.4f);
+    return 0.2126f * r + 0.7152f * g + 0.0722f * b;
+}
+static float contrast(ExColor a, ExColor b) { float x = lum(a), y = lum(b); return x > y ? (x + 0.05f) / (y + 0.05f) : (y + 0.05f) / (x + 0.05f); }
 
 static void poly_fill(Dc *c, const float *xy, int n, ExColor fill) {
     int i;
@@ -228,6 +240,10 @@ static void text_item(Dc *c, const ExDiagram *d, const ExDItem *it) {
     ExFontMetrics m;
     ExColor color = col(c, it->stroke);
     size_t pos = 0, len = it->tlen;
+    if (it->stroke == EXD_C_BEST) {   /* the text color that reads best on the item's fill */
+        ExColor back = col(c, it->fill), a = col(c, EXD_C_TEXT), b = col(c, EXD_C_LABEL_BG);
+        color = contrast(a, back) >= contrast(b, back) ? a : b;
+    }
     ExFont *f = it->bold && bold ? bold : font;
     if (ex_text_metrics(c->r, f, size, &m)) return;
     while (pos <= len) {

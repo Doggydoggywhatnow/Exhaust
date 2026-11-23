@@ -1,0 +1,27 @@
+classDiagram
+    direction TB
+    class Animal {
+        <<abstract>>
+        +String name
+        +int age
+        +makeSound() void
+        +move(distance) int
+    }
+    class Dog {
+        +fetch() void
+    }
+    class Duck {
+        +String beakColor
+        +swim()
+    }
+    class Owner
+    Animal <|-- Dog : inherits
+    Animal <|-- Duck
+    Owner "1" --> "0..*" Dog : owns
+    Owner *-- Wallet
+    Dog o-- Toy
+    Dog ..> Food : eats
+    Duck ..|> Flyer
+    <<interface>> Flyer
+    Flyer : +fly() void
+    Wallet : +int cash

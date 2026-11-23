@@ -1,0 +1,50 @@
+diagram 3 30.65 31.70
+line fg=8 dash=0 hs=5 he=0: 9.49,10.65 9.01,12.86 7.56,16.08
+rect 7.32 12.20 3.39 1.33 fill=9 stroke=0
+text 9.01 12.86 al=0 sz=0.90 fg=2 b=0 "inherits"
+line fg=8 dash=0 hs=5 he=0: 13.81,10.65 15.27,12.86 16.07,15.08
+line fg=8 dash=0 hs=0 he=2: 19.10,7.05 13.27,12.86 9.23,16.08
+rect 12.07 12.20 2.40 1.33 fill=9 stroke=0
+text 13.27 12.86 al=0 sz=0.90 fg=2 b=0 "owns"
+text 18.04 7.12 al=0 sz=0.85 fg=2 b=0 "1"
+text 9.42 15.03 al=0 sz=0.85 fg=2 b=0 "0..*"
+line fg=8 dash=0 hs=7 he=0: 21.18,7.05 24.44,12.86 26.00,16.08
+line fg=8 dash=0 hs=6 he=0: 6.08,20.23 5.25,23.44 3.83,26.95
+line fg=8 dash=1 hs=0 he=2: 7.50,20.23 8.85,23.44 10.05,26.95
+rect 7.81 22.77 2.07 1.33 fill=9 stroke=0
+text 8.85 23.44 al=0 sz=0.90 fg=2 b=0 "eats"
+line fg=8 dash=1 hs=0 he=5: 17.69,21.23 18.04,23.44 18.18,25.65
+rect 5.38 0.80 10.35 9.85 fill=3 stroke=4
+text 10.56 1.70 al=0 sz=0.85 fg=2 b=0 "«abstract»"
+text 10.56 2.98 al=0 sz=1.00 fg=1 b=1 "Animal"
+line fg=4 dash=0 hs=0 he=0: 5.38,4.05 15.73,4.05
+text 6.18 5.05 al=1 sz=1.00 fg=1 b=0 "+String name"
+text 6.18 6.35 al=1 sz=1.00 fg=1 b=0 "+int age"
+line fg=4 dash=0 hs=0 he=0: 5.38,7.35 15.73,7.35
+text 6.18 8.35 al=1 sz=1.00 fg=1 b=0 "+makeSound() void"
+text 6.18 9.65 al=1 sz=1.00 fg=1 b=0 "+move(distance) int"
+rect 3.06 16.08 7.14 4.15 fill=3 stroke=4
+text 6.62 17.15 al=0 sz=1.00 fg=1 b=1 "Dog"
+line fg=4 dash=0 hs=0 he=0: 3.06,18.23 10.19,18.23
+text 3.86 19.23 al=1 sz=1.00 fg=1 b=0 "+fetch() void"
+rect 12.39 15.08 9.59 6.15 fill=3 stroke=4
+text 17.19 16.15 al=0 sz=1.00 fg=1 b=1 "Duck"
+line fg=4 dash=0 hs=0 he=0: 12.39,17.23 21.98,17.23
+text 13.19 18.23 al=1 sz=1.00 fg=1 b=0 "+String beakColor"
+line fg=4 dash=0 hs=0 he=0: 12.39,19.23 21.98,19.23
+text 13.19 20.23 al=1 sz=1.00 fg=1 b=0 "+swim()"
+rect 17.93 4.40 5.00 2.65 fill=3 stroke=4
+text 20.43 5.48 al=0 sz=1.00 fg=1 b=1 "Owner"
+rect 24.18 16.08 5.67 4.15 fill=3 stroke=4
+text 27.02 17.15 al=0 sz=1.00 fg=1 b=1 "Wallet"
+line fg=4 dash=0 hs=0 he=0: 24.18,18.23 29.85,18.23
+text 24.98 19.23 al=1 sz=1.00 fg=1 b=0 "+int cash"
+rect 0.80 26.95 5.00 2.65 fill=3 stroke=4
+text 3.30 28.02 al=0 sz=1.00 fg=1 b=1 "Toy"
+rect 8.00 26.95 5.00 2.65 fill=3 stroke=4
+text 10.50 28.02 al=0 sz=1.00 fg=1 b=1 "Food"
+rect 15.20 25.65 6.27 5.25 fill=3 stroke=4
+text 18.34 26.55 al=0 sz=0.85 fg=2 b=0 "«interface»"
+text 18.34 27.83 al=0 sz=1.00 fg=1 b=1 "Flyer"
+line fg=4 dash=0 hs=0 he=0: 15.20,28.90 21.47,28.90
+text 16.00 29.90 al=1 sz=1.00 fg=1 b=0 "+fly() void"

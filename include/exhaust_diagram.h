@@ -27,6 +27,7 @@ typedef enum ExDItemKind {
 typedef enum ExDColor {
     EXD_C_NONE = 0, EXD_C_TEXT, EXD_C_MUTED, EXD_C_NODE_FILL, EXD_C_NODE_STROKE, EXD_C_ACCENT, EXD_C_ACCENT_FILL, EXD_C_PANEL, EXD_C_LINE, EXD_C_LABEL_BG,
     EXD_C_NOTE_FILL, EXD_C_ERROR,
+    EXD_C_BEST,      /* text only: the theme's text or background color, whichever contrasts more with the item's `fill` role (text on a colored slice or bar) */
     EXD_C_CAT = 16   /* EXD_C_CAT + 0 .. 12 */
 } ExDColor;
 

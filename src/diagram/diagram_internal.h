@@ -60,6 +60,14 @@ typedef struct LgGraph {
     int dir;               /* 0 TB, 1 BT, 2 LR, 3 RL */
     float nodesep, ranksep;
 } LgGraph;
+/* shared by the graph-like types (class, state, entity-relationship) */
+void dg_clip_box(float cx, float cy, float w, float h, int shape, float tx, float ty, float *ox, float *oy);   /* shape: EXD_RECT (any box), EXD_ELLIPSE or EXD_DIAMOND */
+ExDItem *dg_edge_line(ExDiagram *d, const LgGraph *g, int e, int shape_a, int shape_b, int color, int dash, int hs, int he);   /* a link as a line from node a to node b */
+void dg_edge_label(ExDiagram *d, float cx, float cy, const char *s, float size);    /* a text on a background that hides the line under it */
+void dg_append(ExDiagram *dst, const ExDiagram *src, float dx, float dy);           /* copies the items of another diagram, moved */
+/* parses `<number>` of a text; returns the end of the number or NULL */
+const char *dg_parse_number(const char *s, double *v);
+
 int lg_layout(LgGraph *g);           /* fills nodes[].x, y and edges[].pts (malloc'ed, freed by lg_free), lx, ly; returns 0 on success */
 void lg_free(LgGraph *g);            /* frees the routes only */
 

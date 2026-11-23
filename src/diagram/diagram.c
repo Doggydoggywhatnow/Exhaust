@@ -221,6 +221,84 @@ void dg_finalize(ExDiagram *d, float pad) {
     d->h = y1 - y0 + 2.0f * pad;
 }
 
+/* ---- helpers for the graph-like types ---- */
+void dg_clip_box(float cx, float cy, float w, float h, int shape, float tx, float ty, float *ox, float *oy) {
+    float dx = tx - cx, dy = ty - cy, hw = w / 2.0f, hh = h / 2.0f, t;
+    if ((dx == 0 && dy == 0) || hw <= 0 || hh <= 0) { *ox = cx; *oy = cy; return; }
+    if (shape == EXD_ELLIPSE) t = 1.0f / sqrtf(dx * dx / (hw * hw) + dy * dy / (hh * hh));
+    else if (shape == EXD_DIAMOND) t = 1.0f / (fabsf(dx) / hw + fabsf(dy) / hh);
+    else { float a = fabsf(dx) / hw, b = fabsf(dy) / hh; t = 1.0f / (a > b ? a : b); }
+    *ox = cx + dx * t; *oy = cy + dy * t;
+}
+
+ExDItem *dg_edge_line(ExDiagram *d, const LgGraph *g, int e, int shape_a, int shape_b, int color, int dash, int hs, int he) {
+    const LgEdge *le = &g->edges[e];
+    const LgNode *na = &g->nodes[le->a], *nb = &g->nodes[le->b];
+    if (le->a == le->b) {   /* a loop on the right side of the node */
+        float q[8], hw = na->w / 2.0f;
+        q[0] = na->x + hw; q[1] = na->y - na->h * 0.25f; q[2] = na->x + hw + 1.0f; q[3] = q[1]; q[4] = q[2]; q[5] = na->y + na->h * 0.25f; q[6] = na->x + hw; q[7] = q[5];
+        return dg_line(d, q, 4, color, dash, hs, he);
+    }
+    if (le->npts >= 2 && le->pts) {
+        int np = le->npts;
+        float *p = malloc((size_t)np * 2 * sizeof(float));
+        ExDItem *it;
+        if (!p) return NULL;
+        memcpy(p, le->pts, (size_t)np * 2 * sizeof(float));
+        dg_clip_box(na->x, na->y, na->w, na->h, shape_a, p[2], p[3], &p[0], &p[1]);
+        dg_clip_box(nb->x, nb->y, nb->w, nb->h, shape_b, p[2 * np - 4], p[2 * np - 3], &p[2 * np - 2], &p[2 * np - 1]);
+        it = dg_line(d, p, (size_t)np, color, dash, hs, he);
+        free(p);
+        return it;
+    }
+    return NULL;
+}
+
+void dg_edge_label(ExDiagram *d, float cx, float cy, const char *s, float size) {
+    float tw, th, lh;
+    char *c = dg_clean_label(s, strlen(s));
+    int lines = 1;
+    const char *q;
+    if (!c) return;
+    dg_text_size(d, c, strlen(c), size, &tw, &th);
+    for (q = c; *q; q++) if (*q == '\n') lines++;
+    lh = dg_line_height() * size;
+    dg_box(d, EXD_RECT, cx - tw / 2.0f - 0.2f, cy - th / 2.0f - 0.1f, tw + 0.4f, th + 0.2f, EXD_C_LABEL_BG, 0);
+    dg_label(d, cx, cy - (float)(lines - 1) * lh / 2.0f, c, strlen(c), 0, size, EXD_C_MUTED, 0);
+    free(c);
+}
+
+void dg_append(ExDiagram *dst, const ExDiagram *src, float dx, float dy) {
+    size_t i, j;
+    for (i = 0; i < src->n; i++) {
+        const ExDItem *it = &src->items[i];
+        ExDItem *o = dg_add(dst, it->kind);
+        if (!o) return;
+        *o = *it;
+        if (it->kind == EXD_LINE) {
+            float *tmp = malloc((size_t)it->npt * 2 * sizeof(float));
+            if (!tmp) return;
+            for (j = 0; j < it->npt; j++) { tmp[2 * j] = src->pts[it->pt0 + 2 * j] + dx; tmp[2 * j + 1] = src->pts[it->pt0 + 2 * j + 1] + dy; }
+            o->pt0 = dg_add_points(dst, tmp, it->npt);
+            free(tmp);
+        } else {
+            o->x += dx; o->y += dy;
+            if (it->kind == EXD_TEXT) o->text = dg_add_string(dst, src->text + it->text, it->tlen);
+        }
+    }
+}
+
+const char *dg_parse_number(const char *s, double *v) {
+    char *e;
+    double x;
+    while (*s == ' ') s++;
+    if (!((*s >= '0' && *s <= '9') || *s == '.' || *s == '-' || *s == '+')) return NULL;
+    x = strtod(s, &e);
+    if (e == s) return NULL;
+    *v = x;
+    return e;
+}
+
 /* ---- parsing ---- */
 static int starts_with(const char *s, size_t n, const char *w) {
     size_t l = strlen(w);

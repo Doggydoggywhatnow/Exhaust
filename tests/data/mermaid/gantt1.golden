@@ -1,0 +1,39 @@
+diagram 7 51.57 19.75
+text 27.77 1.55 al=0 sz=1.20 fg=1 b=1 "A Gantt Diagram"
+rect 0.80 5.65 49.97 3.80 fill=7 stroke=0
+text 1.40 7.55 al=1 sz=1.00 fg=1 b=1 "Section"
+text 1.40 14.20 al=1 sz=1.00 fg=1 b=1 "Another"
+line fg=4 dash=2 hs=0 he=0: 7.53,5.05 7.53,18.95
+text 7.53 4.45 al=0 sz=0.85 fg=2 b=0 "Jan 03"
+line fg=4 dash=2 hs=0 he=0: 11.93,5.05 11.93,18.95
+text 11.93 4.45 al=0 sz=0.85 fg=2 b=0 "Jan 08"
+line fg=4 dash=2 hs=0 he=0: 16.33,5.05 16.33,18.95
+text 16.33 4.45 al=0 sz=0.85 fg=2 b=0 "Jan 13"
+line fg=4 dash=2 hs=0 he=0: 20.73,5.05 20.73,18.95
+text 20.73 4.45 al=0 sz=0.85 fg=2 b=0 "Jan 18"
+line fg=4 dash=2 hs=0 he=0: 25.13,5.05 25.13,18.95
+text 25.13 4.45 al=0 sz=0.85 fg=2 b=0 "Jan 23"
+line fg=4 dash=2 hs=0 he=0: 29.53,5.05 29.53,18.95
+text 29.53 4.45 al=0 sz=0.85 fg=2 b=0 "Jan 28"
+line fg=4 dash=2 hs=0 he=0: 33.93,5.05 33.93,18.95
+text 33.93 4.45 al=0 sz=0.85 fg=2 b=0 "Feb 02"
+line fg=4 dash=2 hs=0 he=0: 38.33,5.05 38.33,18.95
+text 38.33 4.45 al=0 sz=0.85 fg=2 b=0 "Feb 07"
+line fg=4 dash=2 hs=0 he=0: 42.73,5.05 42.73,18.95
+text 42.73 4.45 al=0 sz=0.85 fg=2 b=0 "Feb 12"
+line fg=4 dash=2 hs=0 he=0: 47.13,5.05 47.13,18.95
+text 47.13 4.45 al=0 sz=0.85 fg=2 b=0 "Feb 17"
+round 5.77 6.00 26.40 1.20 fill=6 stroke=4
+text 18.97 6.60 al=0 sz=0.95 fg=1 b=0 "A task"
+round 32.17 7.90 17.60 1.20 fill=6 stroke=4
+text 40.97 8.50 al=0 sz=0.95 fg=1 b=0 "Another task"
+round 15.45 9.80 10.56 1.20 fill=6 stroke=4
+text 20.73 10.40 al=0 sz=0.95 fg=1 b=0 "Task in sec"
+round 10.17 11.70 1.76 1.20 fill=3 stroke=4
+text 12.43 12.30 al=1 sz=0.95 fg=1 b=0 "Done task"
+round 11.93 13.60 8.80 1.20 fill=11 stroke=11
+text 16.33 14.20 al=0 sz=0.95 fg=12 b=0 "Critical thing"
+diamond 26.29 15.50 1.20 1.20 fill=5 stroke=4
+text 27.89 16.10 al=1 sz=0.95 fg=1 b=0 "Milestone"
+round 26.89 17.40 21.12 1.20 fill=6 stroke=4
+text 37.45 18.00 al=0 sz=0.95 fg=1 b=0 "The last one"

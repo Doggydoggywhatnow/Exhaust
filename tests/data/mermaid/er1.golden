@@ -1,0 +1,46 @@
+diagram 5 36.87 27.10
+line fg=8 dash=0 hs=13 he=12: 14.84,7.40 13.16,9.91 10.79,12.43
+rect 11.68 9.25 2.96 1.33 fill=9 stroke=0
+text 13.16 9.91 al=0 sz=0.90 fg=2 b=0 "places"
+line fg=8 dash=0 hs=13 he=11: 10.78,19.02 13.15,21.54 16.38,24.05
+rect 11.27 20.87 3.77 1.33 fill=9 stroke=0
+text 13.15 21.54 al=0 sz=0.90 fg=2 b=0 "contains"
+line fg=8 dash=1 hs=13 he=9: 31.72,5.23 27.20,9.91 26.37,15.73 22.50,21.54 19.27,24.05
+rect 24.08 15.06 4.57 1.33 fill=9 stroke=0
+text 26.37 15.73 al=0 sz=0.90 fg=2 b=0 "appears in"
+line fg=8 dash=0 hs=12 he=9: 18.46,7.40 19.53,9.91 20.25,14.60
+rect 17.95 9.25 3.16 1.33 fill=9 stroke=0
+text 19.53 9.91 al=0 sz=0.90 fg=2 b=0 "lives in"
+line fg=8 dash=0 hs=9 he=13: 23.77,7.40 28.89,9.91 32.01,14.60
+rect 28.00 9.25 1.79 1.33 fill=9 stroke=0
+text 28.89 9.91 al=0 sz=0.90 fg=2 b=0 "has"
+rect 7.55 0.80 19.00 6.60 fill=3 stroke=4
+text 17.05 1.92 al=0 sz=1.00 fg=1 b=1 "CUSTOMER"
+line fg=4 dash=0 hs=0 he=0: 7.55,3.05 26.54,3.05
+text 8.35 3.88 al=1 sz=0.95 fg=2 b=0 "string"
+text 11.74 3.88 al=1 sz=0.95 fg=1 b=0 "name"
+text 8.35 5.23 al=1 sz=0.95 fg=2 b=0 "string"
+text 11.74 5.23 al=1 sz=0.95 fg=1 b=0 "custNumber"
+text 17.81 5.23 al=1 sz=0.95 fg=2 b=0 "PK"
+text 8.35 6.58 al=1 sz=0.95 fg=2 b=0 "string"
+text 11.74 6.58 al=1 sz=0.95 fg=1 b=0 "sector"
+text 19.98 6.58 al=1 sz=0.95 fg=2 b=0 "market sector"
+rect 0.80 12.43 13.76 6.60 fill=3 stroke=4
+text 7.68 13.55 al=0 sz=1.00 fg=1 b=1 "ORDER"
+line fg=4 dash=0 hs=0 he=0: 0.80,14.68 14.56,14.68
+text 1.60 15.50 al=1 sz=0.95 fg=2 b=0 "int"
+text 4.99 15.50 al=1 sz=0.95 fg=1 b=0 "orderNumber"
+text 12.59 15.50 al=1 sz=0.95 fg=2 b=0 "PK"
+text 1.60 16.85 al=1 sz=0.95 fg=2 b=0 "string"
+text 4.99 16.85 al=1 sz=0.95 fg=1 b=0 "deliveryAddress"
+text 1.60 18.20 al=1 sz=0.95 fg=2 b=0 "int"
+text 4.99 18.20 al=1 sz=0.95 fg=1 b=0 "customerId"
+text 12.59 18.20 al=1 sz=0.95 fg=2 b=0 "FK"
+rect 14.35 24.05 6.94 2.25 fill=3 stroke=4
+text 17.82 25.17 al=0 sz=1.00 fg=1 b=1 "LINE-ITEM"
+rect 29.54 2.98 6.52 2.25 fill=3 stroke=4
+text 32.81 4.10 al=0 sz=1.00 fg=1 b=1 "PRODUCT"
+rect 17.56 14.60 5.72 2.25 fill=3 stroke=4
+text 20.42 15.73 al=0 sz=1.00 fg=1 b=1 "REGION"
+rect 29.46 14.60 6.60 2.25 fill=3 stroke=4
+text 32.76 15.73 al=0 sz=1.00 fg=1 b=1 "ACCOUNT"

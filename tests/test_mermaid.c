@@ -1,9 +1,10 @@
-/* mermaid_basic (6d-ii): Mermaid flowcharts and sequence diagrams are parsed and laid out into shapes, lines and texts. The sample diagrams in
+/* mermaid_basic (6d-ii) and mermaid_more (6d-iii): Mermaid diagrams are parsed and laid out into shapes, lines and texts. mermaid_basic: flowcharts and
+ * sequence diagrams; mermaid_more: class, state, entity-relationship, pie and gantt diagrams. Common to both: The sample diagrams in
  * tests/data/mermaid match their golden listings (`<name>.golden`, the "render output": one item a line, numbers to two decimals, compared with a
  * tolerance of 0.03 so a platform's floating point rounding cannot fail it); the layout follows the rules by position (no overlapping nodes, edges that
  * start and end on nodes, ranks in the direction asked for, subgraph boxes around their members, sequence messages in order between their lifelines,
  * frames around their messages, activation bars); bad input is reported and draws nothing; the reading view draws a diagram and shows a bad one as source.
- * Usage: test_mermaid DATA_DIR [--update]   (--update writes the golden files)  |  test_mermaid --dump FILE | --ppm FILE OUT.ppm */
+ * Usage: test_mermaid DATA_DIR [--more] [--update]   (--more: the types of 6d-iii; --update writes the golden files)  |  test_mermaid --dump FILE | --ppm FILE OUT.ppm */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -128,7 +129,10 @@ static float cx(const ExDItem *b) { return b->x + b->w / 2.0f; }
 static float cy(const ExDItem *b) { return b->y + b->h / 2.0f; }
 static int inside(const ExDItem *b, float x, float y, float tol) { return x >= b->x - tol && x <= b->x + b->w + tol && y >= b->y - tol && y <= b->y + b->h + tol; }
 
-static void test_no_overlap_and_endpoints(const char *name) {
+static void check_nodes(const char *name, int any_shape);
+static void test_no_overlap_and_endpoints(const char *name) { check_nodes(name, 0); }
+/* any_shape: a link may also end on a panel (a composite state), a start dot or a note */
+static void check_nodes(const char *name, int any_shape) {
     ExDiagram *d = parse_file(name);
     View v;
     size_t i, j;
@@ -151,7 +155,7 @@ static void test_no_overlap_and_endpoints(const char *name) {
         int ok_start = 0, ok_end = 0;
         if (l->kind != EXD_LINE) continue;
         for (k = 0; k < v.n; k++) {
-            if (!is_shape(&v.it[k]) || v.it[k].fill != EXD_C_NODE_FILL) continue;
+            if (!is_shape(&v.it[k]) || (any_shape ? v.it[k].fill == EXD_C_LABEL_BG || v.it[k].fill == EXD_C_NONE : v.it[k].fill != EXD_C_NODE_FILL)) continue;
             if (inside(&v.it[k], v.pts[l->pt0], v.pts[l->pt0 + 1], 0.06f)) ok_start = 1;
             if (inside(&v.it[k], v.pts[l->pt0 + 2 * (l->npt - 1)], v.pts[l->pt0 + 2 * (l->npt - 1) + 1], 0.06f)) ok_end = 1;
         }
@@ -437,7 +441,9 @@ static void test_cache(void) {
 
 static void test_random(void) {
     static const char *const bits[] = { "flowchart TD\n", "sequenceDiagram\n", "A", "B", "-->", "---", "-.->", "==>", "--x", "-)", "->>", "-->>", "[", "]", "(", ")", "{", "}", "((", "))", "|", "|x|",
-        "subgraph s", "end", "loop x", "alt y", "else", "Note over A,B: n", "activate A", "deactivate A", "&", ";", "\n", " ", ": text", "participant P as Q", "autonumber", "\"", "<br/>", "%%", "~~~", "<-->", "A[\"q\"]", "o--o", "\xC3" };
+        "subgraph s", "end", "loop x", "alt y", "else", "Note over A,B: n", "activate A", "deactivate A", "&", ";", "\n", " ", ": text", "participant P as Q", "autonumber", "\"", "<br/>", "%%", "~~~", "<-->", "A[\"q\"]", "o--o", "\xC3",
+        "classDiagram\n", "class A {", "}", "A <|-- B", "A \"1\" *-- \"n\" B : x", "<<interface>> A", "stateDiagram-v2\n", "[*] --> A", "state S {", "state C <<choice>>", "note right of A : n", "erDiagram\n", "A ||--o{ B : l", "A {", "int id PK", "pie\n", "\"x\" : 5", "title t", "showData",
+        "gantt\n", "section s", "T : a, 2024-01-01, 3d", "after a", "dateFormat YYYY-MM-DD", "milestone", "until a" };
     unsigned long long st = 88172645463325252ull;
     int iter;
     for (iter = 0; iter < 1500; iter++) {
@@ -525,6 +531,242 @@ static void test_reading(void) {
     ex_renderer_destroy(r);
 }
 
+
+/* ===== 6d-iii: class, state, entity-relationship, pie and gantt ===== */
+static int count_lines_with(const View *v, int hs, int he, int dash) {
+    size_t i; int c = 0;
+    for (i = 0; i < v->n; i++) if (v->it[i].kind == EXD_LINE && v->it[i].head_start == hs && v->it[i].head_end == he && v->it[i].dash == dash && v->it[i].stroke == EXD_C_LINE) c++;
+    return c;
+}
+static int has_error(const char *src) {
+    ExDiagram *d = parse(src);
+    size_t n = 1;
+    int bad;
+    if (!d) return 0;
+    ex_diagram_items(d, &n);
+    bad = ex_diagram_error(d) != NULL && ex_diagram_error(d)[0] && n == 0;
+    if (!bad) fprintf(stderr, "no error (or items left) for: %s\n", src);
+    ex_diagram_free(d);
+    return bad;
+}
+static int no_error(const char *src) {
+    ExDiagram *d = parse(src);
+    int ok = d && !ex_diagram_error(d);
+    if (!ok && d) fprintf(stderr, "unexpected error for %s: %s\n", src, ex_diagram_error(d));
+    ex_diagram_free(d);
+    return ok;
+}
+
+static void test_class(void) {
+    ExDiagram *d = parse_file("class1");
+    View v = view(d);
+    const ExDItem *animal, *dog, *duck, *owner, *flyer;
+    size_t i;
+    CHECK(ex_diagram_kind(d) == EXD_CLASS && !ex_diagram_error(d));
+    test_no_overlap_and_endpoints("class1");
+    animal = node_box(&v, "Animal"); dog = node_box(&v, "Dog"); duck = node_box(&v, "Duck"); owner = node_box(&v, "Owner"); flyer = node_box(&v, "Flyer");
+    CHECK(animal && dog && duck && owner && flyer && node_box(&v, "Toy") && node_box(&v, "Food") && node_box(&v, "Wallet"));
+    if (animal && dog && duck) CHECK(cy(animal) < cy(dog) && cy(animal) < cy(duck));     /* the parent written first is on top */
+    CHECK(find_text(&v, "\xC2\xAB" "abstract\xC2\xBB") && find_text(&v, "\xC2\xAB" "interface\xC2\xBB"));
+    CHECK(find_text(&v, "Animal")->bold);
+    {   /* Animal's box holds its members and two separators (attributes | methods) */
+        int seps = 0;
+        CHECK(animal && find_text(&v, "+String name") && inside(animal, find_text(&v, "+makeSound() void")->x, find_text(&v, "+makeSound() void")->y, 0.0f));
+        for (i = 0; i < v.n; i++) { const ExDItem *l = &v.it[i]; if (animal && l->kind == EXD_LINE && l->npt == 2 && fabsf(v.pts[l->pt0] - animal->x) < 0.01f && fabsf(v.pts[l->pt0 + 2] - (animal->x + animal->w)) < 0.01f) seps++; }
+        CHECK(seps == 2);
+        CHECK(find_text(&v, "+String name")->y < find_text(&v, "+makeSound() void")->y);
+    }
+    CHECK(find_text(&v, "+fly() void") != NULL && find_text(&v, "+int cash") != NULL);       /* `Name : member` lines */
+    CHECK(count_lines_with(&v, EXD_H_TRIANGLE, 0, 0) == 2);                             /* <|-- twice */
+    CHECK(count_lines_with(&v, 0, EXD_H_TRIANGLE, 1) == 1);                             /* ..|>  */
+    CHECK(count_lines_with(&v, EXD_H_DIAMOND_FILLED, 0, 0) == 1 && count_lines_with(&v, EXD_H_DIAMOND, 0, 0) == 1);
+    CHECK(count_lines_with(&v, 0, EXD_H_OPEN, 1) == 1 && count_lines_with(&v, 0, EXD_H_OPEN, 0) == 1);
+    CHECK(find_text(&v, "inherits") && find_text(&v, "owns") && find_text(&v, "eats") && find_text(&v, "1") && find_text(&v, "0..*"));
+    ex_diagram_free(d);
+    {   /* generics, labels and the unknown */
+        ExDiagram *g = parse("classDiagram\nclass Box~T~ {\n  +List~int~ items\n  +get(T) T\n}\nBox --> Shelf");
+        View gv = view(g);
+        CHECK(!ex_diagram_error(g) && find_text(&gv, "Box<T>") && find_text(&gv, "+List<int> items") && find_text(&gv, "+get(T) T"));
+        ex_diagram_free(g);
+    }
+    CHECK(no_error("classDiagram\nclass A[\"Shown name\"]\nA : +x"));
+    CHECK(has_error("classDiagram\nclass") && has_error("classDiagram\nA <|-- ") && has_error("classDiagram\nA \"1 --> B") && has_error("classDiagram\nclass A {\n+x")
+          && has_error("classDiagram\nA ?? B") && has_error("classDiagram\nA --> B extra") && has_error("classDiagram\ndirection XX"));
+}
+
+static void test_state(void) {
+    ExDiagram *d = parse_file("state1");
+    View v = view(d);
+    const ExDItem *still, *slow, *fast, *crash, *panel = NULL, *note = NULL, *choice = NULL;
+    size_t i;
+    int dots = 0;
+    CHECK(ex_diagram_kind(d) == EXD_STATE && !ex_diagram_error(d));
+    check_nodes("state1", 1);
+    still = node_box(&v, "Still"); slow = node_box(&v, "Slow"); fast = node_box(&v, "Fast"); crash = node_box(&v, "Crash");
+    CHECK(still && slow && fast && crash);
+    for (i = 0; i < v.n; i++) {
+        const ExDItem *b = &v.it[i];
+        if (b->kind == EXD_ROUND && b->fill == EXD_C_PANEL) panel = b;
+        if (b->kind == EXD_RECT && b->fill == EXD_C_NOTE_FILL) note = b;
+        if (b->kind == EXD_DIAMOND) choice = b;
+        if (b->kind == EXD_ELLIPSE && b->fill == EXD_C_LINE) dots++;
+    }
+    CHECK(panel && note && choice);
+    CHECK(dots == 3);                                   /* the start of the diagram, the start of Moving, and the inner dot of the end */
+    if (panel && slow && fast && crash) {
+        CHECK(inside(panel, slow->x, slow->y, 0.01f) && inside(panel, fast->x + fast->w, fast->y + fast->h, 0.01f));   /* the composite holds its states */
+        CHECK(!inside(panel, crash->x, crash->y, 0.0f) && cy(slow) < cy(fast));
+        CHECK(find_text(&v, "Moving") && find_text(&v, "Moving")->bold);
+    }
+    CHECK(find_text(&v, "The resting state") && find_text(&v, "with a description"));
+    if (still) CHECK(inside(still, find_text(&v, "The resting state")->x, find_text(&v, "The resting state")->y, 0.0f) && still->h > 3.0f);
+    CHECK(find_text(&v, "Waiting for input") && note && find_text(&v, "Waiting for input")->x > note->x);
+    CHECK(find_text(&v, "push") && find_text(&v, "stop") && find_text(&v, "accelerate") && find_text(&v, "brake") && find_text(&v, "ok") && find_text(&v, "fatal"));
+    {   /* the dashed link from Still to its note */
+        int dashed = 0;
+        for (i = 0; i < v.n; i++) if (v.it[i].kind == EXD_LINE && v.it[i].dash == 1 && v.it[i].head_end == 0) dashed++;
+        CHECK(dashed == 1);
+    }
+    ex_diagram_free(d);
+    CHECK(no_error("stateDiagram\n[*] --> A\nA --> B : go\nB --> [*]\nstate \"Long name\" as L\nL --> A\nstate F <<fork>>\nA --> F\nF --> B\nnote left of A\n  two\n  lines\nend note"));
+    CHECK(has_error("stateDiagram-v2\n[*] --> [*]") && has_error("stateDiagram-v2\nstate X {\n[*] --> A") && has_error("stateDiagram-v2\n}") && has_error("stateDiagram-v2\nnote right of A\ntext")
+          && has_error("stateDiagram-v2\nA -> B") && has_error("stateDiagram-v2\nstate X <<weird>>") && has_error("stateDiagram-v2\nA --> ") && has_error("stateDiagram-v2\nnote above A : x"));
+    {   /* the source is not NUL-terminated (a note's text is a slice of the file): a line ending in the middle of a keyword must not be read past its end */
+        static const char *const cut[] = { "stateDiagram-v2\nstate X <<ch", "classDiagram\nclass A {\n<<abst", "erDiagram\nA ||--o", "gantt\nA : 2024-01-0", "pie\n\"A\" : 1.", "sequenceDiagram\nNote over", "flowchart TD\nA -- te" };
+        size_t k;
+        for (k = 0; k < sizeof cut / sizeof cut[0]; k++) {
+            size_t len = strlen(cut[k]);
+            char *b = malloc(len);
+            ExDiagram *x;
+            memcpy(b, cut[k], len);
+            x = ex_diagram_parse(g_font, b, len);
+            CHECK(x != NULL);
+            ex_diagram_free(x);
+            free(b);
+        }
+    }
+    {   /* a transition from inside a composite to outside ends on the composite's box at the parent level */
+        ExDiagram *c = parse("stateDiagram-v2\nstate G {\n  A --> B\n}\nB --> C\nC --> A");
+        CHECK(c && !ex_diagram_error(c));
+        ex_diagram_free(c);
+    }
+}
+
+static void test_er(void) {
+    ExDiagram *d = parse_file("er1");
+    View v = view(d);
+    const ExDItem *cust = node_box(&v, "CUSTOMER"), *order = node_box(&v, "ORDER");
+    CHECK(ex_diagram_kind(d) == EXD_ER && !ex_diagram_error(d));
+    test_no_overlap_and_endpoints("er1");
+    CHECK(cust && order && node_box(&v, "PRODUCT") && node_box(&v, "LINE-ITEM") && node_box(&v, "REGION") && node_box(&v, "ACCOUNT"));
+    CHECK(find_text(&v, "CUSTOMER")->bold && find_text(&v, "custNumber") && find_text(&v, "PK") && find_text(&v, "FK") && find_text(&v, "market sector"));
+    if (cust && find_text(&v, "custNumber")) CHECK(inside(cust, find_text(&v, "custNumber")->x, find_text(&v, "custNumber")->y, 0.0f));
+    CHECK(count_kind(&v, EXD_LINE) >= 5);
+    CHECK(count_lines_with(&v, EXD_H_ONLY_ONE, EXD_H_ZERO_MANY, 0) == 1);          /* ||--o{ */
+    CHECK(count_lines_with(&v, EXD_H_ONLY_ONE, EXD_H_ONE_MANY, 0) == 1);           /* ||--|{ */
+    CHECK(count_lines_with(&v, EXD_H_ONLY_ONE, EXD_H_ZERO_ONE, 1) == 1);           /* ||..o| */
+    CHECK(count_lines_with(&v, EXD_H_ZERO_MANY, EXD_H_ZERO_ONE, 0) == 1);          /* }o--o| */
+    CHECK(count_lines_with(&v, EXD_H_ZERO_ONE, EXD_H_ONLY_ONE, 0) == 1);           /* |o--|| */
+    CHECK(find_text(&v, "places") && find_text(&v, "contains") && find_text(&v, "appears in") && find_text(&v, "lives in") && find_text(&v, "has"));
+    if (cust && order) CHECK(cy(cust) < cy(order));
+    ex_diagram_free(d);
+    CHECK(no_error("erDiagram\ndirection LR\nA ||--|| B : x\nA {\n int id PK, FK\n}\np[Person] ||--o{ A : \"has many\""));
+    CHECK(has_error("erDiagram\nA ||--o B") && has_error("erDiagram\nA {\n int id") && has_error("erDiagram\nA {\n justone\n}") && has_error("erDiagram\nA {\n string x ZZ\n}")
+          && has_error("erDiagram\nA ||==o{ B") && has_error("erDiagram\nA ||--o{") && has_error("erDiagram\nA ||--o{ B extra") && has_error("erDiagram\n-- nonsense"));
+}
+
+static void test_pie(void) {
+    ExDiagram *d = parse_file("pie1");
+    View v = view(d);
+    size_t i;
+    int n = 0, texts = 0;
+    float prev = 0, total = 0, first_span = 0;
+    CHECK(ex_diagram_kind(d) == EXD_PIE && !ex_diagram_error(d));
+    for (i = 0; i < v.n; i++) {
+        const ExDItem *w = &v.it[i];
+        if (w->kind != EXD_WEDGE) continue;
+        if (n == 0) { CHECK(fabsf(w->a0) < 1e-4f); first_span = w->a1 - w->a0; }
+        else CHECK(fabsf(w->a0 - prev) < 1e-4f);                                     /* contiguous, clockwise from the top */
+        CHECK(w->a1 > w->a0 && w->w > 5.0f);
+        prev = w->a1; total += w->a1 - w->a0; n++;
+    }
+    CHECK(n == 4 && fabsf(total - 6.2831853f) < 1e-3f);
+    CHECK(fabsf(first_span / 6.2831853f - 50.05f / 108.02f) < 1e-3f);               /* the largest first */
+    CHECK(find_text(&v, "46%") && find_text(&v, "40%") && find_text(&v, "9%") && find_text(&v, "5%"));
+    CHECK(find_text(&v, "46%")->stroke == EXD_C_BEST);
+    CHECK(find_text(&v, "Potassium [50.05]") && find_text(&v, "Calcium [42.96]") && find_text(&v, "Iron [5]"));
+    CHECK(find_text(&v, "Key elements in Product X") && find_text(&v, "Key elements in Product X")->size > 1.0f);
+    for (i = 0; i < v.n; i++) if (v.it[i].kind == EXD_TEXT) texts++;
+    CHECK(texts >= 9);
+    ex_diagram_free(d);
+    {
+        ExDiagram *p = parse("pie\n\"Only\" : 3");                              /* one slice is a full circle, and no showData means no values */
+        View pv = view(p);
+        CHECK(!ex_diagram_error(p) && count_kind(&pv, EXD_WEDGE) == 1 && pv.it[0].a1 - pv.it[0].a0 > 6.28f && find_text(&pv, "Only") && find_text(&pv, "100%"));
+        ex_diagram_free(p);
+    }
+    CHECK(no_error("pie title Pets\n  \"Dogs\" : 386\n  \"Cats\" : 85.5\n  \"Rats\" : 15"));
+    CHECK(has_error("pie") && has_error("pie\n\"A\" : -1") && has_error("pie\n\"A\" : x") && has_error("pie\n\"A : 1") && has_error("pie\n\"A\" : 0") && has_error("pie\nwords")
+          && has_error("pie\n\"A\" 3") && has_error("pie frobnicate") && has_error("pie\n\"A\" : 1 2"));
+}
+
+static const ExDItem *bar_of(const View *v, const char *name) {   /* the bar whose text is inside it or just right of it */
+    const ExDItem *t = find_text(v, name);
+    size_t i;
+    const ExDItem *best = NULL;
+    if (!t) return NULL;
+    for (i = 0; i < v->n; i++) {
+        const ExDItem *b = &v->it[i];
+        if ((b->kind == EXD_ROUND || b->kind == EXD_DIAMOND) && b->y <= t->y && t->y <= b->y + b->h && (t->x >= b->x - 0.01f)) { if (!best || b->x > best->x) { if (b->x <= t->x + 0.01f) best = b; } }
+    }
+    return best;
+}
+
+static void test_gantt(void) {
+    ExDiagram *d = parse_file("gantt1");
+    View v = view(d);
+    const ExDItem *a, *b, *done, *crit, *last, *ms;
+    CHECK(ex_diagram_kind(d) == EXD_GANTT && !ex_diagram_error(d));
+    a = bar_of(&v, "A task"); b = bar_of(&v, "Another task"); done = bar_of(&v, "Done task"); crit = bar_of(&v, "Critical thing"); last = bar_of(&v, "The last one"); ms = bar_of(&v, "Milestone");
+    CHECK(a && b && done && crit && last && ms && bar_of(&v, "Task in sec"));
+    if (a && b) {
+        CHECK(fabsf(b->x - (a->x + a->w)) < 0.02f);                                  /* after a1: starts where it ends */
+        CHECK(fabsf(a->w / b->w - 30.0f / 20.0f) < 0.02f);                           /* widths follow the durations */
+        CHECK(b->y > a->y);
+    }
+    if (done && crit) CHECK(fabsf(crit->x - (done->x + done->w)) < 0.02f);           /* after des1 */
+    if (last && bar_of(&v, "Milestone")) CHECK(fabsf(last->w - 24.0f * (a->w / 30.0f)) < 0.05f && last->x > ms->x);    /* with no start: after the task before (the milestone) */
+    CHECK(ms && ms->kind == EXD_DIAMOND && crit && crit->stroke == EXD_C_ERROR && crit->fill == EXD_C_ERROR && done && done->fill == EXD_C_NODE_FILL);
+    CHECK(find_text(&v, "Section") && find_text(&v, "Section")->bold && find_text(&v, "Another") && find_text(&v, "A Gantt Diagram") && find_text(&v, "A Gantt Diagram")->size > 1.0f);
+    {   /* axisFormat: month and day; ticks run left to right at equal distances */
+        const ExDItem *t1 = find_text(&v, "Jan 03"), *t2 = find_text(&v, "Jan 08"), *t3 = find_text(&v, "Jan 13");
+        CHECK(t1 && t2 && t3 && fabsf((t2->x - t1->x) - (t3->x - t2->x)) < 0.05f && t1->x < t2->x);
+    }
+    ex_diagram_free(d);
+    {   /* the default axis format, leap day arithmetic and the weekday codes */
+        ExDiagram *g = parse("gantt\ndateFormat YYYY-MM-DD\nT : 2024-02-28, 3d");
+        View gv = view(g);
+        CHECK(!ex_diagram_error(g) && find_text(&gv, "2024-02-28") && find_text(&gv, "2024-02-29") && find_text(&gv, "2024-03-01") && !find_text(&gv, "2024-02-30"));
+        ex_diagram_free(g);
+        g = parse("gantt\naxisFormat %a %A %j %y %e\nT : 2024-01-01, 2d");
+        gv = view(g);
+        CHECK(!ex_diagram_error(g) && find_text(&gv, "Mon Monday 1 24 1") && find_text(&gv, "Tue Tuesday 2 24 2"));
+        ex_diagram_free(g);
+    }
+    CHECK(no_error("gantt\nsection S\nA : a, 2024-01-01, 2024-01-05\nC : c, 2024-01-10, 1w\nB : after a, until c\nD : milestone, 2024-01-03, 0d\nE : crit, 3h"));
+    CHECK(has_error("gantt\ndateFormat DD-MM-YYYY\nA : 2024-01-01, 1d") && has_error("gantt\nA : 2024-01-05, 2024-01-01") && has_error("gantt\nA : after nothing, 1d") && has_error("gantt\nA no colon")
+          && has_error("gantt\nA : abc") && has_error("gantt\ntitle only") && has_error("gantt\nA : 2024-13-01, 1d") && has_error("gantt\nA : x, y, z, w, v, u, t, s, r") && has_error("gantt\nA : 2024-01-01"));
+}
+
+static void test_more(void) {
+    test_golden("class1"); test_golden("state1"); test_golden("er1"); test_golden("pie1"); test_golden("gantt1");
+    test_class();
+    test_state();
+    test_er();
+    test_pie();
+    test_gantt();
+}
+
 static int write_dump(const char *file) {
     size_t len = 0;
     char *src = ex_platform_read_file(file, &len), *buf = malloc(1 << 20);
@@ -576,14 +818,20 @@ int main(int argc, char **argv) {
     if (argc > 2 && !strcmp(argv[1], "--dump")) return write_dump(argv[2]);
     if (argc > 3 && !strcmp(argv[1], "--ppm")) return write_ppm(argv[2], argv[3]);
     if (argc > 1) g_dir = argv[1];
-    update_goldens = argc > 2 && !strcmp(argv[2], "--update");
-    test_golden("flow1"); test_golden("flow2"); test_golden("flow3"); test_golden("flow4"); test_golden("seq1"); test_golden("seq2");
-    test_flowcharts();
-    test_sequences();
-    test_errors();
-    test_cache();
-    test_random();
-    test_reading();
+    {
+        int a, more = 0;
+        for (a = 2; a < argc; a++) { if (!strcmp(argv[a], "--update")) update_goldens = 1; else if (!strcmp(argv[a], "--more")) more = 1; }
+        if (more) test_more();
+        else {
+            test_golden("flow1"); test_golden("flow2"); test_golden("flow3"); test_golden("flow4"); test_golden("seq1"); test_golden("seq2");
+            test_flowcharts();
+            test_sequences();
+            test_errors();
+            test_cache();
+            test_random();
+            test_reading();
+        }
+    }
     ex_fontlib_destroy(lib);
     if (failures) fprintf(stderr, "%d check(s) failed\n", failures);
     return failures ? 1 : 0;
