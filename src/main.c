@@ -52,11 +52,14 @@
 #include "exhaust_vaultmgr.h"
 #include "exhaust_vaultscreen.h"
 #include "exhaust_worker.h"
+#include "exhaust_exportjob.h"
+#include "exhaust_importjob.h"
+#include "exhaust_props.h"
 #include "exhaust_workspace.h"
 
 /* The system font scan runs on a worker thread and hands its result to the UI
  * thread as a message; the queue wakes the UI loop with an SDL event. */
-enum { MSG_FONTS_READY = 1 };
+enum { MSG_FONTS_READY = 1, MSG_EXPORT_PATH = 2, MSG_IMPORT_PATH = 3 };
 static Uint32 g_wake_event;
 static volatile sig_atomic_t g_signal; /* SIGTERM or SIGHUP arrived: flush and leave */
 
@@ -81,6 +84,10 @@ typedef enum Banner { BANNER_NONE, BANNER_RECOVERED, BANNER_CONFLICT, BANNER_ERR
 typedef struct TabNote { ExId tab; ExNote *note; } TabNote;
 
 typedef struct App {
+    ExQueue *results;                  /* the interface's message queue: workers send here */
+    ExExportJob *export_job;           /* the export to PDF in flight (6e-iv) */
+    ExImportJob *import_job; ExImportFormat import_format; int import_dialog;   /* the import in flight (6e-v) */
+    char export_note[700], export_out[1500]; int export_dialog;
     char **tpl_abs; size_t tpl_n;      /* the templates offered by the last Insert template (6e-i) */
     char ex_source[600], merge_from[600], merge_into[600]; char *ex_content; size_t ex_content_len, ex_start, ex_end; int ex_newline;   /* the extraction and the merge in flight (6e-ii) */
     ExRenderer *r;
@@ -763,7 +770,7 @@ static void host_audio_result(void *u, const char *path, ExAudioDecoder *d, cons
     }
 }
 static void image_want(void *u, const char *path, int svg_width) { App *a = u; if (a->panels) ex_panels_load_image(a->panels, path, svg_width); }
-static void host_image_result(void *u, const char *path, int svg_width, ExImage *img, const char *err) { App *a = u; ex_imagecache_result(a->icache, path, svg_width, img, err); }
+static void host_image_result(void *u, const char *path, int svg_width, ExImage *img, const char *err) { App *a = u; ex_imagecache_result(a->icache, path, svg_width, img, err); free(img); }   /* the cache took the pixels; the struct the service allocated is ours */
 
 static int same_text_nocase(const char *a, const char *b, size_t n) { size_t i; for (i = 0; i < n; i++) if (tolower((unsigned char)a[i]) != tolower((unsigned char)b[i])) return 0; return 1; }
 
@@ -1135,6 +1142,247 @@ static void tpl_choose(size_t index, void *arg) {
     free(note); free(tpl);
 }
 /* templates.insert-template: the notes of the template folder, to pick from. */
+/* ---- export to PDF (6e-iv) ---- */
+
+static void export_save_cb(void *u, const char *const *files, int filter) {      /* any thread: only a message to the interface */
+    App *a = u;
+    ExMessage m;
+    char *copy;
+    (void)filter;
+    if (!files || !files[0] || !a->results) return;                             /* cancelled, or the dialog could not be shown */
+    copy = malloc(strlen(files[0]) + 8);
+    if (!copy) return;
+    strcpy(copy, files[0]);
+    memset(&m, 0, sizeof m);
+    m.type = MSG_EXPORT_PATH; m.payload = copy; m.free_payload = free;
+    if (ex_queue_push(a->results, &m) != 0) free(copy);
+}
+
+static void export_cancel_answer(int button, void *arg) {
+    App *a = arg;
+    a->export_dialog = 0;
+    if (button == 1 && a->export_job) { ex_exportjob_cancel(a->export_job); set_status(a, "Cancelling the export..."); }
+}
+
+static char *export_read_note(App *a, const char *rel, size_t *len) {
+    return ex_index_read_note(ex_vault_path(a->vault), rel, len);
+}
+
+/* The text is ready (the notes it embeds shown): resolves the pictures on this thread, which owns the vault's tree, and starts the thread of the export. */
+static void export_begin(App *a, const char *rel, const char *text, size_t len) {
+    ExExportStart st;
+    char **names = NULL, **paths = NULL;
+    size_t nn, i, nres = 0;
+    char title[300], *dot;
+    const char *base = strrchr(rel, '/');
+    const char *ps = ex_settings_get(a->settings, "export_pdf", "page_size"), *mg = ex_settings_get(a->settings, "export_pdf", "margin");
+    long dp = ex_settings_get_int(a->settings, "export_pdf", "downscale_percent");
+    char msg[400];
+    memset(&st, 0, sizeof st);
+    base = base ? base + 1 : rel;
+    snprintf(title, sizeof title, "%s", base);
+    dot = strrchr(title, '.');
+    if (dot && dot != title) *dot = 0;
+    nn = ex_exportjob_embed_names(text, len, &names, 300);
+    paths = calloc(nn + 1, sizeof *paths);
+    for (i = 0; i < nn && paths; i++) {
+        char r[700];
+        if (embed_resolve(a, names[i], r, sizeof r)) {
+            char *abs = ex_vault_abs_path(a->vault, r);
+            if (abs) { char *t = names[nres]; names[nres] = names[i]; names[i] = t; paths[nres++] = abs; }
+        }
+    }
+    st.title = title; st.text = text; st.len = len;
+    st.opt.page_size = ps && *ps ? ps : "A4"; st.opt.landscape = ex_settings_get_bool(a->settings, "export_pdf", "landscape");
+    st.opt.margin = mg && *mg ? mg : "default"; st.opt.downscale_percent = dp > 0 ? (int)dp : 100;
+    st.opt.include_title = ex_settings_get_bool(a->settings, "export_pdf", "include_title");
+    st.out_path = a->export_out;
+    st.names = (const char *const *)names; st.paths = (const char *const *)paths; st.nres = nres;
+    st.results = a->results;
+    a->export_job = ex_exportjob_start(&st);
+    for (i = 0; i < nres; i++) free(paths[i]);
+    free(paths);
+    ex_exportjob_names_free(names, nn);
+    if (!a->export_job) { set_status(a, "The export could not be started."); return; }
+    snprintf(msg, sizeof msg, "Exporting \"%.120s\" to a PDF file. This window closes when it is done.", title);
+    a->export_dialog = 1;
+    ex_panels_ask_confirm(a->panels, "Export to PDF", msg, "Cancel", NULL, NULL, export_cancel_answer, a);
+    set_status(a, "Exporting to PDF...");
+}
+
+static void host_export_text(void *u, const char *rel, const char *expanded) {
+    App *a = u;
+    char *own = NULL;
+    size_t len = 0;
+    if (strcmp(rel, a->export_note)) return;                                      /* an answer to an export that was given up */
+    if (!expanded) { own = export_read_note(a, rel, &len); expanded = own; }
+    else len = strlen(expanded);
+    if (expanded) export_begin(a, rel, expanded, len);
+    else set_status(a, "The note could not be read.");
+    free(own);
+}
+
+static void export_start_with_path(App *a) {
+    size_t len = 0;
+    char *text;
+    if (a->notes) ex_notes_flush(a->notes);                                       /* what is on screen is in the file */
+    text = export_read_note(a, a->export_note, &len);
+    if (!text) { set_status(a, "The note could not be read."); return; }
+    set_status(a, "Preparing the export...");
+    ex_panels_expand_for_export(a->panels, a->export_note, text, len);
+    free(text);
+}
+
+static void export_replace_answer(int button, void *arg) {
+    App *a = arg;
+    if (button == 1) export_start_with_path(a);
+    else set_status(a, "Export cancelled.");
+}
+
+static void export_path_chosen(App *a, char *path) {
+    ExPathInfo info;
+    size_t n = strlen(path);
+    if (n < 4 || (strcmp(path + n - 4, ".pdf") && strcmp(path + n - 4, ".PDF"))) strcat(path, ".pdf");
+    snprintf(a->export_out, sizeof a->export_out, "%s", path);
+    if (ex_platform_path_info(path, &info) == 0) {                                /* never replaces a file without asking, whatever the system's dialog did */
+        char msg[1700];
+        snprintf(msg, sizeof msg, "\"%.200s\" already exists. Replace it?", path);
+        ex_panels_ask_confirm(a->panels, "Replace the file?", msg, "Replace", "Cancel", NULL, export_replace_answer, a);
+        return;
+    }
+    export_start_with_path(a);
+}
+
+static void export_pdf_note(App *a, const char *rel) {
+    static const SDL_DialogFileFilter filters[] = { { "PDF", "pdf" } };
+    char title[300], def[1500], *root, *dot;
+    const char *base, *env;
+    size_t n = strlen(rel);
+    if (!a->vault || !a->panels) return;
+    if (a->export_job) { set_status(a, "An export is already running."); return; }
+    if (n < 3 || strcmp(rel + n - 3, ".md")) { set_status(a, "Only notes can be exported to PDF."); return; }
+    snprintf(a->export_note, sizeof a->export_note, "%s", rel);
+    base = strrchr(rel, '/');
+    snprintf(title, sizeof title, "%s", base ? base + 1 : rel);
+    dot = strrchr(title, '.');
+    if (dot) *dot = 0;
+    env = getenv("EXHAUST_EXPORT_PDF_TO");                                        /* a developer's aid: no system dialog; this file */
+    if (env && *env) { char *copy = malloc(strlen(env) + 8); if (copy) { strcpy(copy, env); export_path_chosen(a, copy); free(copy); } return; }
+    root = (char *)ex_vault_path(a->vault);
+    snprintf(def, sizeof def, "%s/%s.pdf", root ? root : ".", title);
+    SDL_ShowSaveFileDialog(export_save_cb, a, ex_renderer_window(a->main_r ? a->main_r : a->r), filters, 1, def);
+}
+
+static void cmd_export_pdf(void *u) {
+    App *a = u;
+    const char *rel = host_active_path(a);
+    if (!rel || !*rel) { set_status(a, "Open a note to export it."); return; }
+    export_pdf_note(a, rel);
+}
+
+static void export_message(App *a, const ExExportMsg *m) {
+    if (!m->done) {
+        char t[100];
+        snprintf(t, sizeof t, "Exporting to PDF: page %d (%d%%)", m->page, m->permille / 10);
+        set_status(a, t);
+        return;
+    }
+    if (a->export_job) { ex_exportjob_free(a->export_job); a->export_job = NULL; }
+    if (a->export_dialog && a->panels && ex_panels_modal(a->panels)) ex_panels_close_dialog(a->panels);
+    a->export_dialog = 0;
+    set_status(a, m->message);
+}
+
+/* ---- importers (6e-v) ---- */
+
+static void import_pick_cb(void *u, const char *const *files, int filter) {         /* any thread: only a message to the interface */
+    App *a = u;
+    ExMessage m;
+    char *copy;
+    (void)filter;
+    if (!files || !files[0] || !a->results) return;
+    copy = malloc(strlen(files[0]) + 1);
+    if (!copy) return;
+    strcpy(copy, files[0]);
+    memset(&m, 0, sizeof m);
+    m.type = MSG_IMPORT_PATH; m.payload = copy; m.free_payload = free;
+    if (ex_queue_push(a->results, &m) != 0) free(copy);
+}
+
+static void import_cancel_answer(int button, void *arg) {
+    App *a = arg;
+    a->import_dialog = 0;
+    if (button == 1 && a->import_job) { ex_importjob_cancel(a->import_job); set_status(a, "Cancelling the import..."); }
+}
+
+static void import_start(App *a, const char *source) {
+    ExImportStart st;
+    const char *folder = ex_settings_get(a->settings, "importer", "folder"), *name = ex_settings_get(a->settings, "importer", "note_name");
+    const char *tpl = ex_settings_get(a->settings, "importer", "template");
+    const char *df = ex_settings_get(a->settings, "templates", "date_format"), *tf = ex_settings_get(a->settings, "templates", "time_format");
+    char *tpl_text = NULL;
+    size_t tpl_len = 0;
+    if (a->import_job) { set_status(a, "An import is already running."); return; }
+    memset(&st, 0, sizeof st);
+    if (tpl && *tpl) {
+        char rel[700];
+        size_t n = strlen(tpl);
+        snprintf(rel, sizeof rel, "%s%s", tpl, n > 3 && !strcmp(tpl + n - 3, ".md") ? "" : ".md");
+        tpl_text = ex_index_read_note(ex_vault_path(a->vault), rel, &tpl_len);
+        if (!tpl_text) { set_status(a, "The importer template could not be read; the notes are imported without it."); tpl_len = 0; }
+    }
+    st.format = a->import_format; st.source = source; st.vault_root = ex_vault_path(a->vault);
+    st.opt.folder = folder ? folder : "Imported"; st.opt.note_name = name && *name ? name : "{{title}}";
+    st.opt.keep_folders = ex_settings_get_bool(a->settings, "importer", "keep_folders");
+    st.opt.template_text = tpl_text; st.opt.template_len = tpl_len;
+    st.opt.date_format = df && *df ? df : "YYYY-MM-DD"; st.opt.time_format = tf && *tf ? tf : "HH:mm";
+    st.opt.now_ms = (double)ex_platform_unix_time() * 1000.0; st.opt.tz_min = ex_platform_tz_offset_minutes();
+    st.results = a->results;
+    a->import_job = ex_importjob_start(&st);
+    free(tpl_text);
+    if (!a->import_job) { set_status(a, "The import could not be started."); return; }
+    a->import_dialog = 1;
+    ex_panels_ask_confirm(a->panels, "Import", "Importing... This window closes when it is done. Nothing in your vault is replaced.", "Cancel", NULL, NULL, import_cancel_answer, a);
+    set_status(a, "Importing...");
+}
+
+static void importer_format_chosen(size_t index, void *arg) {
+    App *a = arg;
+    static const SDL_DialogFileFilter csv[] = { { "CSV files", "csv;tsv;txt" } };
+    const char *env = getenv("EXHAUST_IMPORT_SOURCE");                              /* a developer's aid: no system dialog; this path */
+    if (index >= EX_IMPORT_FORMAT_COUNT) return;                                    /* the importers of other applications are not built */
+    a->import_format = (ExImportFormat)index;
+    if (env && *env) { import_start(a, env); return; }
+    if (ex_import_wants_file(a->import_format)) SDL_ShowOpenFileDialog(import_pick_cb, a, ex_renderer_window(a->main_r ? a->main_r : a->r), csv, 1, ex_vault_path(a->vault), false);
+    else SDL_ShowOpenFolderDialog(import_pick_cb, a, ex_renderer_window(a->main_r ? a->main_r : a->r), ex_vault_path(a->vault), false);
+    set_status(a, "Choose what to import in the window that opened.");
+}
+
+static void cmd_importer(void *u) {
+    App *a = u;
+    static char labels_store[EX_IMPORT_FORMAT_COUNT + 12][80];
+    const char *labels[EX_IMPORT_FORMAT_COUNT + 12];
+    size_t n = 0, i;
+    const char *envf = getenv("EXHAUST_IMPORT_FORMAT");
+    if (!a->vault || !a->panels) return;
+    if (a->import_job) { set_status(a, "An import is already running."); return; }
+    if (envf && *envf) {                                                            /* a developer's aid: the format by its number */
+        importer_format_chosen((size_t)atoi(envf), a);
+        return;
+    }
+    for (i = 0; i < EX_IMPORT_FORMAT_COUNT; i++) { snprintf(labels_store[n], sizeof labels_store[n], "%s: %s", ex_import_format_name((ExImportFormat)i), ex_import_format_help((ExImportFormat)i)); labels[n] = labels_store[n]; n++; }
+    for (i = 0; i < ex_import_later_count() && n < EX_IMPORT_FORMAT_COUNT + 12; i++) { snprintf(labels_store[n], sizeof labels_store[n], "%s (later)", ex_import_later_name(i)); labels[n] = labels_store[n]; n++; }
+    ex_panels_ask_choice(a->panels, "Import notes from", labels, n, importer_format_chosen, a);
+}
+
+static void import_message(App *a, const ExImportMsg *m) {
+    if (a->import_job) { ex_importjob_free(a->import_job); a->import_job = NULL; }
+    if (a->import_dialog && a->panels && ex_panels_modal(a->panels)) ex_panels_close_dialog(a->panels);
+    a->import_dialog = 0;
+    set_status(a, m->message);
+    if (a->panels && (m->report.notes || m->report.files)) ex_panels_tree_changed(a->panels);
+}
+
 static void convert_answer(int button, void *arg) {
     App *a = arg;
     if (button == 1) ex_panels_convert_frontmatter(a->panels);
@@ -1815,7 +2063,7 @@ static void pane_toggle_reading(ExPanes *p, ExId group, void *u) {
     ex_commands_run(a->commands, "app.toggle-reading-view");
 }
 
-enum { PM_RIGHT = 1, PM_WINDOW, PM_COPY, PM_SHOW, PM_BOOKMARK, PM_CLOSE, PM_SIDE, PM_MAIN };
+enum { PM_RIGHT = 1, PM_WINDOW, PM_COPY, PM_SHOW, PM_BOOKMARK, PM_CLOSE, PM_SIDE, PM_MAIN, PM_EXPORT };
 
 static void reveal_in_explorer(App *a, const char *path) {
     if (!a->tree || !path[0]) return;
@@ -1840,6 +2088,7 @@ static void pane_menu_chosen(ExPanels *pn, int id, void *arg) {
     case PM_COPY: if (path[0]) { host_file_op(a, EX_FILEOP_COPY_REL, path, NULL); set_status(a, "Path copied."); } break;
     case PM_SHOW: reveal_in_explorer(a, path); break;
     case PM_BOOKMARK: if (a->panels && path[0]) ex_panels_bookmark_note(a->panels, path); break;
+    case PM_EXPORT: if (path[0]) export_pdf_note(a, path); break;
     case PM_CLOSE: ex_ws_close_tab(a->ws, t->id); break;
     case PM_SIDE: move_tab_to_sidebar(a, t->id); break;
     case PM_MAIN: move_tab_to_main(a, t->id); break;
@@ -1863,6 +2112,7 @@ static void pane_menu(ExPanes *p, ExId group, float x, float y, void *u) {
         { ExMenuItem it = {"Copy path", EX_ICON_CLIPBOARD, PM_COPY, 0, 1}; items[n++] = it; }
         { ExMenuItem it = {"Show in the explorer", EX_ICON_FILES, PM_SHOW, 0, 0}; items[n++] = it; }
         { ExMenuItem it = {"Bookmark", EX_ICON_BOOKMARK, PM_BOOKMARK, 0, 0}; items[n++] = it; }
+        { ExMenuItem it = {"Export to PDF...", EX_ICON_EXTERNAL, PM_EXPORT, 0, 0}; items[n++] = it; }
     }
     if (group == ex_ws_side_group(a->ws, EX_SIDE_RIGHT)) { ExMenuItem it = {"Move to main area", EX_ICON_MOVE, PM_MAIN, 0, 1}; items[n++] = it; }
     else { ExMenuItem it = {"Move to right sidebar", EX_ICON_SIDEBAR_RIGHT, PM_SIDE, 0, 1}; items[n++] = it; }
@@ -2503,6 +2753,8 @@ static void register_features_and_commands(App *a) {
     ex_commands_bind(a->commands, "templates.insert-template", cmd_tpl_insert, has_editor, a);
     ex_commands_bind(a->commands, "slides.start-presentation", cmd_slides_start, has_notes, a);
     ex_commands_bind(a->commands, "format-converter.frontmatter-migration", cmd_format_convert, has_notes, a);
+    ex_commands_bind(a->commands, "app.export-to-pdf", cmd_export_pdf, has_notes, a);
+    ex_commands_bind(a->commands, "importer.open-format-importer", cmd_importer, has_notes, a);
     ex_commands_bind(a->commands, "unique-note-creator.create-new-unique-note", cmd_unique_new, has_notes, a);
     ex_commands_bind(a->commands, "unique-note-creator.add-unique-internal-link", cmd_unique_link, has_editor, a);
     ex_commands_bind(a->commands, "note-composer.extract-current-selection", cmd_extract_selection, has_editor, a);
@@ -3342,6 +3594,7 @@ static int host_file_op(void *u, int what, const char *path, const char *arg) {
         free(out);
         break;
     }
+    case EX_FILEOP_EXPORT_PDF: export_pdf_note(a, path); rc = 0; break;
     case EX_FILEOP_COPY_REL: rc = ex_vault_copy_path(a->vault, path, 0); break;
     case EX_FILEOP_COPY_ABS: rc = ex_vault_copy_path(a->vault, path, 1); break;
     case EX_FILEOP_OPEN_DEFAULT: rc = ex_vault_open_default(a->vault, path); break;
@@ -3701,7 +3954,7 @@ int main(int argc, char **argv) {
         pi.host.user = &app;
         pi.host.open_note = host_open_note; pi.host.active_path = host_active_path; pi.host.active_text = host_active_text; pi.host.read_text = host_read_text;
         pi.host.replace_text = host_replace_text; pi.host.select_range = host_select_range; pi.host.move_file = host_move_file; pi.host.file_op = host_file_op; pi.host.message = host_message;
-        pi.host.history_version = host_history_version; pi.host.file_text = host_file_text; pi.host.image_result = host_image_result; pi.host.audio_result = host_audio_result; pi.host.media_result = host_media_result; pi.host.pdf_result = host_pdf_result; pi.host.base_result = host_base_result; pi.host.graph_data = host_graph_data; pi.host.local_graph_data = host_local_graph_data; pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
+        pi.host.history_version = host_history_version; pi.host.file_text = host_file_text; pi.host.image_result = host_image_result; pi.host.audio_result = host_audio_result; pi.host.media_result = host_media_result; pi.host.pdf_result = host_pdf_result; pi.host.base_result = host_base_result; pi.host.graph_data = host_graph_data; pi.host.local_graph_data = host_local_graph_data; pi.host.flush_notes = host_flush; pi.host.export_text = host_export_text; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
         pi.wake = wake_ui;
         app.panels = ex_panels_create(&pi);
         if (app.panels) {
@@ -3785,6 +4038,7 @@ int main(int argc, char **argv) {
 #endif
     g_wake_event = SDL_RegisterEvents(1);
     results = ex_queue_create(wake_ui, NULL);
+    app.results = results;
     worker = ex_worker_start("font scan", 1, worker_job, NULL, results);
     memset(&job, 0, sizeof job);
     job.type = MSG_FONTS_READY;
@@ -3826,7 +4080,11 @@ int main(int argc, char **argv) {
         } else if (e.type == g_wake_event) {
             ExMessage m;
             while (ex_queue_pop(results, &m))
-                if (m.type == MSG_FONTS_READY) {
+                if (m.type == EX_MSG_IMPORT && m.payload) { import_message(&app, m.payload); if (m.free_payload) m.free_payload(m.payload); }
+                else if (m.type == MSG_IMPORT_PATH && m.payload) { import_start(&app, m.payload); if (m.free_payload) m.free_payload(m.payload); }
+                else if (m.type == EX_MSG_EXPORT && m.payload) { export_message(&app, m.payload); if (m.free_payload) m.free_payload(m.payload); }
+                else if (m.type == MSG_EXPORT_PATH && m.payload) { export_path_chosen(&app, m.payload); if (m.free_payload) m.free_payload(m.payload); }
+                else if (m.type == MSG_FONTS_READY) {
                     size_t pi;
                     app.fontdb = (ExFontDb *)m.payload;
                     ex_renderer_set_font_db(app.main_r, app.fontdb);
@@ -3956,6 +4214,8 @@ int main(int argc, char **argv) {
     if (app.session) ex_session_destroy(app.session, app.ws);       /* the last layout is on disk before anything is torn down */
     app.session = NULL;
     ex_worker_stop(worker);
+    if (app.export_job) { ex_exportjob_free(app.export_job); app.export_job = NULL; }
+    if (app.import_job) { ex_importjob_free(app.import_job); app.import_job = NULL; }
     {
         ExMessage m;
         while (ex_queue_pop(results, &m))
@@ -3985,6 +4245,8 @@ int main(int argc, char **argv) {
     free(app.sel_path);
     ex_notes_destroy(app.notes);
     ex_widget_free(app.root);
+    ex_ribbon_free(app.ribbon);                    /* found by LeakSanitizer in CI: the ribbon's and the status bar's own records were never freed */
+    ex_statusbar_free(app.sbar);
     free(app.tabnotes);
     ex_doc_free(app.demo_doc);
     ex_ws_free(app.ws);

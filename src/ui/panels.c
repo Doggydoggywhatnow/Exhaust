@@ -209,6 +209,18 @@ void ex_panels_expand_queries(ExPanels *p, const char *path, const char *text, s
     send_job(p, j);
 }
 
+void ex_panels_expand_for_export(ExPanels *p, const char *path, const char *text, size_t len) {
+    QJob *j;
+    if (!p || !path || !text) return;
+    if (!p->index_ready) { if (p->in.host.export_text) p->in.host.export_text(p->in.host.user, path, NULL); return; }
+    j = qjob_new(QJ_EXPAND, ++p->next_req);
+    if (!j) { if (p->in.host.export_text) p->in.host.export_text(p->in.host.user, path, NULL); return; }
+    j->a = dup_s(path); j->i1 = 1;
+    j->text = malloc(len + 1);
+    if (j->text) { memcpy(j->text, text, len); j->text[len] = 0; j->len = len; }
+    send_job(p, j);
+}
+
 void ex_panels_open_switcher(ExPanels *p) { if (ex_features_enabled(p->in.features, "quick_switcher")) dialog_switcher(p); }
 void ex_panels_open_palette(ExPanels *p) { if (ex_features_enabled(p->in.features, "command_palette")) dialog_palette(p); }
 void ex_panels_close_dialog(ExPanels *p) { if (p->dkind == D_INLINE) { dialog_commit(p); return; } dialog_close(p); }
@@ -489,7 +501,10 @@ void ex_panels_update(ExPanels *p) {
             case QJ_MPV: if (p->in.host.media_result && r->rows.n) { struct ExMpv *mp = r->ok ? r->mpv : NULL; if (mp) r->mpv = NULL; p->in.host.media_result(p->in.host.user, r->rows.v[0].text, mp, mp ? NULL : r->summary); } break;
             case QJ_AUDIO: if (p->in.host.audio_result && r->rows.n) { struct ExAudioDecoder *au = r->ok ? r->audio : NULL; if (au) r->audio = NULL; p->in.host.audio_result(p->in.host.user, r->rows.v[0].text, au, au ? NULL : r->summary); } break;
             case QJ_BASE: if (p->in.host.base_result) { struct ExBaseResult *b = r->ok ? r->base : NULL; if (b) r->base = NULL; p->in.host.base_result(p->in.host.user, r->req, b, b ? NULL : r->summary); } break;
-            case QJ_EXPAND: if (r->ok && r->text && p->in.host.query_results) p->in.host.query_results(p->in.host.user, r->summary, r->text); break;
+            case QJ_EXPAND:
+                if (r->total == 1) { if (p->in.host.export_text) p->in.host.export_text(p->in.host.user, r->summary, r->ok ? r->text : NULL); }
+                else if (r->ok && r->text && p->in.host.query_results) p->in.host.query_results(p->in.host.user, r->summary, r->text);
+                break;
             default: views_result(p, r); break;
             }
         } else if (m.type == EX_MSG_INDEX_DONE && m.payload) {

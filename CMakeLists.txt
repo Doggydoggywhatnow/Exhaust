@@ -80,7 +80,7 @@ set_target_properties(harfbuzz PROPERTIES CXX_STANDARD 14 CXX_STANDARD_REQUIRED 
 if(NOT MSVC)
   target_compile_options(harfbuzz PRIVATE -fno-exceptions -fno-rtti -w)
 else()
-  target_compile_options(harfbuzz PRIVATE /utf-8 /wd4244 /wd4267 /wd4996)
+  target_compile_options(harfbuzz PRIVATE /utf-8 /bigobj /wd4244 /wd4267 /wd4996)   # /bigobj: harfbuzz-world.cc is one object with the core, hb-ft and the subsetter (CI run 45165903473, error C1128)
 endif()
 
 # SheenBidi: Unicode bidirectional algorithm, single-file (unity) build.
@@ -340,10 +340,10 @@ add_library(exhaust_text STATIC src/text/font.c
 target_include_directories(exhaust_text PUBLIC include PRIVATE src/text)
 target_link_libraries(exhaust_text PUBLIC exhaust_unicode freetype harfbuzz sheenbidi exhaust_platform)
 
-add_library(exhaust_export STATIC src/export/fontsubset.c src/export/pdfwrite.c src/export/pdfcheck.c src/export/pdfexport.c)
+add_library(exhaust_export STATIC src/export/fontsubset.c src/export/pdfwrite.c src/export/pdfcheck.c src/export/pdfexport.c src/export/exportjob.c)
 target_include_directories(exhaust_export PUBLIC include)
 target_include_directories(exhaust_export PRIVATE src/text)
-target_link_libraries(exhaust_export PUBLIC harfbuzz exhaust_text zlib_static exhaust_markdown exhaust_diagram exhaust_image exhaust_theme exhaust_platform)
+target_link_libraries(exhaust_export PUBLIC exhaust_buffer harfbuzz exhaust_text zlib_static exhaust_markdown exhaust_diagram exhaust_image exhaust_theme exhaust_platform)
 
 add_library(exhaust_diagram STATIC src/diagram/diagram.c src/diagram/layered.c src/diagram/flowchart.c src/diagram/sequence.c src/diagram/classdiagram.c src/diagram/statediagram.c src/diagram/erdiagram.c src/diagram/pie.c src/diagram/gantt.c)
 target_include_directories(exhaust_diagram PUBLIC include PRIVATE src/diagram)
@@ -519,7 +519,7 @@ if(NOT MSVC)
 endif()
 
 add_executable(exhaust src/main.c)
-target_link_libraries(exhaust PRIVATE exhaust_templates exhaust_core exhaust_render exhaust_ui exhaust_notes exhaust_settings)
+target_link_libraries(exhaust PRIVATE exhaust_import exhaust_export exhaust_templates exhaust_core exhaust_render exhaust_ui exhaust_notes exhaust_settings)
 # Release builds are stripped of symbols (the size budget is for the installed program).
 if(NOT MSVC AND NOT APPLE)
   target_link_options(exhaust PRIVATE $<$<CONFIG:Release>:-s>)
@@ -649,6 +649,10 @@ if(EXHAUST_FUZZ)
   target_compile_options(fuzz_math PRIVATE -fsanitize=fuzzer,address,undefined)
   target_link_options(fuzz_math PRIVATE -fsanitize=fuzzer,address,undefined)
   target_link_libraries(fuzz_math PRIVATE exhaust_text)
+  add_executable(fuzz_import tests/fuzz/fuzz_import.c)
+  target_compile_options(fuzz_import PRIVATE -fsanitize=fuzzer,address,undefined)
+  target_link_options(fuzz_import PRIVATE -fsanitize=fuzzer,address,undefined)
+  target_link_libraries(fuzz_import PRIVATE exhaust_import)
   add_executable(fuzz_mermaid tests/fuzz/fuzz_mermaid.c)
   target_compile_options(fuzz_mermaid PRIVATE -fsanitize=fuzzer,address,undefined)
   target_link_options(fuzz_mermaid PRIVATE -fsanitize=fuzzer,address,undefined)
@@ -876,6 +880,9 @@ add_test(NAME audio_random COMMAND test_audio_random 800 ${CMAKE_CURRENT_SOURCE_
 add_executable(test_mermaid_random tests/fuzz/fuzz_mermaid.c tests/fuzz/mutate_driver.c)
 target_link_libraries(test_mermaid_random PRIVATE exhaust_diagram)
 add_test(NAME mermaid_random COMMAND test_mermaid_random 3000 ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid/flow1.mmd ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid/flow2.mmd ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid/flow3.mmd ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid/flow4.mmd ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid/seq1.mmd ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid/seq2.mmd ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid/class1.mmd ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid/state1.mmd ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid/er1.mmd ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid/pie1.mmd ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid/gantt1.mmd)
+add_executable(test_import_random tests/fuzz/fuzz_import.c tests/fuzz/mutate_driver.c)
+target_link_libraries(test_import_random PRIVATE exhaust_import)
+add_test(NAME import_random COMMAND test_import_random 4000 ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/import/seed_html.bin ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/import/seed_html2.bin ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/import/seed_csv.bin ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/import/seed_csv2.bin ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/import/seed_zip.bin ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/import/seed_zip2.bin)
 add_executable(test_math_random tests/fuzz/fuzz_math.c tests/fuzz/mutate_driver.c)
 target_link_libraries(test_math_random PRIVATE exhaust_text)
 add_test(NAME math_random COMMAND test_math_random 3000 ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/math/seed0.tex ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/math/seed1.tex ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/math/seed2.tex ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/math/seed3.tex ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/math/seed4.tex ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/math/seed5.tex ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/math/seed6.tex)
@@ -1078,6 +1085,14 @@ add_executable(test_pdf_export tests/test_pdf_export.c)
 target_link_libraries(test_pdf_export PRIVATE exhaust_export exhaust_text exhaust_platform)
 add_test(NAME pdf_export COMMAND test_pdf_export ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/images)
 
+add_executable(test_export_job tests/test_export_job.c)
+target_link_libraries(test_export_job PRIVATE exhaust_export exhaust_buffer exhaust_text exhaust_platform SDL3::SDL3)
+add_test(NAME export_job COMMAND test_export_job)
+
+add_executable(test_import tests/test_import.c)
+target_link_libraries(test_import PRIVATE exhaust_import exhaust_platform)
+add_test(NAME importers COMMAND test_import)
+
 add_executable(test_font_cache tests/test_font_cache.c)
 target_link_libraries(test_font_cache PRIVATE exhaust_text)
 add_test(NAME font_cache COMMAND test_font_cache ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts)
@@ -1103,3 +1118,8 @@ set_tests_properties(text_fit PROPERTIES
 
 # Timing tests must not compete with other tests for the processor.
 set_tests_properties(search_perf ui_not_blocked index_cold frame_budget graph_frame graph_perf graph_data PROPERTIES RUN_SERIAL TRUE)
+
+# Importers (6e-v): Markdown, text, HTML, CSV and Textbundle sources into notes.
+add_library(exhaust_import STATIC src/import/import.c src/import/csv.c src/import/zip.c src/import/html2md.c src/import/importjob.c)
+target_include_directories(exhaust_import PUBLIC include)
+target_link_libraries(exhaust_import PUBLIC exhaust_templates exhaust_vault exhaust_buffer exhaust_platform zlib_static)

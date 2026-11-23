@@ -63,8 +63,8 @@ static void host_action(void *u, const char *id) { (void)u; snprintf(ACTION_ID, 
 
 static int FEATURES;                                              /* 1: the 7b pages */
 static int in_page_section(const char *s) {
-    if (!FEATURES) return !strcmp(s, "general") || !strcmp(s, "appearance") || !strcmp(s, "interface") || !strcmp(s, "editor") || !strcmp(s, "files");
-    return !strcmp(s, "features") || !strcmp(s, "backlinks") || !strcmp(s, "canvas") || !strcmp(s, "command_palette") || !strcmp(s, "daily_notes") || !strcmp(s, "file_recovery") ||
+    if (!FEATURES) return !strcmp(s, "general") || !strcmp(s, "appearance") || !strcmp(s, "interface") || !strcmp(s, "editor") || !strcmp(s, "files") || !strcmp(s, "export_pdf");
+    return !strcmp(s, "features") || !strcmp(s, "backlinks") || !strcmp(s, "canvas") || !strcmp(s, "command_palette") || !strcmp(s, "daily_notes") || !strcmp(s, "file_recovery") || !strcmp(s, "importer") ||
            !strcmp(s, "note_composer") || !strcmp(s, "page_preview") || !strcmp(s, "quick_switcher") || !strcmp(s, "templates") || !strcmp(s, "unique_note");
 }
 /* Is the page one this run covers? */
@@ -332,7 +332,7 @@ int main(int argc, char **argv) {
         for (w = ex_settingsview_widget(SV)->first_child; w; w = w->next) if (w->scrollable) box = w;
         CHECK(box != NULL);
         if (box) {
-            ExWidget *last = ex_settingsview_control(SV, "files", "allow_uri_callbacks");
+            ExWidget *last = ex_settingsview_control(SV, "files", "config_folder");
             CHECK(box->first_child->h > box->h);
             CHECK(last != NULL && last->y > box->y + box->h);             /* the last row is below the window */
             ex_ui_scroll(UI, box, 100000.0f);

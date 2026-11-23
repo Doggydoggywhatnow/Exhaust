@@ -240,9 +240,9 @@ move 777 50
 down 777 50
 up 777 50
 wait 1000
-move 790 288
-down 790 288
-up 790 288
+move 790 316
+down 790 316
+up 790 316
 wait 2000
 quit' Home.md
 csession=$(find "$work" -name session.ini -newer "$work/menu_close.script" | head -1)
@@ -254,9 +254,9 @@ move 777 50
 down 777 50
 up 777 50
 wait 800
-move 790 249
-down 790 249
-up 790 249
+move 790 277
+down 790 277
+up 790 277
 wait 1200
 move 900 400
 down 900 400

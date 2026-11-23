@@ -432,6 +432,11 @@ static void do_expand(QService *s, QJob *j, QRes *res) {
             if (with_embeds) { free(res->text); res->text = with_embeds; }
         }
     }
+    if (!res->text && j->i1 == 1 && j->text) {                                         /* the export wants the text whether or not anything was expanded */
+        res->text = malloc(j->len + 1);
+        if (res->text) { memcpy(res->text, j->text, j->len); res->text[j->len] = 0; }
+    }
+    res->total = (size_t)j->i1;
     snprintf(res->summary, sizeof res->summary, "%s", j->a ? j->a : "");
     res->ok = res->text != NULL;
 }

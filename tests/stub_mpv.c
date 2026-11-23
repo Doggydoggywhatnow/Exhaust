@@ -38,7 +38,16 @@ typedef struct Ctx {
     MUTEX mu;   /* the player thread, the render thread and the UI thread all call in: the real library is thread safe, so the stand-in must be */
 } Ctx;
 
-static double now_s(void) { struct timespec ts; timespec_get(&ts, TIME_UTC); return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9; }
+/* The monotonic clock: timespec_get is not declared on macOS when _POSIX_C_SOURCE is defined (the time stood still there and the end never came: CI run 45163695250). */
+static double now_s(void) {
+    struct timespec ts;
+#ifdef _WIN32
+    timespec_get(&ts, TIME_UTC);
+#else
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+#endif
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+}
 
 static void advance(Ctx *c) {
     double t = now_s();

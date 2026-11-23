@@ -20,6 +20,13 @@ static const ExSettingsRow rows[] = {
     U("general", "Advanced", "general", "command_line", "Command line", "Control Exhaust from a terminal. Not in this version."),
     T("general", "Advanced", "general", "hardware_acceleration", "Hardware acceleration", "Draw with the graphics card. Turning it off makes drawing slower."),
 
+    /* ---- Export to PDF (6e-iv) ---- */
+    S("export_pdf", "Export to PDF", "export_pdf", "page_size", "Page size", "The size of the pages of an exported PDF.", "A3|A4|A5|Legal|Letter|Tabloid"),
+    T("export_pdf", "Export to PDF", "export_pdf", "landscape", "Landscape", "Turn the pages on their side."),
+    S("export_pdf", "Export to PDF", "export_pdf", "margin", "Margins", "How much white space is left around the text.", "Default|Minimal|None"),
+    N("export_pdf", "Export to PDF", "export_pdf", "downscale_percent", "Downscale", "Shrinks the text and pictures, in percent, so more fits on a page. 100 is the normal size.", 10, 200, 5),
+    T("export_pdf", "Export to PDF", "export_pdf", "include_title", "File name as title", "Put the name of the note above its text."),
+
     /* ---- Appearance ---- */
     S("appearance", "Colors", "appearance", "color_scheme", "Base color scheme", "Dark, light, or follow the setting of the operating system.", "Dark|Light|Follow the system"),
     S("appearance", "Colors", "appearance", "high_contrast", "High contrast", "Stronger colors that are easy to tell apart. When it is on, the theme and the accent color are not used. The system choice follows the operating system where it can be asked.", "Off|On|Follow the system"),
@@ -94,8 +101,8 @@ static const ExSettingsRow rows[] = {
     N("files", "Saving", "files", "autosave_idle_ms", "Save after a pause", "Save a note when you have stopped typing for this long, in milliseconds.", 200, 10000, 100),
     N("files", "Saving", "files", "autosave_max_ms", "Longest time between saves", "While you keep typing, save at least this often, in milliseconds.", 1000, 60000, 500),
     N("files", "Saving", "files", "journal_flush_ms", "Recovery journal", "How soon each edit is written to the recovery journal, in milliseconds.", 50, 1000, 50),
+    T("files", "Advanced", "files", "allow_uri_callbacks", "Allow links from other programs", "Let exhaust:// links open notes and run actions. Not in this version."),
     X("files", "Advanced", "files", "config_folder", "Settings folder", "The name of the folder inside a vault that holds its settings. Takes effect when the vault is opened again."),
-    T("files", "Advanced", "files", "allow_uri_callbacks", "Allow links from other programs", "Let exhaust:// links open notes and run actions. Takes effect when the vault is opened again."),
 
     /* ---- Keychain ---- */
     { "keychain", "Keychain", NULL, NULL, EX_ROW_INFO, "Saved secrets", "Exhaust keeps no passwords or tokens. Plugins that need one will ask you to store it here. Not in this version.", 0, 0, 0, "Add a secret" },
@@ -117,16 +124,17 @@ static const ExSettingsRow rows[] = {
     T("features", "Writing", "features", "slash_commands", "Slash commands", "Type / to pick an editing command from a menu."),
     T("features", "Writing", "features", "templates", "Templates", "Insert the text of a template note."),
     T("features", "Writing", "features", "daily_notes", "Daily notes", "Open today's note, made from a template."),
+    T("features", "Vaults and files", "features", "importer", "Importer", "Bring notes in from Markdown, text, HTML, CSV and Textbundle sources."),
     T("features", "Writing", "features", "unique_note", "Unique note creator", "Make a note whose name is the time it was made."),
     T("features", "Writing", "features", "note_composer", "Note composer", "Merge notes and move text into a new note."),
     T("features", "Writing", "features", "random_note", "Random note", "Open a note at random."),
     T("features", "Writing", "features", "word_count", "Word count", "Count the words and characters of the open note."),
-    T("features", "Writing", "features", "audio_recorder", "Audio recorder", "Record sound into a note."),
     T("features", "Moving around", "features", "quick_switcher", "Quick switcher", "Jump to a note by typing part of its name."),
     T("features", "Moving around", "features", "command_palette", "Command palette", "Run any command by typing its name."),
     T("features", "Moving around", "features", "page_preview", "Page preview", "Show a note in a small window when you point at a link to it."),
     T("features", "Moving around", "features", "workspaces", "Workspaces", "Save and restore whole layouts of panes."),
     T("features", "Moving around", "features", "file_recovery", "File recovery", "Keep earlier versions of your notes so you can go back."),
+    T("features", "Not in this version", "features", "audio_recorder", "Audio recorder", "Record sound straight into a note. Not in this version."),
     T("features", "Not in this version", "features", "sync", "Sync", "Keep a vault the same on several devices. Not in this version."),
     T("features", "Not in this version", "features", "publish", "Publish", "Put notes on the web. Not in this version."),
 
@@ -155,6 +163,11 @@ static const ExSettingsRow rows[] = {
     X("note_composer", "Note composer", "note_composer", "template", "Template", "The note whose text starts every note the composer makes, as a path in the vault."),
     T("note_composer", "Note composer", "note_composer", "confirm_merge", "Ask before merging", "Show what will happen and ask before a note is merged into another."),
 
+    T("importer", "Importer", "importer", "keep_folders", "Keep the source's folders", "Make the same folders below the destination folder."),
+    X("importer", "Importer", "importer", "folder", "Imported notes go in", "A folder in the vault. Empty uses the top folder."),
+    X("importer", "Importer", "importer", "note_name", "Name of a note", "How a note is named: {{title}}, {{filename}}, {{date}}, {{time}} and, for a CSV file, {{Column name}}."),
+    X("importer", "Importer", "importer", "template", "Importer template", "A note of the vault whose text wraps every imported note, as a path. Put {{content}} where the imported text goes."),
+
     T("page_preview", "Hold Ctrl to preview", "page_preview", "ctrl_required_links_panels", "Backlinks and outgoing links", "Needs Ctrl held to show the preview."),
     T("page_preview", "Hold Ctrl to preview", "page_preview", "ctrl_required_reading_view", "Reading view", "Needs Ctrl held to show the preview."),
     T("page_preview", "Hold Ctrl to preview", "page_preview", "ctrl_required_editing_view", "Editing view", "Needs Ctrl held to show the preview."),
@@ -182,9 +195,9 @@ static const ExSettingsRow rows[] = {
 
 static const struct { const char *id, *name, *group; } pages[] = {
     { "general", "General", "Options" }, { "appearance", "Appearance", "Options" }, { "theme", "Theme", "Options" }, { "interface", "Interface", "Options" }, { "editor", "Editor", "Options" },
-    { "files", "Files and links", "Options" }, { "hotkeys", "Hotkeys", "Options" }, { "keychain", "Keychain", "Options" }, { "features", "Core plugins", "Options" },
+    { "files", "Files and links", "Options" }, { "export_pdf", "Export to PDF", "Options" }, { "hotkeys", "Hotkeys", "Options" }, { "keychain", "Keychain", "Options" }, { "features", "Core plugins", "Options" },
     { "backlinks", "Backlinks", "Core plugins" }, { "canvas", "Canvas", "Core plugins" }, { "command_palette", "Command palette", "Core plugins" },
-    { "daily_notes", "Daily notes", "Core plugins" }, { "file_recovery", "File recovery", "Core plugins" }, { "note_composer", "Note composer", "Core plugins" },
+    { "daily_notes", "Daily notes", "Core plugins" }, { "file_recovery", "File recovery", "Core plugins" }, { "importer", "Importer", "Core plugins" }, { "note_composer", "Note composer", "Core plugins" },
     { "page_preview", "Page preview", "Core plugins" }, { "quick_switcher", "Quick switcher", "Core plugins" }, { "sync", "Sync", "Core plugins" },
     { "templates", "Templates", "Core plugins" }, { "unique_note", "Unique note creator", "Core plugins" },
 };

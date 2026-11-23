@@ -66,10 +66,13 @@ and what was left out of the vendored copy.
   for the four styles are vendored. They are embedded into the executable by
   `tools/embed.c` at build time. OFL 1.1 allows embedding; the license text is
   shipped with the program.
-- **HarfBuzz**: `src/` minus tests, Python scripts, Ragel sources, the subsetter
-  and the fuzzing code, plus `COPYING`. Built as the single file `harfbuzz.cc`
-  (a C++ compiler is needed to build Exhaust; Exhaust's own code stays C), with
-  FreeType table access (`hb-ft`). C++ exceptions and RTTI are off.
+- **HarfBuzz**: `src/` minus tests, Python scripts, Ragel sources and the
+  fuzzing code, plus `COPYING`. Built as the single file `harfbuzz-world.cc`
+  since 6e-iv (the core, `hb-ft` and, with `HB_HAS_SUBSET`, the subsetter that
+  the PDF export uses to embed only the glyphs a document draws; a C++ compiler
+  is needed to build Exhaust, Exhaust's own code stays C), with FreeType table
+  access. C++ exceptions and RTTI are off. The PDF export (6e-iv) also uses the
+  vendored zlib for deflate; miniz is not added.
 - **SheenBidi**: `Headers/` and `Source/`, built as one unity file.
 - **zlib and libpng**: C sources and headers only; `libpng/pnglibconf.h` is
   upstream's `scripts/pnglibconf.h.prebuilt`. libpng's SIMD code is off. They exist

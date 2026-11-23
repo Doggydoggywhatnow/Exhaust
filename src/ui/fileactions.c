@@ -9,7 +9,7 @@
 #include "exhaust_settings.h"
 #include "panels_internal.h"
 
-enum { A_OPEN_TAB, A_NEW_NOTE, A_NEW_FOLDER, A_RENAME, A_MOVE, A_DELETE, A_COPY_REL, A_COPY_ABS, A_DEFAULT, A_SHOW, A_COPY_FILE, A_BOOKMARK, A_COPY_PATH_MENU, A_COUNT };
+enum { A_OPEN_TAB, A_NEW_NOTE, A_NEW_FOLDER, A_RENAME, A_MOVE, A_DELETE, A_COPY_REL, A_COPY_ABS, A_DEFAULT, A_SHOW, A_COPY_FILE, A_BOOKMARK, A_COPY_PATH_MENU, A_EXPORT_PDF, A_COUNT };
 
 static int op(ExPanels *p, int what, const char *path, const char *arg) {
     return p->in.host.file_op ? p->in.host.file_op(p->in.host.user, what, path, arg) : -1;
@@ -86,6 +86,7 @@ static void action_done(ExPanels *p, int a, void *arg) {
     case A_DEFAULT: if (op(p, EX_FILEOP_OPEN_DEFAULT, path, NULL) != 0) say(p, "It could not be opened."); break;
     case A_SHOW: if (op(p, EX_FILEOP_SHOW, path, NULL) != 0) say(p, "The file manager could not be opened."); break;
     case A_COPY_FILE: if (op(p, EX_FILEOP_COPY_FILE, path, NULL) == 0) { say(p, "A copy was made."); ex_panels_tree_changed(p); } else say(p, "The copy could not be made."); break;
+    case A_EXPORT_PDF: op(p, EX_FILEOP_EXPORT_PDF, path, NULL); break;
     case A_BOOKMARK: {
         ExBookmark b;
         memset(&b, 0, sizeof b);
@@ -148,6 +149,7 @@ void ex_panels_file_menu_at(ExPanels *p, const char *path, float x, float y) {
         if (!is_dir) ITEM("Make a copy", EX_ICON_COPY, A_COPY_FILE, 0, 1, 0);
         ITEM("Move to folder...", EX_ICON_MOVE, A_MOVE, 0, is_dir ? 1 : 0, 0);
         if (!is_dir) ITEM("Bookmark", EX_ICON_BOOKMARK, A_BOOKMARK, 0, 0, 0);
+        if (!is_dir && strlen(path) > 3 && !strcmp(path + strlen(path) - 3, ".md")) ITEM("Export to PDF...", EX_ICON_EXTERNAL, A_EXPORT_PDF, 0, 0, 0);
     }
     ITEM("Copy path", EX_ICON_CLIPBOARD, A_COPY_PATH_MENU, 0, 1, 1);
     if (!is_dir) ITEM("Open in default app", EX_ICON_EXTERNAL, A_DEFAULT, 0, 1, 0);

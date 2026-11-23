@@ -135,6 +135,7 @@ static void choice_activate(ExWidget *w, size_t row, void *u) {
     void *arg = p->dialog_arg;
     const ExListRow *r = ex_list_row(w, row);
     char key[100];
+    if (r && r->muted) return;                                           /* a row whose label ends in "(later)" is shown muted and cannot be chosen */
     snprintf(key, sizeof key, "%s", r && r->key ? r->key : "");
     dialog_close(p);
     if (cb) cb(p, row, key, arg);
@@ -149,7 +150,7 @@ void dialog_choice(ExPanels *p, const char *title, const char **labels, size_t n
     box = frame(p, title, 460);
     p->dialog_list = ex_widget_list(p->ui, title);
     p->dialog_list->height = ex_size_px(p->ui, 26.0f * (float)(n < 10 ? n : 10) + 8);
-    for (i = 0; i < n; i++) { ExListRow r; memset(&r, 0, sizeof r); r.text = labels[i]; r.key = labels[i]; ex_list_add(p->dialog_list, &r); }
+    for (i = 0; i < n; i++) { ExListRow r; memset(&r, 0, sizeof r); r.text = labels[i]; r.key = labels[i]; r.muted = strstr(labels[i], "(later)") != NULL; ex_list_add(p->dialog_list, &r); }
     ex_list_select(p->dialog_list, selected);
     memset(&h, 0, sizeof h); h.activate = choice_activate; h.user = p; h.single_click = 1;
     ex_list_set_handlers(p->dialog_list, &h);

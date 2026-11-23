@@ -25,7 +25,7 @@ extern "C" {
 #endif
 
 typedef struct ExPanels ExPanels;
-enum { EX_FILEOP_DELETE, EX_FILEOP_NEW_FOLDER, EX_FILEOP_COPY_REL, EX_FILEOP_COPY_ABS, EX_FILEOP_OPEN_DEFAULT, EX_FILEOP_SHOW, EX_FILEOP_COPY_FILE };
+enum { EX_FILEOP_DELETE, EX_FILEOP_NEW_FOLDER, EX_FILEOP_COPY_REL, EX_FILEOP_COPY_ABS, EX_FILEOP_OPEN_DEFAULT, EX_FILEOP_SHOW, EX_FILEOP_COPY_FILE, EX_FILEOP_EXPORT_PDF };
 
 typedef struct ExPanelsHost {
     void *user;
@@ -40,6 +40,7 @@ typedef struct ExPanelsHost {
     size_t (*caret_offset)(void *user);                                  /* the caret in the active editor, or (size_t)-1 */
     int (*move_file)(void *user, const char *from, const char *to);      /* moves a note or folder (tabs, tree and index follow); 0 on success */
     void (*message)(void *user, const char *text);                       /* a line in the status bar */
+    void (*export_text)(void *user, const char *path, const char *expanded);       /* export to PDF (6e-iv): the note with its query blocks, bases and embedded notes shown; expanded is NULL when it could not be asked */
     void (*query_results)(void *user, const char *path, const char *expanded);   /* reading mode: the note with its query blocks replaced by their results */
     void (*flush_notes)(void *user);                                     /* write every open note now */
     /* what the explorer menu does with a file or folder (EX_FILEOP_*): delete (closes its tabs, by files.trash_mode), new folder (arg is the
@@ -131,6 +132,8 @@ void ex_panels_rename_file(ExPanels *p, const char *path);
  * (by files.trash_mode) and `into` is opened. The status bar says how it went. */
 /* The format converter (6e-iv): renames alias, tag and cssclass to aliases, tags and cssclasses in every note (a job on the service thread). The caller has asked first. */
 void ex_panels_convert_frontmatter(ExPanels *p);
+/* Export to PDF (6e-iv): asks the service thread for the text reading mode would show for the note's text; the answer comes through host.export_text. */
+void ex_panels_expand_for_export(ExPanels *p, const char *path, const char *text, size_t len);
 void ex_panels_merge_notes(ExPanels *p, const char *from, const char *into, const char *tpl, size_t tpl_len);
 /* Renames a note to new_name (no folder, no extension) in its own folder, through the link-safe flow; the link question is asked as
  * for any rename. Returns 0 if it was started, -1 (with a message in the status line) if the name is not valid or is taken. */
