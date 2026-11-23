@@ -389,7 +389,7 @@ void ex_geom_curve(ExGeom *g, float x0, float y0, float c1x, float c1y, float c2
     half = width / 2.0f + g->feather;
     if (geom_outside(g, lo_x - half, lo_y - half, hi_x + half, hi_y + half)) return;      /* the box round the control points holds the curve */
     len = hypotf(c1x - x0, c1y - y0) + hypotf(c2x - c1x, c2y - c1y) + hypotf(x1 - c2x, y1 - c2y);
-    n = (int)(len / 12.0f) + 4;
+    n = (int)(len / 16.0f) + 2;                                   /* a short curve is a few lines: seen from far away an edge is a hair */
     if (n > 48) n = 48;
     px = x0; py = y0;
     for (i = 1; i <= n; i++) {

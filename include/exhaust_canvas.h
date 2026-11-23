@@ -71,6 +71,7 @@ typedef struct ExCanvas {
     int final_newline;                            /* the file ended with a line break */
     int repaired;                                 /* an id was missing or repeated and was replaced: the text the file has is not what would be written */
     unsigned long rev;                            /* grows with every change made through the functions below */
+    size_t *hash; size_t hcap; int hvalid;        /* an index of the cards by id, built when ex_canvas_find_node first needs it (and after a card is added, removed or moved in the order) */
 } ExCanvas;
 
 /* An empty canvas (nodes and edges both empty). */

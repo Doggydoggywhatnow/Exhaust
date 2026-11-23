@@ -61,7 +61,14 @@ void ex_canvascache_invalidate(ExCanvasCache *c, const char *path) {
     size_t i;
     if (!c) return;
     if (!path || !*path) { cache_clear(c); c->version++; return; }
-    for (i = 0; i < c->n; i++) if (!strcmp(c->v[i].path, path)) { free(c->v[i].path); free(c->v[i].text); c->v[i] = c->v[--c->n]; c->version++; return; }
+    {   /* the file itself and every key that names a part of it (`path#Heading`, `path#^block`) */
+        size_t len = strlen(path), k = 0;
+        for (i = 0; i < c->n; i++) {
+            if (!strncmp(c->v[i].path, path, len) && (c->v[i].path[len] == 0 || c->v[i].path[len] == '#')) { free(c->v[i].path); free(c->v[i].text); continue; }
+            c->v[k++] = c->v[i];
+        }
+        if (k != c->n) { c->n = k; c->version++; }
+    }
 }
 unsigned long ex_canvascache_version(const ExCanvasCache *c) { return c ? c->version : 0; }
 
@@ -324,7 +331,7 @@ static size_t draw_text_box(View *v, ExRenderer *r, const char *text, size_t tle
     if (ex_text_metrics(r, f, size, &fm) != 0 || w < 4.0f || h < 4.0f) return 0;
     lh = (float)fm.line_height;
     n = wrap_text(r, f, size, text, tlen, w, lines, (size_t)(h / (lh > 1.0f ? lh : 1.0f)) + 2 > MAX_TEXT_LINES ? MAX_TEXT_LINES : (size_t)(h / (lh > 1.0f ? lh : 1.0f)) + 2);
-    ex_set_clip(r, (int)x, (int)y, (int)ceilf(w), (int)ceilf(h));
+    ex_ui_clip_to(v->ui, x, y, w, h);
     for (i = 0; i < n; i++) {
         float hs = lines[i].head ? size * (1.5f - 0.1f * (float)(lines[i].head > 4 ? 4 : lines[i].head)) : size;
         ExFontMetrics hm;
@@ -338,7 +345,7 @@ static size_t draw_text_box(View *v, ExRenderer *r, const char *text, size_t tle
         }
         drawn++;
     }
-    ex_set_clip(r, 0, 0, -1, -1);
+    ex_ui_clip_restore(v->ui);
     v->stats.texts_laid_out++;
     return drawn;
 }
@@ -448,22 +455,24 @@ static void draw_card(View *v, ExWidget *w, ExRenderer *r, const ExTheme *t, ExC
         const char *text; int state;
         size_t nl = 0;
         const char *nm = base_name(n->file, &nl);
-        ensure_text(v, n->file, &text, &state);
+        char key[760];
+        snprintf(key, sizeof key, "%s%s", n->file, n->subpath ? n->subpath : "");
+        ensure_text(v, key, &text, &state);
         if (text && state == 1) draw_text_box(v, r, text, strlen(text), sx + pad, sy + pad, sw - 2 * pad, sh - 2 * pad, size * 0.9f, c_muted, c_text);
         else {
             char msg[300];
             snprintf(msg, sizeof msg, "%.*s", (int)(nl > 200 ? 200 : nl), nm);
             if (ex_text_metrics(r, f, size, &fm) == 0) lh = (float)fm.line_height;
-            ex_set_clip(r, (int)sx, (int)sy, (int)ceilf(sw), (int)ceilf(sh));
+            ex_ui_clip_to(v->ui, sx, sy, sw, sh);
             ex_text_draw(r, f, size, sx + pad, sy + pad, state == 0 ? "..." : msg, state == 0 ? 3 : strlen(msg), c_muted);
-            ex_set_clip(r, 0, 0, -1, -1);
+            ex_ui_clip_restore(v->ui);
             (void)lh;
         }
     } else if (n->kind == EX_CN_LINK && n->url) {
         ex_text_metrics(r, f, size, &fm);
-        ex_set_clip(r, (int)sx, (int)sy, (int)ceilf(sw), (int)ceilf(sh));
+        ex_ui_clip_to(v->ui, sx, sy, sw, sh);
         ex_text_draw(r, f, size, sx + pad, sy + pad, n->url, strlen(n->url), ex_theme_color(t, EX_COLOR_LINK));
-        ex_set_clip(r, 0, 0, -1, -1);
+        ex_ui_clip_restore(v->ui);
     }
 }
 
@@ -1035,6 +1044,7 @@ static void draw_message(View *v, ExWidget *w, const char *msg, ExColor c) {
 
 void ex_canvasview_draw(ExUi *ui, ExWidget *w) {
     View *v = view_of(w);
+    double t_start = (double)SDL_GetPerformanceCounter() * 1000.0 / (double)SDL_GetPerformanceFrequency();
     const ExTheme *t;
     ExRenderer *r;
     ExColor c_bg, c_grid, c_text, c_muted, c_surface, c_border, c_accent, c_link;
@@ -1107,7 +1117,7 @@ void ex_canvasview_draw(ExUi *ui, ExWidget *w) {
         v->stats.cards_drawn++;
     }
     /* edges, under the cards */
-    ex_geom_set_feather(v->geom, 0.6f);
+    ex_geom_set_feather(v->geom, v->zoom >= 0.5f ? 0.6f : 0.0f);                   /* a soft edge only where a line is wide enough to show it */
     for (e = 0; e < v->c->ne; e++) {
         ExCanvasEdge *ed = &v->c->edges[e];
         double p[8];
@@ -1268,6 +1278,7 @@ void ex_canvasview_draw(ExUi *ui, ExWidget *w) {
         v->stats.geom_grows = gs.grows;
     }
     v->stats.selected_cards = selected_nodes(v); v->stats.selected_edges = selected_edges(v);
+    v->stats.own_ms = (double)SDL_GetPerformanceCounter() * 1000.0 / (double)SDL_GetPerformanceFrequency() - t_start;
     (void)c_link;
     if (!v->c->n && !v->edit) {
         ExFont *f = ex_ui_font(ui, EX_FONT_TOKEN_INTERFACE, 0);

@@ -474,6 +474,17 @@ static void service_job(ExWorker *self, const ExMessage *m, void *user) {
         free(path);
         break;
     }
+    case QJ_FILETEXT: {                       /* a is path, path#Heading or path#^block */
+        char path[700], *hash;
+        const char *heading = NULL, *block = NULL;
+        snprintf(path, sizeof path, "%s", j->a ? j->a : "");
+        hash = strchr(path, '#');
+        if (hash) { *hash++ = 0; if (*hash == '^') block = hash + 1; else if (*hash) heading = hash; }
+        res->text = path[0] ? ex_link_preview(s->r, s->root, path, heading, block, 1500) : NULL;
+        res->ok = res->text != NULL;
+        qrows_add(&res->rows, j->a ? j->a : "", NULL, NULL, 0, 0, 0, 0, 0, 0, 0);
+        break;
+    }
     case QJ_SNAPSHOT: res->snapshot = ex_switcher_load(s->r, j->include_attachments); res->ok = res->snapshot != NULL; break;
     case QJ_PLAN: do_rewrite(s, j, res, 0); break;
     case QJ_REWRITE: do_rewrite(s, j, res, 1); break;

@@ -504,4 +504,33 @@ if [ "$szpx" = "900x600" ]; then echo "ok: window_width and window_height give t
 unset EXHAUST_OPEN
 reset_state
 
+# the canvas (6a): a .canvas file opens as a board; a double click on empty space makes a text card, typing fills it, Escape ends the edit, and the autosave writes
+# the file with the new card and every key the file had; a new canvas from the command palette is written when something is added; the view is kept in the session
+canvas_vault() {   # name: a vault with Board.canvas (one card, a key Exhaust does not know) and a note
+    vault="$work/$1"; rm -rf "$vault"; mkdir -p "$vault"
+    printf '# Welcome\n' > "$vault/Home.md"
+    printf '{\n\t"nodes":[\n\t\t{"id":"a1","type":"text","text":"First","x":-100,"y":-40,"width":250,"height":80,"zIndex":3}\n\t],\n\t"edges":[],\n\t"meta":{"keep":[1,2.50]}\n}' > "$vault/Board.canvas"
+}
+reset_state
+canvas_vault canvas_edit
+printf 'wait 1500\nmove 400 160\ndown 400 160\nup 400 160\nmove 400 160\ndown 400 160\nup 400 160\nwait 400\ntext Hello canvas\nwait 300\nkey escape\nwait 2200\nquit\n' > "$work/canvas_edit.script"
+EXHAUST_OPEN=Board.canvas EXHAUST_SCRIPT="$work/canvas_edit.script" $lim "$exe" "$vault" >"$work/canvas_edit.log" 2>&1
+if grep -q '"text":"Hello canvas"' "$vault/Board.canvas" && grep -q '"zIndex":3' "$vault/Board.canvas" && grep -q '"meta":{"keep":\[1,2.50\]}' "$vault/Board.canvas" && grep -q '"text":"First"' "$vault/Board.canvas"; then echo "ok: a double click made a text card, the text typed in it was saved, and the keys the file had were kept"; else echo "FAILED: the canvas edit ($(cat "$vault/Board.canvas" | tr '\n\t' '  '))"; fail=1; fi
+# the view was written to the session
+if find "$work/data" "$work/home" -name session.ini 2>/dev/null | xargs grep -l 'view\.Board\.canvas' >/dev/null 2>&1; then echo "ok: the view of the canvas is in the session"; else echo "FAILED: the view of the canvas is not in the session"; fail=1; fi
+# a canvas that is not valid JSON is never changed, whatever is done in it
+reset_state
+canvas_vault canvas_broken
+printf '{"nodes": [ not json' > "$vault/Board.canvas"
+printf 'wait 1500\nmove 400 160\ndown 400 160\nup 400 160\nmove 400 160\ndown 400 160\nup 400 160\nwait 300\ntext x\nkey delete\nkey mod+a\nwait 2200\nquit\n' > "$work/canvas_broken.script"
+EXHAUST_OPEN=Board.canvas EXHAUST_SCRIPT="$work/canvas_broken.script" $lim "$exe" "$vault" >"$work/canvas_broken.log" 2>&1
+if [ "$(cat "$vault/Board.canvas")" = '{"nodes": [ not json' ]; then echo "ok: a canvas that is not JSON is left as it was"; else echo "FAILED: a broken canvas was changed ($(cat "$vault/Board.canvas"))"; fail=1; fi
+# a new canvas from the command palette: nothing is written until something is added
+reset_state
+canvas_vault canvas_new
+printf 'wait 1200\nkey mod+p\nwait 400\ntext create new canvas\nwait 400\nkey enter\nwait 1200\nmove 400 160\ndown 400 160\nup 400 160\nmove 400 160\ndown 400 160\nup 400 160\nwait 400\ntext Brand new\nwait 300\nkey escape\nwait 2200\nquit\n' > "$work/canvas_new.script"
+EXHAUST_OPEN=Home.md EXHAUST_SCRIPT="$work/canvas_new.script" $lim "$exe" "$vault" >"$work/canvas_new.log" 2>&1
+if [ -f "$vault/Untitled.canvas" ] && grep -q '"text":"Brand new"' "$vault/Untitled.canvas" && grep -q '"edges":\[\]' "$vault/Untitled.canvas"; then echo "ok: Create new canvas made Untitled.canvas, written when the first card was added"; else echo "FAILED: the new canvas ($(ls "$vault"); $(cat "$vault/Untitled.canvas" 2>/dev/null | tr '\n\t' '  '))"; fail=1; fi
+reset_state
+
 exit $fail

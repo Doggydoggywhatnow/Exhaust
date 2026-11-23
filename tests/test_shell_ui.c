@@ -104,18 +104,18 @@ static void test_ribbon_and_status(void) {
     CHECK(rb && ex_ribbon_widget(rb));
     for (i = 0; i < 9; i++) CHECK(ex_ribbon_button(rb, ex_ribbon_item(i)->id) != NULL);
     CHECK(ex_ribbon_button(rb, "nothing.here") == NULL);
-    ex_ribbon_apply(rb, 1, "", 1);
+    ex_ribbon_apply(rb, 1, "", 1, 1);
     CHECK(ex_ribbon_visible(rb) && ex_ribbon_button_visible(rb, "app.open-settings") && ex_ribbon_button_visible(rb, "graph-view.open-graph-view"));
-    ex_ribbon_apply(rb, 1, "", 0);                                                                       /* the graph feature is off: its button goes, the others stay */
+    ex_ribbon_apply(rb, 1, "", 0, 1);                                                                       /* the graph feature is off: its button goes, the others stay */
     CHECK(!ex_ribbon_button_visible(rb, "graph-view.open-graph-view") && ex_ribbon_button_visible(rb, "app.open-settings"));
-    ex_ribbon_apply(rb, 1, "app.open-settings, graph-view.open-graph-view", 1);
+    ex_ribbon_apply(rb, 1, "app.open-settings, graph-view.open-graph-view", 1, 1);
     CHECK(ex_ribbon_button_visible(rb, "app.open-settings") && ex_ribbon_button_visible(rb, "graph-view.open-graph-view") && !ex_ribbon_button_visible(rb, "app.change-theme") && !ex_ribbon_button_visible(rb, ex_ribbon_item(0)->id));
-    ex_ribbon_apply(rb, 0, "", 1);                                                                       /* show_ribbon off: nothing */
+    ex_ribbon_apply(rb, 0, "", 1, 1);                                                                       /* show_ribbon off: nothing */
     CHECK(!ex_ribbon_visible(rb) && ex_ribbon_widget(rb)->hidden && !ex_ribbon_button_visible(rb, "app.open-settings"));
-    ex_ribbon_apply(rb, 1, "none", 1);
+    ex_ribbon_apply(rb, 1, "none", 1, 1);
     for (i = 0; i < 9; i++) CHECK(!ex_ribbon_button_visible(rb, ex_ribbon_item(i)->id));
-    ex_ribbon_apply(rb, 1, "", 1);
-    /* a press runs the command of the button; the canvas button is a disabled stub */
+    ex_ribbon_apply(rb, 1, "", 1, 1);
+    /* a press runs the command of the button; the canvas button works since 6a and follows its feature switch */
     {   ExWidget *b = ex_ribbon_button(rb, "app.change-theme");
         g_runs = 0;
         if (b && b->on_click) b->on_click(b, b->on_click_user);
@@ -124,7 +124,12 @@ static void test_ribbon_and_status(void) {
         if (b && b->on_click) b->on_click(b, b->on_click_user);
         CHECK(g_runs == 2 && !strcmp(g_ran, "command-palette.open-command-palette"));
         b = ex_ribbon_button(rb, "canvas.create-new-canvas");
-        CHECK(b && b->disabled && !b->on_click); }
+        CHECK(b && !b->disabled && b->on_click);
+        if (b && b->on_click) b->on_click(b, b->on_click_user);
+        CHECK(g_runs == 3 && !strcmp(g_ran, "canvas.create-new-canvas"));
+        ex_ribbon_apply(rb, 1, "", 1, 0);                                                                  /* the canvas feature is off: its button goes */
+        CHECK(!ex_ribbon_button_visible(rb, "canvas.create-new-canvas") && ex_ribbon_button_visible(rb, "graph-view.open-graph-view"));
+        ex_ribbon_apply(rb, 1, "", 1, 1); }
     ex_widget_free(ex_ribbon_widget(rb));
     ex_ribbon_free(rb);
 

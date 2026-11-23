@@ -693,6 +693,18 @@ static void clip_push(ExUi *ui, ClipState *save, const ExWidget *w) {
     ui->clip_on = 1; ui->clip_x = x0; ui->clip_y = y0; ui->clip_w = x1 > x0 ? x1 - x0 : 0; ui->clip_h = y1 > y0 ? y1 - y0 : 0;
     clip_apply(ui);
 }
+/* For a widget that draws by itself (the canvas): the clip of the widget is back in force, or narrowed to a rectangle inside it. */
+void ex_ui_clip_restore(ExUi *ui) { clip_apply(ui); }
+void ex_ui_clip_to(ExUi *ui, float x, float y, float w, float h) {
+    int x0 = (int)floorf(x), y0 = (int)floorf(y), x1 = (int)ceilf(x + w), y1 = (int)ceilf(y + h);
+    if (ui->clip_on) {
+        if (x0 < ui->clip_x) x0 = ui->clip_x;
+        if (y0 < ui->clip_y) y0 = ui->clip_y;
+        if (x1 > ui->clip_x + ui->clip_w) x1 = ui->clip_x + ui->clip_w;
+        if (y1 > ui->clip_y + ui->clip_h) y1 = ui->clip_y + ui->clip_h;
+    }
+    ex_set_clip(ui->r, x0, y0, x1 > x0 ? x1 - x0 : 0, y1 > y0 ? y1 - y0 : 0);
+}
 static void clip_pop(ExUi *ui, const ClipState *save) {
     ui->clip_on = save->on; ui->clip_x = save->x; ui->clip_y = save->y; ui->clip_w = save->w; ui->clip_h = save->h;
     clip_apply(ui);

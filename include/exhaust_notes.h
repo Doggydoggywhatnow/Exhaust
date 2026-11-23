@@ -167,6 +167,8 @@ typedef enum ExOpenResult {
 ExNote *ex_notes_open(ExNotes *m, const char *rel, ExOpenResult *result);
 /* A new, empty note that does not exist on disk until something is typed in it. */
 ExNote *ex_notes_new(ExNotes *m, const char *parent_rel, const char *name_without_extension);
+/* The same with an extension of your own (`canvas`, 6a): the first free name "name.ext", "name 2.ext", ... */
+ExNote *ex_notes_new_file(ExNotes *m, const char *parent_rel, const char *name_without_extension, const char *ext);
 /* Saves now if dirty (waits). Then frees the note and its document. */
 int ex_notes_close(ExNotes *m, ExNote *n);
 /* Crash recovery: notes with journaled but unsaved edits, opened or restored by ex_notes_open. */

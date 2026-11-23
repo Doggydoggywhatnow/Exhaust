@@ -23,7 +23,7 @@ void ex_ribbon_free(ExRibbon *r);
 ExWidget *ex_ribbon_widget(ExRibbon *r);
 ExWidget *ex_ribbon_button(ExRibbon *r, const char *command_id);        /* NULL for an id that has no button */
 /* show: the bar at all (show_ribbon); items: the value of ribbon_items; graph_feature: the Graph view feature is on (its button needs it). */
-void ex_ribbon_apply(ExRibbon *r, int show, const char *items, int graph_feature);
+void ex_ribbon_apply(ExRibbon *r, int show, const char *items, int graph_feature, int canvas_feature);
 /* Is the bar, or the button of that command, visible now? For tests and the keyboard. */
 int ex_ribbon_visible(const ExRibbon *r);
 int ex_ribbon_button_visible(const ExRibbon *r, const char *command_id);

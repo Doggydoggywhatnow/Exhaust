@@ -258,6 +258,9 @@ ExAxis ex_size_px(const ExUi *ui, float px);
 /* Layout and drawing. width and height are the window's pixel size. */
 void ex_ui_layout(ExUi *ui, ExWidget *root, float width, float height);
 void ex_ui_draw(ExUi *ui, ExWidget *root, int blink_on);
+/* For a widget that draws by itself (the canvas, 6a): puts the clip of the widget being drawn back in force, or narrows it to a rectangle (inside the clip already in force). */
+void ex_ui_clip_restore(ExUi *ui);
+void ex_ui_clip_to(ExUi *ui, float x, float y, float w, float h);
 
 /* Input, in window pixel coordinates. */
 ExWidget *ex_ui_widget_at(ExWidget *root, float x, float y); /* the deepest widget under the point */

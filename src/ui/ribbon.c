@@ -42,7 +42,7 @@ ExRibbon *ex_ribbon_create(ExUi *ui, const ExRibbonHooks *hooks) {
     for (i = 0; i < nitems && i < 16; i++) {
         const ExRibbonItem *it = ex_ribbon_item(i);
         Btn *b = &r->btn[r->n];
-        int stub = !strncmp(it->id, "canvas.", 7);
+        int stub = 0;                                                  /* the canvas button works since 6a */
         if (!it->top && !gap_done) {          /* the actions at the top, the view switches at the bottom */
             ExWidget *gap = ex_widget_box(ui, 1, "ribbon space");
             if (gap) { gap->width = ex_size_grow(); gap->height = ex_size_grow(); ex_widget_add(r->bar, gap); }
@@ -71,14 +71,14 @@ ExWidget *ex_ribbon_button(ExRibbon *r, const char *command_id) {
     return NULL;
 }
 
-void ex_ribbon_apply(ExRibbon *r, int show, const char *items, int graph_feature) {
+void ex_ribbon_apply(ExRibbon *r, int show, const char *items, int graph_feature, int canvas_feature) {
     size_t i;
     if (!r) return;
     r->shown = show != 0;
     r->bar->hidden = !r->shown;
     for (i = 0; i < r->n; i++) {
         const char *id = ex_ribbon_item(r->btn[i].item)->id;
-        r->btn[i].w->hidden = !ex_ribbon_shown(items, id) || (!strcmp(id, "graph-view.open-graph-view") && !graph_feature);
+        r->btn[i].w->hidden = !ex_ribbon_shown(items, id) || (!strcmp(id, "graph-view.open-graph-view") && !graph_feature) || (!strcmp(id, "canvas.create-new-canvas") && !canvas_feature);
     }
 }
 

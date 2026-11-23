@@ -430,6 +430,7 @@ void ex_panels_update(ExPanels *p) {
                 }
                 break;
             case QJ_HISTORY: history_result(p, r); break;
+            case QJ_FILETEXT: if (p->in.host.file_text && r->rows.n) p->in.host.file_text(p->in.host.user, r->rows.v[0].text, r->ok ? r->text : NULL); break;
             case QJ_EXPAND: if (r->ok && r->text && p->in.host.query_results) p->in.host.query_results(p->in.host.user, r->summary, r->text); break;
             default: views_result(p, r); break;
             }
@@ -507,6 +508,15 @@ void ex_panels_update(ExPanels *p) {
             send_job(p, j);
         }
     }
+}
+
+void ex_panels_file_text(ExPanels *p, const char *key) {
+    QJob *j;
+    if (!p || !key || !key[0]) return;
+    j = qjob_new(QJ_FILETEXT, ++p->next_req);
+    if (!j) return;
+    j->a = dup_s(key);
+    send_job(p, j);
 }
 
 void ex_panels_pointer(ExPanels *p, ExWidget *root, float x, float y, int ctrl) {

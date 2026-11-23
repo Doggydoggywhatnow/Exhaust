@@ -26,7 +26,7 @@ int ex_window_size_clamp(long px) { return px < 400 ? 400 : px > 10000 ? 10000 :
 static const ExRibbonItem k_items[] = {
     { "quick-switcher.open-quick-switcher", "Quick switcher", 1 },
     { "graph-view.open-graph-view", "Graph view", 1 },
-    { "canvas.create-new-canvas", "Canvas (not available yet)", 1 },
+    { "canvas.create-new-canvas", "Canvas", 1 },
     { "command-palette.open-command-palette", "Command palette", 1 },
     { "app.toggle-live-preview-source-mode", "Live preview or source mode of this note", 0 },
     { "app.toggle-left-sidebar", "Show or hide the left sidebar", 0 },

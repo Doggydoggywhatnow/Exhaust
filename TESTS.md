@@ -128,7 +128,10 @@ Priority: **P1** add soon after 0.1.0 (cheap and protects users), **P2** add as 
 - [ ] **T-BASE-01 (P1)** One test per documented function and operator, using the examples in the help pages; separate tests for type coercion, null handling and date arithmetic.
 - [ ] **T-BASE-02 (P2)** Formulas referencing other formulas, cycles reported as errors, errors shown in the cell and not crashing the view.
 - [ ] **T-BASE-03 (P2)** Filters, groups, sorts and summaries on the performance vault stay within a time budget.
-- [ ] **T-CNV-01 (P2)** Canvas editing: add, move, resize, connect, label, color and group, saved and reloaded to the same JSON.
+- [x] **T-CNV-01 (P2)** Canvas editing: add, move, resize, connect, label, color and group, saved and reloaded to the same JSON. *(`ctest -R canvas_view`, `tests/test_canvas_view.c`: move, group move, resize, edge from a dot, delete, copy and paste, convert to file, double click to add and edit, a change of the document made by other means, the session view, an empty and a broken document; each edit is one step of Undo that gives back the very same text; `app_scripts` runs it through the real program.)*
+- [x] **T-CNV-02 (P1)** A sample canvas from the JSON Canvas spec round-trips unchanged (byte for byte in the standard layout, the same content in any other), keys the file has that Exhaust does not know are kept with their order, damaged input never crashes and never gives a canvas. *(`ctest -R canvas_roundtrip|canvas_layouts|canvas_unknown|canvas_bad_input`, `tests/test_canvas.c`; the JSON Canvas fuzz target `fuzz_canvas` runs 60 seconds in CI and `canvas_random` runs 20,000 mutated inputs in every build.)*
+- [x] **T-CNV-03 (P1)** Link-safe rename covers `.canvas` files: the `file` of a card follows a moved file, links in text cards are rewritten, every other key and the layout stay, a canvas that cannot be read is left alone. *(`ctest -R rename_canvas`.)*
+- [x] **T-CNV-04 (P2)** A canvas of 5,000 cards and 8,000 edges: the canvas's own work for a frame stays under the budget fitted (outlines) and at natural size (text), the triangles stay bounded, only the cards in view have their text laid out, and the wheel handler is far under a frame. *(`ctest -R frame_budget`.)*
 
 ### Graph
 

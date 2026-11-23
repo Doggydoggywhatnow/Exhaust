@@ -45,6 +45,8 @@ typedef struct ExPanelsHost {
     void (*local_graph_data)(void *user, struct ExGraph *graph);
     /* the user picked an earlier version of a note in the history (7e): its text, and the unified diff of it against the note as it is now */
     void (*history_version)(void *user, const char *rel, const char *label, const char *old_text, size_t len, const char *diff);
+    /* the start of a note a canvas card shows (6a), asked for with ex_panels_file_text: key is what was asked for, text NULL when it cannot be read */
+    void (*file_text)(void *user, const char *key, const char *text);
 } ExPanelsHost;
 
 typedef struct ExPanelsInit {
@@ -118,6 +120,8 @@ void ex_panels_unresolved_menu_at(ExPanels *p, const char *name, float x, float 
 int ex_panels_context_menu(ExPanels *p, ExWidget *root, float x, float y);   /* right click on a row of the file explorer */          /* asks for the new name, then for the links */
 /* Reading mode: asks for the note's text with every `query` block replaced by its results; the answer comes through host.query_results. */
 void ex_panels_expand_queries(ExPanels *p, const char *path, const char *text, size_t len);
+/* Asks the service thread for the start of a note (6a): `path`, `path#Heading` or `path#^block`; the answer goes to host.file_text. */
+void ex_panels_file_text(ExPanels *p, const char *key);
 void ex_panels_open_switcher(ExPanels *p);
 void ex_panels_open_palette(ExPanels *p);
 void ex_panels_close_dialog(ExPanels *p);

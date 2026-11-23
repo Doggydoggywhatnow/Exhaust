@@ -10,6 +10,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "exhaust_canvasview.h"
 #include "exhaust_panes.h"
 #include "exhaust_popwin.h"
 #include "exhaust_ui.h"
@@ -172,6 +173,70 @@ int main(void) {
         ex_widget_free(win);
         ex_panes_free(panes);
         ex_ws_free(ws);
+    }
+    {   /* a big canvas (6a): 5,000 cards and 8,000 edges, drawn fitted (outlines) and at natural size (text), panned and zoomed; nothing in a frame grows with the whole canvas but the test of which cards are in view */
+        size_t nn = 5000, ne = 8000, cap2 = nn * 200 + ne * 150 + 100, o = 0, k;
+        char *js = malloc(cap2);
+        ExDoc *cdoc;
+        ExWidget *cw, *croot;
+        ExCanvasHandlers ch;
+        ExCanvasCache *cc = ex_canvascache_create();
+        double cf[160], chd[160], flush_total = 0.0;
+        size_t ncf = 0, nchd = 0;
+        ExCanvasViewStats st;
+        o += (size_t)snprintf(js + o, cap2 - o, "{\n\t\"nodes\":[\n");
+        for (k = 0; k < nn; k++)
+            o += (size_t)snprintf(js + o, cap2 - o, "\t\t{\"id\":\"n%zu\",\"type\":\"%s\",\"%s\":\"%s %zu with some words that wrap onto more than one line\",\"x\":%zu,\"y\":%zu,\"width\":240,\"height\":120}%s\n",
+                                  k, k % 5 == 4 ? "file" : "text", k % 5 == 4 ? "file" : "text", k % 5 == 4 ? "Notes/Note" : "# Card", k, (k % 100) * 300, (k / 100) * 180, k + 1 < nn ? "," : "");
+        o += (size_t)snprintf(js + o, cap2 - o, "\t],\n\t\"edges\":[\n");
+        for (k = 0; k < ne; k++)
+            o += (size_t)snprintf(js + o, cap2 - o, "\t\t{\"id\":\"e%zu\",\"fromNode\":\"n%zu\",\"toNode\":\"n%zu\",\"label\":\"%s\"}%s\n", k, (k * 7) % nn, (k * 7 + 1 + k % 3 * 99) % nn, k % 4 == 0 ? "link" : "", k + 1 < ne ? "," : "");
+        o += (size_t)snprintf(js + o, cap2 - o, "\t]\n}");
+        cdoc = ex_doc_create(js, o);
+        memset(&ch, 0, sizeof ch);
+        ch.cache = cc;
+        croot = ex_widget_box(ui, 1, "canvas root");
+        croot->width = ex_size_grow(); croot->height = ex_size_grow();
+        cw = ex_widget_canvas(ui, cdoc, "Big.canvas", &ch);
+        ex_widget_add(croot, cw);
+        ex_ui_layout(ui, croot, 1000, 700); ex_ui_draw(ui, croot, 1); finish_frame(r);
+        ex_canvasview_stats(cw, &st);
+        CHECK(st.cards == nn && st.edges == ne && st.content_hidden && st.cards_drawn > 100);
+        /* The software renderer draws the queued triangles when the frame is flushed, and in the unoptimized build that is slow and says nothing about a real
+         * renderer: what is limited is the canvas's own work (building the frame and handing it over) and the number of triangles; the flush is printed. */
+        for (i = 0; i < 40; i++) {                                                              /* fitted: every card an outline, 8,000 edges */
+            double t0;
+            ex_ui_layout(ui, croot, 1000, 700); ex_ui_draw(ui, croot, 1);
+            ex_canvasview_stats(cw, &st);
+            if (ncf < 160) cf[ncf++] = st.own_ms;
+            t0 = now_ms(); finish_frame(r); flush_total += now_ms() - t0;
+        }
+        ex_canvasview_stats(cw, &st);
+        CHECK(st.triangles > 1000 && st.triangles < 200000);                                    /* the level of detail keeps a far view cheap */
+        report("the canvas's own work for a frame of 5,000 cards, fitted", cf, ncf, frame_limit);
+        printf("  (the software renderer took %.1f ms a frame to draw %zu triangles)\n", flush_total / 40.0, st.triangles);
+        cw->on_text(cw, "1", 1, cw->on_text_user);                                               /* natural size: text, a few dozen cards in view */
+        ncf = 0;
+        for (i = 0; i < 60; i++) {
+            double t0 = now_ms(), t1;
+            ex_canvasview_wheel(cw, (i % 2) ? 1.0f : -1.0f, 500.0f, 350.0f);                     /* pan down and up */
+            t1 = now_ms();
+            if (nchd < 160) chd[nchd++] = t1 - t0;
+            ex_ui_layout(ui, croot, 1000, 700); ex_ui_draw(ui, croot, 1);
+            ex_canvasview_stats(cw, &st);
+            if (ncf < 160) cf[ncf++] = st.own_ms;
+            finish_frame(r);
+        }
+        ex_canvasview_stats(cw, &st);
+        CHECK(!st.content_hidden && st.texts_laid_out > 0 && st.texts_laid_out < 200 && st.cards_drawn < 200);        /* only what is in view is laid out */
+        report("the canvas's own work for a frame of 5,000 cards at natural size", cf, ncf, frame_limit);
+        report("an input handler of the canvas (the wheel)", chd, nchd, key_limit);
+        { ExCanvasViewStats a, b; ex_ui_layout(ui, croot, 1000, 700); ex_ui_draw(ui, croot, 1); ex_canvasview_stats(cw, &a); ex_ui_layout(ui, croot, 1000, 700); ex_ui_draw(ui, croot, 1); ex_canvasview_stats(cw, &b); CHECK(a.geom_grows == b.geom_grows); }
+        ex_ui_release(ui, croot);
+        ex_widget_free(croot);
+        ex_doc_free(cdoc);
+        ex_canvascache_free(cc);
+        free(js);
     }
     {   /* two windows (7g): the same big note in the first window and in a pop-out window of its own; every pass handles a key press, draws the first window and then the second (one frame each) */
         ExWorkspace *ws2 = ex_ws_create();

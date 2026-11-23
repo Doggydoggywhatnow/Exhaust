@@ -69,7 +69,7 @@ void ex_canvas_free(ExCanvas *c) {
     if (!c) return;
     for (i = 0; i < c->n; i++) node_free(&c->nodes[i]);
     for (i = 0; i < c->ne; i++) edge_free(&c->edges[i]);
-    free(c->nodes); free(c->edges);
+    free(c->nodes); free(c->edges); free(c->hash);
     kv_free(c->extra, c->nextra); order_free(c->order, c->norder);
     free(c);
 }
@@ -308,11 +308,10 @@ ExCanvas *ex_canvas_parse(const char *text, size_t len, char *err, size_t errcap
     /* every card has an id that no other card has */
     for (i = 0; i < c->n; i++) {
         ExCanvasNode *n = &c->nodes[i];
-        size_t j;
         int dup = 0;
         if (n->raw) continue;
         if (!n->id || !*n->id) dup = 1;
-        else for (j = 0; j < i; j++) if (c->nodes[j].id && !strcmp(c->nodes[j].id, n->id)) { dup = 1; break; }
+        else dup = ex_canvas_find_node(c, n->id) != (int)i;                              /* the index finds the first card of an id */
         if (dup) { char nid[17]; ex_canvas_new_id(c, nid); free(n->id); n->id = dups(nid); c->repaired = 1; if (!n->id) { ex_canvas_free(c); fail(err, errcap, "out of memory"); return NULL; } }
     }
     for (i = 0; i < c->ne; i++) {
@@ -320,6 +319,7 @@ ExCanvas *ex_canvas_parse(const char *text, size_t len, char *err, size_t errcap
         if (e->raw) continue;
         if (!e->id || !*e->id) { char nid[17]; ex_canvas_new_id(c, nid); free(e->id); e->id = dups(nid); c->repaired = 1; if (!e->id) { ex_canvas_free(c); fail(err, errcap, "out of memory"); return NULL; } }
     }
+    c->hvalid = 0;
     c->final_newline = len > 0 && text[len - 1] == '\n';
     return c;
 }
@@ -517,10 +517,42 @@ char *ex_canvas_write(const ExCanvas *c, size_t *len) {
 
 /* ---- editing ---- */
 
+static size_t id_hash(const char *id) { size_t h = 1469598103934665603ull, i; for (i = 0; id[i]; i++) { h ^= (unsigned char)id[i]; h *= 1099511628211ull; } return h; }
+
+/* The index: open addressing over the positions of the cards, kept at most half full. A repeated id (the file had one that was not repaired yet) finds the first. */
+static void build_index(ExCanvas *c) {
+    size_t cap = 16, i;
+    free(c->hash);
+    c->hash = NULL; c->hcap = 0; c->hvalid = 0;
+    while (cap < c->n * 2 + 2) cap *= 2;
+    c->hash = calloc(cap, sizeof *c->hash);
+    if (!c->hash) return;
+    c->hcap = cap;
+    for (i = 0; i < c->n; i++) {
+        size_t h;
+        if (c->nodes[i].raw || !c->nodes[i].id) continue;
+        h = id_hash(c->nodes[i].id) & (cap - 1);
+        while (c->hash[h]) {
+            if (!strcmp(c->nodes[c->hash[h] - 1].id, c->nodes[i].id)) break;                  /* the first card of that id stays */
+            h = (h + 1) & (cap - 1);
+        }
+        if (!c->hash[h]) c->hash[h] = i + 1;
+    }
+    c->hvalid = 1;
+}
+
 int ex_canvas_find_node(const ExCanvas *c, const char *id) {
-    size_t i;
+    ExCanvas *m = (ExCanvas *)(void *)(size_t)(const void *)c;           /* the index is a cache: it is built on first use */
+    size_t h;
     if (!id) return -1;
-    for (i = 0; i < c->n; i++) if (c->nodes[i].id && !strcmp(c->nodes[i].id, id)) return (int)i;
+    if (!m->hvalid) build_index(m);
+    if (!m->hash) { size_t i; for (i = 0; i < c->n; i++) if (c->nodes[i].id && !strcmp(c->nodes[i].id, id)) return (int)i; return -1; }
+    h = id_hash(id) & (m->hcap - 1);
+    while (m->hash[h]) {
+        const ExCanvasNode *n = &c->nodes[m->hash[h] - 1];
+        if (n->id && !strcmp(n->id, id)) return (int)(m->hash[h] - 1);
+        h = (h + 1) & (m->hcap - 1);
+    }
     return -1;
 }
 
@@ -530,6 +562,7 @@ int ex_canvas_add_node(ExCanvas *c, ExCanvasKind kind, double x, double y, doubl
     ExCanvasNode *n;
     char id[17];
     if (kind == EX_CN_OTHER || push_node(c, &n) != 0) return -1;
+    c->hvalid = 0;
     ex_canvas_new_id(c, id);
     n->id = dups(id);
     n->kind = kind; n->x = x; n->y = y; n->w = w; n->h = h;
@@ -546,6 +579,7 @@ int ex_canvas_remove_node(ExCanvas *c, size_t i) {
     size_t e;
     char *id;
     if (i >= c->n) return -1;
+    c->hvalid = 0;
     id = dups(c->nodes[i].id);
     node_free(&c->nodes[i]);
     memmove(&c->nodes[i], &c->nodes[i + 1], (c->n - i - 1) * sizeof *c->nodes);
@@ -563,6 +597,7 @@ int ex_canvas_raise_node(ExCanvas *c, size_t i) {
     ExCanvasNode tmp;
     if (i >= c->n) return -1;
     if (i + 1 == c->n) return (int)i;
+    c->hvalid = 0;
     tmp = c->nodes[i];
     memmove(&c->nodes[i], &c->nodes[i + 1], (c->n - i - 1) * sizeof *c->nodes);
     c->nodes[c->n - 1] = tmp;

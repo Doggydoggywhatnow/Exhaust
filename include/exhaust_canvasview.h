@@ -90,6 +90,7 @@ typedef struct ExCanvasViewStats {
     int mode;                    /* 0 none, 1 pan, 2 move, 3 resize, 4 edge, 5 box */
     unsigned long reads;         /* times the canvas was read from the document */
     unsigned long commits;       /* edits written into the document */
+    double own_ms;               /* the time the last call of the draw function took (building the frame and handing it to the renderer, not the renderer's own work) */
 } ExCanvasViewStats;
 void ex_canvasview_stats(const ExWidget *w, ExCanvasViewStats *out);
 const ExCanvas *ex_canvasview_model(const ExWidget *w);

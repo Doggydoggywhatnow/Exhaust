@@ -436,7 +436,7 @@ ExNote *ex_notes_open(ExNotes *m, const char *rel, ExOpenResult *result) {
     return n;
 }
 
-ExNote *ex_notes_new(ExNotes *m, const char *parent_rel, const char *name) {
+ExNote *ex_notes_new_file(ExNotes *m, const char *parent_rel, const char *name, const char *ext) {
     char rel[600], abs_check[1];
     int k;
     ExNote *n = NULL;
@@ -444,8 +444,8 @@ ExNote *ex_notes_new(ExNotes *m, const char *parent_rel, const char *name) {
     for (k = 1; k < 1000 && !n; k++) {
         char *abs;
         ExPathInfo info;
-        if (k == 1) snprintf(rel, sizeof rel, "%s%s%s.md", parent_rel, parent_rel[0] ? "/" : "", name);
-        else snprintf(rel, sizeof rel, "%s%s%s %d.md", parent_rel, parent_rel[0] ? "/" : "", name, k);
+        if (k == 1) snprintf(rel, sizeof rel, "%s%s%s.%s", parent_rel, parent_rel[0] ? "/" : "", name, ext);
+        else snprintf(rel, sizeof rel, "%s%s%s %d.%s", parent_rel, parent_rel[0] ? "/" : "", name, k, ext);
         abs = ex_vault_abs_path(m->vault, rel);
         if (abs && ex_platform_path_info(abs, &info) != 0 && !find_by_rel(m, rel)) {
             n = new_note(m, rel, "", 0);
@@ -455,6 +455,8 @@ ExNote *ex_notes_new(ExNotes *m, const char *parent_rel, const char *name) {
     }
     return n;
 }
+
+ExNote *ex_notes_new(ExNotes *m, const char *parent_rel, const char *name) { return ex_notes_new_file(m, parent_rel, name, "md"); }
 
 ExDoc *ex_note_doc(ExNote *n) { return n->doc; }
 const char *ex_note_path(const ExNote *n) { return n->rel; }

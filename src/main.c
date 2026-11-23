@@ -10,6 +10,7 @@
 
 #include "exhaust.h"
 #include "exhaust_commands.h"
+#include "exhaust_canvasview.h"
 #include "exhaust_graphview.h"
 #include "exhaust_history.h"
 #include "exhaust_layouts.h"
@@ -78,6 +79,7 @@ typedef struct App {
     ExWidget *title;               /* the inline title of the active tab (a child of its editor), or NULL */
     ExGraphModel *gm;              /* the graph's data and layout, while a graph tab exists */
     ExGraphModel *gm_local;        /* the local graph's (5c), while a local graph tab exists */
+    ExCanvasCache *ccache;         /* the start of the notes that canvas cards show (6a) */
     ExGraphOptions gopts;          /* the graph's settings (5b): filters, groups, forces, display; kept in the session's [graph] section */
     char *graph_note;              /* the note last open in a tab: drawn in the focus color (the graph's own tab is not a note) */
     ExRibbon *ribbon;                        /* the ribbon (7f) */
@@ -651,6 +653,157 @@ static ExWidget *make_settings(App *a) {
     return sv ? ex_settingsview_widget(sv) : info_label(a, "The settings cannot be shown.");
 }
 
+/* ---- the canvas view (6a) ---- */
+
+static void on_open_file(ExWidget *w, const char *rel, void *user);
+
+static void canvas_want_text(void *u, const char *key) { App *a = u; if (a->panels) ex_panels_file_text(a->panels, key); }
+static void host_file_text(void *u, const char *key, const char *text) { App *a = u; ex_canvascache_set(a->ccache, key, text); }
+static void canvas_open_file(void *u, const char *path, const char *sub, int new_tab) { (void)sub; host_open_note(u, path, (size_t)-1, new_tab); }
+static void canvas_open_url(void *u, const char *url) { on_reading_link(EX_RSK_LINK_EXTERNAL, url, u); }
+static void canvas_message(void *u, const char *text) { set_status(u, text); }
+
+static int same_text_nocase(const char *a, const char *b, size_t n) { size_t i; for (i = 0; i < n; i++) if (tolower((unsigned char)a[i]) != tolower((unsigned char)b[i])) return 0; return 1; }
+
+/* A file of the vault by its path or its name (with or without .md), any case: the first one found. */
+static const ExNode *find_file_node(const ExNode *n, const char *text) {
+    size_t i;
+    if (!n) return NULL;
+    if (!n->is_dir) {
+        const char *base = strrchr(n->rel, '/');
+        size_t bl, tl = strlen(text);
+        base = base ? base + 1 : n->rel;
+        bl = strlen(base);
+        if (strlen(n->rel) == tl && same_text_nocase(n->rel, text, tl)) return n;
+        if (bl == tl && same_text_nocase(base, text, tl)) return n;
+        if (bl > 3 && !strcmp(base + bl - 3, ".md") && bl - 3 == tl && same_text_nocase(base, text, tl)) return n;
+        return NULL;
+    }
+    for (i = 0; i < n->nkids; i++) { const ExNode *f = find_file_node(n->kids[i], text); if (f) return f; }
+    return NULL;
+}
+static int canvas_resolve(void *u, const char *text, char *path, size_t cap) {
+    App *a = u;
+    const ExNode *n;
+    if (!a->vault || !text || !*text) return 0;
+    n = find_file_node(ex_vault_root(a->vault), text);
+    if (!n) return 0;
+    snprintf(path, cap, "%s", n->rel);
+    return 1;
+}
+
+/* Convert to file: the text of a card becomes a note beside the canvas, named by its first line. */
+static int canvas_create_note(void *u, const char *text, char *path, size_t cap) {
+    App *a = u;
+    ExId t = a->ws ? ex_ws_group_active(a->ws, ex_ws_active_group(a->ws)) : 0;
+    const ExTab *tab = t ? ex_ws_tab(a->ws, t) : NULL;
+    char parent[600] = "", name[100];
+    size_t i, o = 0, len = strlen(text);
+    ExNote *n;
+    ExChange ch;
+    if (!a->notes || !a->vault) return 0;
+    if (tab && tab->path[0] && strrchr(tab->path, '/')) snprintf(parent, sizeof parent, "%.*s", (int)(strrchr(tab->path, '/') - tab->path), tab->path);
+    for (i = 0; i < len && text[i] != '\n' && o + 1 < sizeof name; i++) {                 /* the first line, without the marks a heading or a list has and the characters a name cannot have */
+        char ch2 = text[i];
+        if (!o && (ch2 == '#' || ch2 == '-' || ch2 == '*' || ch2 == ' ' || ch2 == '>')) continue;
+        if (ch2 == '/' || ch2 == '\\' || ch2 == ':' || ch2 == '#' || ch2 == '^' || ch2 == '[' || ch2 == ']' || ch2 == '|' || ch2 == '%' || ch2 == '*' || ch2 == '?' || ch2 == '"' || ch2 == '<' || ch2 == '>') continue;
+        name[o++] = ch2;
+    }
+    while (o > 0 && (name[o - 1] == ' ' || name[o - 1] == '.')) o--;
+    name[o] = 0;
+    if (!o || !ex_name_valid(name)) snprintf(name, sizeof name, "Untitled");
+    n = ex_notes_new(a->notes, parent, name);
+    if (!n) return 0;
+    ch.offset = 0; ch.remove_len = 0; ch.text = text; ch.text_len = len;
+    if (len) ex_doc_apply(ex_note_doc(n), &ch, 1, 0, NULL, 0);
+    snprintf(path, cap, "%s", ex_note_path(n));
+    ex_notes_close(a->notes, n);                                                       /* writes it now (the user asked for it) */
+    if (a->vault) ex_vault_rescan(a->vault);
+    return 1;
+}
+
+static void canvas_view_key(char *out, size_t cap, const char *path) {
+    size_t o = 0;
+    const char *p;
+    o += (size_t)snprintf(out, cap, "view.");
+    for (p = path; *p && o + 4 < cap; p++) { if (*p == '=' || *p == '%') o += (size_t)snprintf(out + o, cap - o, "%%%02X", (unsigned char)*p); else out[o++] = *p; }
+    out[o] = 0;
+}
+
+static ExWidget *make_canvas(App *a, ExNote *n, ExOpenResult res, const ExTab *t) {
+    ExCanvasHandlers h;
+    ExWidget *cw;
+    char key[700];
+    const char *saved;
+    memset(&h, 0, sizeof h);
+    h.user = a; h.panels = a->panels; h.settings = a->settings; h.cache = a->ccache;
+    h.want_text = canvas_want_text; h.open_file = canvas_open_file; h.open_url = canvas_open_url; h.resolve = canvas_resolve; h.create_note = canvas_create_note; h.message = canvas_message;
+    cw = ex_widget_canvas(a->ui, ex_note_doc(n), t->path, &h);
+    if (!cw) return NULL;
+    canvas_view_key(key, sizeof key, t->path);
+    saved = ex_ws_extra_get(a->ws, "canvas", key);
+    if (saved && *saved) ex_canvasview_set_view(cw, saved);
+    if (!note_for_tab(a, t->id)) remember_tab_note(a, t->id, n);
+    if (res == EX_OPEN_RECOVERED) show_banner(a, BANNER_RECOVERED, "Exhaust closed unexpectedly. The changes you made to this canvas were restored from the recovery journal.", "OK", NULL, NULL);
+    a->banner_note = n;
+    return cw;
+}
+
+/* Every few frames: the view of the canvases that are open goes to the session (the centre and zoom, as text). */
+static void canvas_save_views(App *a) {
+    size_t i, nt = ex_ws_tab_count(a->ws);
+    if (!a->panes) return;
+    for (i = 0; i < nt; i++) {
+        const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
+        ExWidget *c;
+        char key[700], now[80];
+        const char *was;
+        if (!t || !t->view || strcmp(t->view, "canvas") || !t->path[0]) continue;
+        c = ex_panes_content(a->panes, t->id);
+        if (!c || c->type != EX_WIDGET_CANVAS) continue;
+        ex_canvasview_get_view(c, now, sizeof now);
+        if (!now[0]) continue;
+        canvas_view_key(key, sizeof key, t->path);
+        was = ex_ws_extra_get(a->ws, "canvas", key);
+        if (!was || strcmp(was, now)) ex_ws_extra_set(a->ws, "canvas", key, now);
+    }
+}
+
+/* The canvas widget of the active tab, or NULL. */
+static ExWidget *active_canvas(App *a) {
+    ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+    ExWidget *c = t && a->panes ? ex_panes_content(a->panes, t) : NULL;
+    return c && c->type == EX_WIDGET_CANVAS ? c : NULL;
+}
+static int has_canvas(void *u) { return active_canvas(u) != NULL; }
+static int has_canvas_selection(void *u) { ExWidget *c = active_canvas(u); return c && ex_canvasview_has_selection(c); }
+static void cmd_canvas_add_text(void *u) { ExWidget *c = active_canvas(u); if (c) ex_canvasview_add_text(c, -1, -1); }
+static void cmd_canvas_add_note(void *u) { ExWidget *c = active_canvas(u); if (c) ex_canvasview_add_file_prompt(c, -1, -1); }
+static void cmd_canvas_add_group(void *u) { ExWidget *c = active_canvas(u); if (c) ex_canvasview_add_group(c, -1, -1); }
+static void cmd_canvas_fit(void *u) { ExWidget *c = active_canvas(u); if (c) ex_canvasview_fit(c, 0); }
+static void cmd_canvas_jump(void *u) { ExWidget *c = active_canvas(u); if (c) ex_canvasview_jump_to_group_prompt(c); }
+static void cmd_canvas_convert(void *u) {
+    App *a = u;
+    ExWidget *c = active_canvas(a);
+    if (c && ex_canvasview_convert_selected(c) != 0) set_status(a, "Select one text card to convert it to a file.");
+}
+
+/* canvas.create-new-canvas: a new canvas, beside the open note or in the vault folder (the setting), written when something is added to it. */
+static void cmd_new_canvas(void *u) {
+    App *a = u;
+    char parent[600] = "";
+    ExNote *n;
+    const char *where = ex_settings_get(a->settings, "canvas", "new_file_location");
+    if (!a->notes || !a->vault) return;
+    if (where && !strcmp(where, "same_folder")) {
+        ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+        const ExTab *tab = t ? ex_ws_tab(a->ws, t) : NULL;
+        if (tab && tab->path[0] && strrchr(tab->path, '/')) snprintf(parent, sizeof parent, "%.*s", (int)(strrchr(tab->path, '/') - tab->path), tab->path);
+    }
+    n = ex_notes_new_file(a->notes, parent, "Untitled", "canvas");
+    if (n) open_path(a, 0, ex_note_path(n));
+}
+
 static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
     App *a = user;
     char msg[600];
@@ -674,6 +827,7 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
                                  : res == EX_OPEN_NOT_FOUND ? "%s does not exist any more. Close this tab, or restore the file." : "%s could not be opened.", t->path);
         return info_label(a, msg);
     }
+    if (!strcmp(t->view, "canvas")) return make_canvas(a, n, res, t);          /* a .canvas file: its text is JSON, drawn as a board (6a) */
     if (is_reading(t->mode)) {                                                  /* reading mode: the note as formatted pages */
         size_t tl = 0;
         char *txt = ex_buffer_text(ex_doc_buffer(ex_note_doc(n)), &tl);
@@ -732,6 +886,7 @@ static void new_empty_tab(ExPanes *p, ExId group, void *user) {
 static void open_path(App *a, ExId group, const char *rel) {
     ExId t = ex_ws_find_tab(a->ws, rel);
     if (t) { ex_ws_activate(a->ws, t); a->focus_tab = t; return; }
+    if (ex_file_kind(rel) == EX_KIND_CANVAS) { t = ex_ws_new_tab(a->ws, group, rel, "canvas"); a->focus_tab = t; return; }
     t = ex_ws_new_tab(a->ws, group, rel, "note");
     if (t && strcmp(ex_settings_get(a->settings, "editor", "default_view"), "reading") == 0) ex_ws_set_tab_mode(a->ws, t, "reading");
     else if (t && strcmp(ex_settings_get(a->settings, "editor", "default_mode"), "source") == 0) ex_ws_set_tab_mode(a->ws, t, "source");
@@ -1410,7 +1565,7 @@ static void apply_ribbon(App *a) {
     int show;
     if (!a->ribbon || !a->settings) return;
     show = ex_settings_get_bool(a->settings, "interface", "show_ribbon");
-    ex_ribbon_apply(a->ribbon, show, ex_settings_get(a->settings, "interface", "ribbon_items"), a->features ? ex_features_enabled(a->features, "graph") : 1);
+    ex_ribbon_apply(a->ribbon, show, ex_settings_get(a->settings, "interface", "ribbon_items"), a->features ? ex_features_enabled(a->features, "graph") : 1, a->features ? ex_features_enabled(a->features, "canvas") : 1);
     if (a->ribbon_line) a->ribbon_line->hidden = !show;
 }
 
@@ -1628,6 +1783,7 @@ static void register_features_and_commands(App *a) {
     a->features = ex_features_create(a->settings);
     ex_features_register(a->features, "files", "Files", on_files_feature, a);
     ex_features_register(a->features, "graph", "Graph view", on_graph_feature, a);
+    ex_features_register(a->features, "canvas", "Canvas", on_graph_feature, a);
     on_files_feature("files", ex_features_enabled(a->features, "files"), a);
     ex_features_register(a->features, "slash_commands", "Slash commands", NULL, a);
     ex_features_register(a->features, "word_count", "Word count", on_wordcount_feature, a);
@@ -1635,6 +1791,13 @@ static void register_features_and_commands(App *a) {
     a->commands = ex_commands_create(a->features);
     ex_commands_bind(a->commands, "graph-view.open-graph-view", cmd_open_graph, NULL, a);
     ex_commands_bind(a->commands, "app.open-settings", cmd_open_settings, NULL, a);
+    ex_commands_bind(a->commands, "canvas.create-new-canvas", cmd_new_canvas, has_notes, a);
+    ex_commands_bind(a->commands, "canvas.add-text-card", cmd_canvas_add_text, has_canvas, a);
+    ex_commands_bind(a->commands, "canvas.add-note-card", cmd_canvas_add_note, has_canvas, a);
+    ex_commands_bind(a->commands, "canvas.add-group", cmd_canvas_add_group, has_canvas, a);
+    ex_commands_bind(a->commands, "canvas.zoom-to-fit", cmd_canvas_fit, has_canvas, a);
+    ex_commands_bind(a->commands, "canvas.jump-to-group", cmd_canvas_jump, has_canvas, a);
+    ex_commands_bind(a->commands, "canvas.convert-to-file", cmd_canvas_convert, has_canvas_selection, a);
     ex_commands_bind(a->commands, "graph-view.open-local-graph", cmd_open_local_graph, has_notes, a);
     ex_commands_bind(a->commands, "graph-view.start-graph-timelapse-animation", cmd_graph_animation, has_graph, a);
     ex_commands_bind(a->commands, "app.toggle-left-sidebar", cmd_toggle_left, NULL, a);
@@ -2005,7 +2168,8 @@ static void sync_ui(App *a) {
     if (a->findbar && ex_findbar_is_open(a->findbar)) { if (a->editor) ex_findbar_set_target(a->findbar, a->editor); ex_findbar_update(a->findbar); }
     if (a->diff_doc && a->banner_kind == BANNER_HISTORY && a->note != a->banner_note) { stop_showing_diff(a); free(a->hist_old); a->hist_old = NULL; banner_for_note(a, a->note); }   /* another tab: the comparison ends */
     if (a->note != a->banner_note && !a->diff_doc) banner_for_note(a, a->note);
-    if (a->focus_tab && a->focus_tab == t && a->editor) { if (!(a->title && !a->title->hidden && a->note && !ex_note_exists_on_disk(a->note))) ex_ui_set_focus(ui_of(a, a->editor), a->editor); a->focus_tab = 0; }   /* a new note keeps the focus on its title */
+    if (a->focus_tab && a->focus_tab == t && c && c->type == EX_WIDGET_CANVAS) { ex_ui_set_focus(ui_of(a, c), c); a->focus_tab = 0; }       /* a canvas takes the keyboard when its tab is shown (6a) */
+    else if (a->focus_tab && a->focus_tab == t && a->editor) { if (!(a->title && !a->title->hidden && a->note && !ex_note_exists_on_disk(a->note))) ex_ui_set_focus(ui_of(a, a->editor), a->editor); a->focus_tab = 0; }   /* a new note keeps the focus on its title */
     else if (a->focus_tab && !ex_ws_tab(a->ws, a->focus_tab)) a->focus_tab = 0;
 }
 
@@ -2022,6 +2186,7 @@ static void capture_tab_state(App *a) {
         ex_editor_get_state(c->editor, &line, &col, &sc);
         ex_ws_set_tab_state(a->ws, t, line, col, sc);
     }
+    canvas_save_views(a);                                                    /* the view of every open canvas (6a) */
 }
 
 /* ---- pop-out windows (7g) ---- */
@@ -2231,6 +2396,7 @@ static void handle_note_events(App *a) {
                 if (a->tree) ex_tree_select_path(a->tree, ev.rel);
             }
             if (a->panels) ex_panels_file_changed(a->panels, ev.rel);
+            ex_canvascache_invalidate(a->ccache, ev.rel);                             /* a canvas card that shows this note asks for its text again */
             if (ev.note == a->note && a->banner_kind == BANNER_ERROR) show_banner(a, BANNER_NONE, "", NULL, NULL, NULL);
             break;
         case EX_NOTE_EVENT_SAVE_FAILED:
@@ -2238,6 +2404,7 @@ static void handle_note_events(App *a) {
             break;
         case EX_NOTE_EVENT_RELOADED:
             if (a->panels) ex_panels_file_changed(a->panels, ev.rel);
+            ex_canvascache_invalidate(a->ccache, ev.rel);
             if (ev.note == a->note) set_status(a, "This note was changed outside Exhaust; the new text is shown (Undo goes back).");
             break;
         case EX_NOTE_EVENT_CONFLICT:
@@ -2334,7 +2501,7 @@ static void host_query_results(void *u, const char *path, const char *expanded) 
 }
 
 static void host_message(void *u, const char *text) { set_status(u, text); }
-static void host_flush(void *u) { App *a = u; if (a->notes) ex_notes_flush(a->notes); }
+static void host_flush(void *u) { App *a = u; ExWidget *cv = a->panes ? active_canvas(a) : NULL; if (cv) ex_canvasview_commit(cv); if (a->notes) ex_notes_flush(a->notes); }
 
 static void host_open_note(void *u, const char *path, size_t offset, int new_tab) {
     App *a = u;
@@ -2717,6 +2884,7 @@ int main(int argc, char **argv) {
     }
     app.demo_doc = ex_doc_create(intro, strlen(intro));
     app.ws = ex_ws_create();
+    app.ccache = ex_canvascache_create();
 
     if (app.vault) {
         ExRegistry *reg = ex_registry_load(NULL);
@@ -2802,7 +2970,7 @@ int main(int argc, char **argv) {
         pi.host.user = &app;
         pi.host.open_note = host_open_note; pi.host.active_path = host_active_path; pi.host.active_text = host_active_text; pi.host.read_text = host_read_text;
         pi.host.replace_text = host_replace_text; pi.host.select_range = host_select_range; pi.host.move_file = host_move_file; pi.host.file_op = host_file_op; pi.host.message = host_message;
-        pi.host.history_version = host_history_version; pi.host.graph_data = host_graph_data; pi.host.local_graph_data = host_local_graph_data; pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
+        pi.host.history_version = host_history_version; pi.host.file_text = host_file_text; pi.host.graph_data = host_graph_data; pi.host.local_graph_data = host_local_graph_data; pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
         pi.wake = wake_ui;
         app.panels = ex_panels_create(&pi);
         if (app.panels) {
@@ -2977,10 +3145,11 @@ int main(int argc, char **argv) {
                 ExWidget *input_root = app.panels && ex_panels_modal(app.panels) ? ex_panels_overlay(app.panels) : app.root;
                 if ((e.type == SDL_EVENT_MOUSE_BUTTON_DOWN || e.type == SDL_EVENT_MOUSE_BUTTON_UP) && e.button.button == SDL_BUTTON_RIGHT) {   /* the context menu of a file or folder */
                     if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && app.panels && input_root == app.root) {
-                        ExWidget *gw = ex_ui_widget_at(app.root, x, y);
+                        ExWidget *gw = ex_ui_widget_at(app.root, x, y), *cv = gw;
                         while (gw && gw->type != EX_WIDGET_GRAPH) gw = gw->parent;
+                        while (cv && cv->type != EX_WIDGET_CANVAS) cv = cv->parent;
                         ex_panels_pointer(app.panels, app.root, -1, -1, 0);
-                        if (gw) ex_graphview_context(gw, x, y); else ex_panels_context_menu(app.panels, app.root, x, y);
+                        if (gw) ex_graphview_context(gw, x, y); else if (cv) ex_canvasview_context(cv, x, y); else ex_panels_context_menu(app.panels, app.root, x, y);
                     }
                 } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
                     Uint64 now = SDL_GetTicks();
@@ -3004,11 +3173,12 @@ int main(int argc, char **argv) {
                 float density = SDL_GetWindowPixelDensity(ex_renderer_window(app.r));
                 ExWidget *wheel_root = app.panels && ex_panels_modal(app.panels) ? ex_panels_overlay(app.panels) : app.root;
                 ExWidget *under = ex_ui_widget_at(wheel_root, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
-                while (under && !under->scrollable && (under->no_wheel || (under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE && under->type != EX_WIDGET_GRAPH))) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
+                while (under && !under->scrollable && (under->no_wheel || (under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE && under->type != EX_WIDGET_GRAPH && under->type != EX_WIDGET_CANVAS))) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
                 if (under && under->parent && (under->parent->type == EX_WIDGET_EDITOR || under->parent->type == EX_WIDGET_READING)) under = under->parent;   /* over the title: the note scrolls */
                 if (!under && wheel_root == app.root && app.editor && pop_of_widget(&app, app.editor) == app.cur_pop) under = app.editor;
                 if (under && under->scrollable) ex_ui_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));                       /* a scroll box: the settings screens (7a) */
                 else if (under && under->type == EX_WIDGET_GRAPH) ex_graphview_wheel(under, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);   /* zoom about the pointer */
+                else if (under && under->type == EX_WIDGET_CANVAS) ex_canvasview_wheel(under, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);   /* pan, or zoom (the setting) */
                 else if (under && under->type == EX_WIDGET_TREE) ex_tree_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 else if (under && under->type == EX_WIDGET_LIST) ex_list_scroll(under, -e.wheel.y * 3.0f * ex_list_row_height(under));
                 else if (under && under->type == EX_WIDGET_READING) ex_reading_scroll(under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
@@ -3063,6 +3233,7 @@ int main(int argc, char **argv) {
     ex_a11y_adapter_free(app.a11y);                 /* the pop-out windows go first: they share the main window's font database */
     ex_graphmodel_free(app.gm);
     ex_graphmodel_free(app.gm_local);
+    ex_canvascache_free(app.ccache);
     free(app.graph_note);
     ex_findbar_free(app.findbar);
     ex_slash_free(app.slash);
