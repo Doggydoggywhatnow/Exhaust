@@ -73,7 +73,7 @@ target_link_libraries(freetype PRIVATE $<BUILD_INTERFACE:png_static>)
 # HarfBuzz: the single-file build, OpenType shaping with FreeType table access.
 add_library(harfbuzz STATIC third_party/harfbuzz/src/harfbuzz-world.cc)
 target_include_directories(harfbuzz PUBLIC third_party/harfbuzz/src)
-target_compile_definitions(harfbuzz PRIVATE HB_HAS_FREETYPE=1 HAVE_FREETYPE=1 HAVE_FT_GET_VAR_BLEND_COORDINATES=1
+target_compile_definitions(harfbuzz PRIVATE HB_HAS_FREETYPE=1 HB_HAS_SUBSET=1 HAVE_FREETYPE=1 HAVE_FT_GET_VAR_BLEND_COORDINATES=1
   HAVE_FT_SET_VAR_BLEND_COORDINATES=1 HAVE_FT_DONE_MM_VAR=1 HAVE_FT_GET_TRANSFORM=1 HB_NO_PRAGMA_GCC_DIAGNOSTIC)
 target_link_libraries(harfbuzz PUBLIC freetype)
 set_target_properties(harfbuzz PROPERTIES CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
@@ -339,6 +339,10 @@ add_library(exhaust_text STATIC src/text/font.c
   src/text/fontdb.c src/text/shape.c src/text/fonts_table.c src/text/math.c ${FONTS_C})
 target_include_directories(exhaust_text PUBLIC include PRIVATE src/text)
 target_link_libraries(exhaust_text PUBLIC exhaust_unicode freetype harfbuzz sheenbidi exhaust_platform)
+
+add_library(exhaust_export STATIC src/export/fontsubset.c src/export/pdfwrite.c src/export/pdfcheck.c)
+target_include_directories(exhaust_export PUBLIC include)
+target_link_libraries(exhaust_export PUBLIC harfbuzz exhaust_text zlib_static)
 
 add_library(exhaust_diagram STATIC src/diagram/diagram.c src/diagram/layered.c src/diagram/flowchart.c src/diagram/sequence.c src/diagram/classdiagram.c src/diagram/statediagram.c src/diagram/erdiagram.c src/diagram/pie.c src/diagram/gantt.c)
 target_include_directories(exhaust_diagram PUBLIC include PRIVATE src/diagram)
@@ -1060,6 +1064,14 @@ add_executable(test_math tests/test_math.c)
 target_link_libraries(test_math PRIVATE exhaust_ui exhaust_render exhaust_text)
 target_include_directories(test_math PRIVATE src/ui)
 add_test(NAME math COMMAND test_math)
+
+add_executable(test_font_subset tests/test_font_subset.c)
+target_link_libraries(test_font_subset PRIVATE exhaust_export exhaust_text exhaust_platform)
+add_test(NAME font_subset COMMAND test_font_subset ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts)
+
+add_executable(test_pdf_writer tests/test_pdf_writer.c)
+target_link_libraries(test_pdf_writer PRIVATE exhaust_export exhaust_text exhaust_platform)
+add_test(NAME pdf_writer COMMAND test_pdf_writer ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts)
 
 add_executable(test_font_cache tests/test_font_cache.c)
 target_link_libraries(test_font_cache PRIVATE exhaust_text)
