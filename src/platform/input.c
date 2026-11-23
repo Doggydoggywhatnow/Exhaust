@@ -49,6 +49,7 @@ int ex_key_from_keycode(unsigned keycode, int scancode, ExKey *key) {
     case 'a' - 'a': *key = EX_KEY_A; return 1;
     case 'b' - 'a': *key = EX_KEY_B; return 1;
     case 'c' - 'a': *key = EX_KEY_C; return 1;
+    case 'f' - 'a': *key = EX_KEY_F; return 1;
     case 'i' - 'a': *key = EX_KEY_I; return 1;
     case 'k' - 'a': *key = EX_KEY_K; return 1;
     case 'v' - 'a': *key = EX_KEY_V; return 1;

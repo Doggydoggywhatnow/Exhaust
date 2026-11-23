@@ -203,6 +203,14 @@ void ex_icon_draw(ExRenderer *r, int icon, float x, float y, float w, float h, E
         ex_stroke_round_rect(r, x + s * 0.24f, y + s * 0.2f, s * 0.52f, s * 0.68f, th * 1.5f, th, c);
         ex_fill_round_rect(r, x + s * 0.38f, y + s * 0.12f, s * 0.24f, s * 0.16f, th, c);
         break;
+    case EX_ICON_PLAY: ex_fill_triangle(r, x + s * 0.3f, y + s * 0.2f, x + s * 0.3f, y + s * 0.8f, x + s * 0.8f, y + s * 0.5f, c); break;
+    case EX_ICON_PAUSE: ex_fill_rect(r, x + s * 0.26f, y + s * 0.2f, s * 0.18f, s * 0.6f, c); ex_fill_rect(r, x + s * 0.56f, y + s * 0.2f, s * 0.18f, s * 0.6f, c); break;
+    case EX_ICON_VOLUME:
+        ex_fill_rect(r, x + s * 0.16f, y + s * 0.38f, s * 0.16f, s * 0.24f, c);
+        ex_fill_triangle(r, x + s * 0.32f, y + s * 0.38f, x + s * 0.32f, y + s * 0.62f, x + s * 0.54f, y + s * 0.78f, c);
+        ex_fill_triangle(r, x + s * 0.32f, y + s * 0.38f, x + s * 0.54f, y + s * 0.22f, x + s * 0.54f, y + s * 0.78f, c);
+        line(r, x + s * 0.66f, y + s * 0.36f, x + s * 0.74f, y + s * 0.5f, th, c); line(r, x + s * 0.74f, y + s * 0.5f, x + s * 0.66f, y + s * 0.64f, th, c);
+        break;
     case EX_ICON_CHEVRON_RIGHT:
         line(r, x + s * 0.34f, y + s * 0.2f, x + s * 0.68f, y + s * 0.5f, th * 1.4f, c);
         line(r, x + s * 0.68f, y + s * 0.5f, x + s * 0.34f, y + s * 0.8f, th * 1.4f, c);

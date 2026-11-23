@@ -15,6 +15,10 @@
 struct ExGraph;
 struct ExBaseResult;
 struct ExImage;
+struct ExAudioDecoder;
+struct ExMpv;
+struct ExPdf;
+struct ExPlayer;
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,6 +57,12 @@ typedef struct ExPanelsHost {
     void (*base_result)(void *user, unsigned long req, struct ExBaseResult *result, const char *error);
     /* a picture decoded on the service thread (6c-i), asked for with ex_panels_load_image: the callback takes the picture (NULL: error says why) */
     void (*image_result)(void *user, const char *path, int svg_width, struct ExImage *image, const char *error);
+    /* an audio file opened on the service thread (6c-ii), asked for with ex_panels_load_audio: the callback takes the decoder (NULL: error says why) */
+    void (*audio_result)(void *user, const char *path, struct ExAudioDecoder *decoder, const char *error);
+    /* a media file opened by libmpv on the service thread (6c-iii), asked for with ex_panels_load_media: the callback takes the player (NULL: error says why) */
+    void (*media_result)(void *user, const char *path, struct ExMpv *player, const char *error);
+    /* a PDF opened on the service thread (6c-iv), asked for with ex_panels_load_pdf: the callback takes the document (NULL: error says why) */
+    void (*pdf_result)(void *user, const char *path, struct ExPdf *doc, const char *error);
 } ExPanelsHost;
 
 typedef struct ExPanelsInit {
@@ -134,6 +144,12 @@ void ex_panels_file_text(ExPanels *p, const char *key);
 unsigned long ex_panels_index_generation(const ExPanels *p);
 /* Asks the service thread to read and decode a picture of the vault (6c-i); the answer goes to host.image_result. */
 void ex_panels_load_image(ExPanels *p, const char *path, int svg_width);
+/* Asks the service thread to read an audio file, open its decoder and open the player's output device (6c-ii); the answer goes to host.audio_result. */
+/* Asks the service thread to open a video (video 1) or an audio file (0) with libmpv (6c-iii); the answer goes to host.media_result. */
+/* Asks the service thread to read a PDF of the vault and open it with PDFium (6c-iv); the answer goes to host.pdf_result. */
+void ex_panels_load_pdf(ExPanels *p, const char *path);
+void ex_panels_load_media(ExPanels *p, const char *path, int video);
+void ex_panels_load_audio(ExPanels *p, const char *path, struct ExPlayer *player);
 unsigned long ex_panels_run_base(ExPanels *p, const char *text, size_t len, size_t view, const char *this_path);
 void ex_panels_open_switcher(ExPanels *p);
 void ex_panels_open_palette(ExPanels *p);

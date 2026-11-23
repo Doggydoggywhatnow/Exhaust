@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-typedef enum ExWidgetType { EX_WIDGET_BOX, EX_WIDGET_LABEL, EX_WIDGET_BUTTON, EX_WIDGET_EDITOR, EX_WIDGET_TREE, EX_WIDGET_READING, EX_WIDGET_LIST, EX_WIDGET_GRAPH, EX_WIDGET_CANVAS, EX_WIDGET_BASE, EX_WIDGET_IMAGE, EX_WIDGET_TYPE_COUNT } ExWidgetType;
+typedef enum ExWidgetType { EX_WIDGET_BOX, EX_WIDGET_LABEL, EX_WIDGET_BUTTON, EX_WIDGET_EDITOR, EX_WIDGET_TREE, EX_WIDGET_READING, EX_WIDGET_LIST, EX_WIDGET_GRAPH, EX_WIDGET_CANVAS, EX_WIDGET_BASE, EX_WIDGET_IMAGE, EX_WIDGET_AUDIO, EX_WIDGET_MEDIA, EX_WIDGET_PDF, EX_WIDGET_TYPE_COUNT } ExWidgetType;
 
 typedef enum ExRole { EX_ROLE_WINDOW, EX_ROLE_GROUP, EX_ROLE_LABEL, EX_ROLE_BUTTON, EX_ROLE_TEXT_INPUT, EX_ROLE_TREE, EX_ROLE_LIST } ExRole;
 
@@ -139,7 +139,7 @@ typedef enum ExIcon {
     EX_ICON_NONE, EX_ICON_FILES, EX_ICON_SEARCH, EX_ICON_BOOKMARK, EX_ICON_BACKLINKS, EX_ICON_LINKS, EX_ICON_TAGS, EX_ICON_PROPERTIES,
     EX_ICON_FILE_PROPERTIES, EX_ICON_OUTLINE, EX_ICON_FOOTNOTES, EX_ICON_NEW_NOTE, EX_ICON_NEW_FOLDER, EX_ICON_SORT, EX_ICON_EXPAND, EX_ICON_MORE,
     EX_ICON_PALETTE, EX_ICON_GRAPH, EX_ICON_CANVAS, EX_ICON_THEME, EX_ICON_SIDEBAR_LEFT, EX_ICON_SIDEBAR_RIGHT, EX_ICON_MODE,
-    EX_ICON_TRASH, EX_ICON_COPY, EX_ICON_EXTERNAL, EX_ICON_MOVE, EX_ICON_CLIPBOARD, EX_ICON_CHEVRON_RIGHT, EX_ICON_CHEVRON_DOWN, EX_ICON_GEAR, EX_ICON_WAND, EX_ICON_ARROW_LEFT, EX_ICON_ARROW_RIGHT, EX_ICON_BOOK
+    EX_ICON_TRASH, EX_ICON_COPY, EX_ICON_EXTERNAL, EX_ICON_MOVE, EX_ICON_CLIPBOARD, EX_ICON_CHEVRON_RIGHT, EX_ICON_CHEVRON_DOWN, EX_ICON_GEAR, EX_ICON_WAND, EX_ICON_ARROW_LEFT, EX_ICON_ARROW_RIGHT, EX_ICON_BOOK, EX_ICON_PLAY, EX_ICON_PAUSE, EX_ICON_VOLUME
 } ExIcon;
 void ex_widget_set_icon(ExWidget *button, int icon);                 /* a square button of the theme's spacing: 3 units */
 void ex_icon_draw(ExRenderer *r, int icon, float x, float y, float w, float h, ExColor c);
@@ -222,6 +222,9 @@ void ex_graphview_draw(ExUi *ui, ExWidget *w);
 void ex_canvasview_draw(ExUi *ui, ExWidget *w);
 void ex_baseview_draw(ExUi *ui, ExWidget *w);
 void ex_imageview_draw(ExUi *ui, ExWidget *w);
+void ex_audioview_draw(ExUi *ui, ExWidget *w);
+void ex_mediaview_draw(ExUi *ui, ExWidget *w);
+void ex_pdfview_draw(ExUi *ui, ExWidget *w);
 /* Used by ui.c. */
 void ex_list_draw(ExUi *ui, ExWidget *w);
 void ex_list_key(ExUi *ui, ExWidget *w, ExKey key);

@@ -436,6 +436,9 @@ void ex_panels_update(ExPanels *p) {
             case QJ_HISTORY: history_result(p, r); break;
             case QJ_FILETEXT: if (p->in.host.file_text && r->rows.n) p->in.host.file_text(p->in.host.user, r->rows.v[0].text, r->ok ? r->text : NULL); break;
             case QJ_IMAGE: if (p->in.host.image_result && r->rows.n) { struct ExImage *im = r->ok ? r->image : NULL; if (im) r->image = NULL; p->in.host.image_result(p->in.host.user, r->rows.v[0].text, (int)r->total, im, im ? NULL : r->summary); } break;
+            case QJ_PDF: if (p->in.host.pdf_result && r->rows.n) { struct ExPdf *pd = r->ok ? r->pdf : NULL; if (pd) r->pdf = NULL; p->in.host.pdf_result(p->in.host.user, r->rows.v[0].text, pd, pd ? NULL : r->summary); } break;
+            case QJ_MPV: if (p->in.host.media_result && r->rows.n) { struct ExMpv *mp = r->ok ? r->mpv : NULL; if (mp) r->mpv = NULL; p->in.host.media_result(p->in.host.user, r->rows.v[0].text, mp, mp ? NULL : r->summary); } break;
+            case QJ_AUDIO: if (p->in.host.audio_result && r->rows.n) { struct ExAudioDecoder *au = r->ok ? r->audio : NULL; if (au) r->audio = NULL; p->in.host.audio_result(p->in.host.user, r->rows.v[0].text, au, au ? NULL : r->summary); } break;
             case QJ_BASE: if (p->in.host.base_result) { struct ExBaseResult *b = r->ok ? r->base : NULL; if (b) r->base = NULL; p->in.host.base_result(p->in.host.user, r->req, b, b ? NULL : r->summary); } break;
             case QJ_EXPAND: if (r->ok && r->text && p->in.host.query_results) p->in.host.query_results(p->in.host.user, r->summary, r->text); break;
             default: views_result(p, r); break;
@@ -522,6 +525,35 @@ void ex_panels_file_text(ExPanels *p, const char *key) {
     j = qjob_new(QJ_FILETEXT, ++p->next_req);
     if (!j) return;
     j->a = dup_s(key);
+    send_job(p, j);
+}
+
+void ex_panels_load_pdf(ExPanels *p, const char *path) {
+    QJob *j;
+    if (!p || !path || !path[0]) return;
+    j = qjob_new(QJ_PDF, ++p->next_req);
+    if (!j) return;
+    j->a = dup_s(path);
+    send_job(p, j);
+}
+
+void ex_panels_load_media(ExPanels *p, const char *path, int video) {
+    QJob *j;
+    if (!p || !path || !path[0]) return;
+    j = qjob_new(QJ_MPV, ++p->next_req);
+    if (!j) return;
+    j->a = dup_s(path);
+    j->i1 = video;
+    send_job(p, j);
+}
+
+void ex_panels_load_audio(ExPanels *p, const char *path, struct ExPlayer *player) {
+    QJob *j;
+    if (!p || !path || !path[0]) return;
+    j = qjob_new(QJ_AUDIO, ++p->next_req);
+    if (!j) return;
+    j->a = dup_s(path);
+    j->ptr = player;
     send_job(p, j);
 }
 

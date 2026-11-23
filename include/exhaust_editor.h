@@ -21,7 +21,8 @@ typedef enum ExKey {
     EX_KEY_LEFT, EX_KEY_RIGHT, EX_KEY_UP, EX_KEY_DOWN,
     EX_KEY_HOME, EX_KEY_END, EX_KEY_PAGE_UP, EX_KEY_PAGE_DOWN,
     EX_KEY_BACKSPACE, EX_KEY_DELETE, EX_KEY_ENTER, EX_KEY_SPACE, EX_KEY_TAB, EX_KEY_ESCAPE,
-    EX_KEY_A, EX_KEY_B, EX_KEY_C, EX_KEY_I, EX_KEY_K, EX_KEY_V, EX_KEY_X, EX_KEY_Y, EX_KEY_Z
+    EX_KEY_A, EX_KEY_B, EX_KEY_C, EX_KEY_I, EX_KEY_K, EX_KEY_V, EX_KEY_X, EX_KEY_Y, EX_KEY_Z,
+    EX_KEY_F                                  /* the PDF viewer's search (6c-iv); the editor's find is a command, not a key of the editor */
 } ExKey;
 
 /* Modifiers. PRIMARY is Ctrl on Windows and Linux and Cmd on macOS. */

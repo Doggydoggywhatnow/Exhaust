@@ -13,6 +13,9 @@
 #include "exhaust_canvasview.h"
 #include "exhaust_baseview.h"
 #include "exhaust_imageview.h"
+#include "exhaust_audioview.h"
+#include "exhaust_mediaview.h"
+#include "exhaust_pdfview.h"
 #include "exhaust_graphview.h"
 #include "exhaust_history.h"
 #include "exhaust_layouts.h"
@@ -81,6 +84,10 @@ typedef struct App {
     ExWidget *title;               /* the inline title of the active tab (a child of its editor), or NULL */
     ExGraphModel *gm;              /* the graph's data and layout, while a graph tab exists */
     ExGraphModel *gm_local;        /* the local graph's (5c), while a local graph tab exists */
+    char pending_url[600];         /* a web address a PDF link asked to open, while the user is asked (6c-iv) */
+    ExMpv *mpv;                    /* the libmpv player, one at a time (6c-iii) */
+    char mpv_path[600];
+    ExPlayer *player;              /* the one audio output of the window (6c-ii) */
     ExImageCache *icache;          /* the textures of pictures: image tabs, canvas image cards (6c-i) */
     unsigned long base_gen_seen;   /* the index generation the open bases were run at (6b-iii) */
     ExCanvasCache *ccache;         /* the start of the notes that canvas cards show (6a) */
@@ -666,6 +673,69 @@ static void host_file_text(void *u, const char *key, const char *text) { App *a 
 static void canvas_open_file(void *u, const char *path, const char *sub, int new_tab) { (void)sub; host_open_note(u, path, (size_t)-1, new_tab); }
 static void canvas_open_url(void *u, const char *url) { on_reading_link(EX_RSK_LINK_EXTERNAL, url, u); }
 static void canvas_message(void *u, const char *text) { set_status(u, text); }
+static int host_file_op(void *u, int what, const char *path, const char *arg);
+static void pdf_load(void *u, const char *path) { App *a = u; if (a->panels) ex_panels_load_pdf(a->panels, path); }
+static void pdf_url_answer(int button, void *arg) { App *a = arg; if (button == 1 && a->pending_url[0]) on_reading_link(EX_RSK_LINK_EXTERNAL, a->pending_url, a); a->pending_url[0] = 0; }
+/* A link in a PDF to a web address: shown, and opened only when the user says so, through the path of an external link in a note. */
+static void pdf_open_url(void *u, const char *url) {
+    App *a = u;
+    char msg[800];
+    if (!a->panels) return;
+    snprintf(a->pending_url, sizeof a->pending_url, "%s", url);
+    snprintf(msg, sizeof msg, "This PDF links to a web address:\n\n%s\n\nOpen it in your browser?", url);
+    ex_panels_ask_confirm(a->panels, "Open a web link?", msg, "Open", "Cancel", NULL, pdf_url_answer, a);
+}
+static void pdf_clipboard(void *u, const char *text) { (void)u; SDL_SetClipboardText(text); }
+static void pdf_link_name(void *u, const char *path, char *out, size_t cap) {
+    App *a = u;
+    const char *base = strrchr(path, '/');
+    (void)a;
+    base = base ? base + 1 : path;
+    snprintf(out, cap, "%s", base);                                                   /* the file name; the path is written only when the name is not unique (the link rules of 4a) */
+}
+static void host_pdf_result(void *u, const char *path, ExPdf *doc, const char *err) {
+    App *a = u;
+    size_t i, nt = a->ws ? ex_ws_tab_count(a->ws) : 0;
+    for (i = 0; a->panes && i < nt; i++) {
+        const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
+        ExWidget *c = t ? ex_panes_content(a->panes, t->id) : NULL;
+        if (c && c->type == EX_WIDGET_PDF && !ex_pdfview_has_doc(c) && !strcmp(ex_pdfview_path(c), path)) { ex_pdfview_set_doc(c, doc, err); return; }
+    }
+    ex_pdf_close_async(doc);                                                          /* its tab was closed while it opened */
+}
+static void media_load(void *u, const char *path) {
+    App *a = u;
+    const char *dot = strrchr(path, '.');
+    int video = !(dot && (!strcmp(dot, ".m4a") || !strcmp(dot, ".M4A")));
+    if (a->panels) ex_panels_load_media(a->panels, path, video);
+}
+static ExMpv *media_current(void *u, const char *path) { App *a = u; return a->mpv && !strcmp(a->mpv_path, path) ? a->mpv : NULL; }
+static void host_media_result(void *u, const char *path, ExMpv *m, const char *err) {
+    App *a = u;
+    size_t i, nt = a->ws ? ex_ws_tab_count(a->ws) : 0;
+    if (m) {
+        if (a->mpv) ex_mpv_close_async(a->mpv);
+        a->mpv = m; snprintf(a->mpv_path, sizeof a->mpv_path, "%s", path);
+        if (a->player) ex_player_pause(a->player);                                    /* one sound at a time */
+    }
+    for (i = 0; a->panes && i < nt; i++) {
+        const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
+        ExWidget *c = t ? ex_panes_content(a->panes, t->id) : NULL;
+        if (c && c->type == EX_WIDGET_MEDIA && !strcmp(ex_mediaview_path(c), path)) ex_mediaview_loaded(c, m ? NULL : err);
+    }
+}
+static void audio_load(void *u, const char *path) { App *a = u; if (a->panels && a->player) ex_panels_load_audio(a->panels, path, a->player); }
+static void audio_open_external(void *u, const char *path) { App *a = u; if (a->panels) host_file_op(a, EX_FILEOP_OPEN_DEFAULT, path, NULL); }
+static void host_audio_result(void *u, const char *path, ExAudioDecoder *d, const char *err) {
+    App *a = u;
+    size_t i, nt = a->ws ? ex_ws_tab_count(a->ws) : 0;
+    if (d) { ex_player_set_path(a->player, path); if (ex_player_attach(a->player, d) != 0) { err = "No sound output."; d = NULL; } else ex_player_set_path(a->player, path); }
+    for (i = 0; a->panes && i < nt; i++) {
+        const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
+        ExWidget *c = t ? ex_panes_content(a->panes, t->id) : NULL;
+        if (c && c->type == EX_WIDGET_AUDIO && !strcmp(ex_audioview_path(c), path)) ex_audioview_loaded(c, d ? NULL : err);
+    }
+}
 static void image_want(void *u, const char *path, int svg_width) { App *a = u; if (a->panels) ex_panels_load_image(a->panels, path, svg_width); }
 static void host_image_result(void *u, const char *path, int svg_width, ExImage *img, const char *err) { App *a = u; ex_imagecache_result(a->icache, path, svg_width, img, err); }
 
@@ -941,6 +1011,9 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
     if (strcmp(t->view, "graph") == 0) return make_graph(a);
     if (strcmp(t->view, "localgraph") == 0) return make_local_graph(a);
     if (!t->path[0]) return info_label(a, "An empty tab. Open a note from the file explorer, or create one with New note.");
+    if (!strcmp(t->view, "pdf")) { ExPdfViewHandlers ph; memset(&ph, 0, sizeof ph); ph.user = a; ph.load = pdf_load; ph.open_external = audio_open_external; ph.open_url = pdf_open_url; ph.set_clipboard = pdf_clipboard; ph.message = base_message; ph.link_name = pdf_link_name; return ex_widget_pdfview(a->ui, t->path, &ph); }
+    if (!strcmp(t->view, "media")) { ExMediaViewHandlers mh; memset(&mh, 0, sizeof mh); mh.user = a; mh.load = media_load; mh.current = media_current; mh.open_external = audio_open_external; return ex_widget_mediaview(a->ui, t->path, &mh); }
+    if (!strcmp(t->view, "audio")) { ExAudioViewHandlers ah; memset(&ah, 0, sizeof ah); ah.user = a; ah.load = audio_load; ah.open_external = audio_open_external; return ex_widget_audioview(a->ui, a->player, t->path, &ah); }
     if (!strcmp(t->view, "image")) return ex_widget_imageview(a->ui, a->icache, t->path);                  /* a picture: read and decoded on the service thread (6c-i) */
     if (!a->notes) return info_label(a, "Notes cannot be edited because the recovery journal could not be opened.");
     n = note_for_tab(a, t->id);                                                 /* switching between reading and editing keeps the note open */
@@ -1007,11 +1080,23 @@ static void new_empty_tab(ExPanes *p, ExId group, void *user) {
     a->focus_tab = t;
 }
 
+static int strcasecmp_ascii(const char *a, const char *b) {
+    for (; *a && *b; a++, b++) { char x = *a >= 'A' && *a <= 'Z' ? (char)(*a + 32) : *a, y = *b >= 'A' && *b <= 'Z' ? (char)(*b + 32) : *b; if (x != y) return x < y ? -1 : 1; }
+    return *a ? 1 : *b ? -1 : 0;
+}
+
 static void open_path(App *a, ExId group, const char *rel) {
     ExId t = ex_ws_find_tab(a->ws, rel);
     if (t) { ex_ws_activate(a->ws, t); a->focus_tab = t; return; }
     if (ex_file_kind(rel) == EX_KIND_CANVAS) { t = ex_ws_new_tab(a->ws, group, rel, "canvas"); a->focus_tab = t; return; }
     if (ex_file_kind(rel) == EX_KIND_IMAGE) { t = ex_ws_new_tab(a->ws, group, rel, "image"); a->focus_tab = t; return; }
+    if (ex_file_kind(rel) == EX_KIND_AUDIO) {                                                  /* m4a, webm and 3gp are libmpv's; the rest the built-in decoders' */
+        const char *dot = strrchr(rel, '.');
+        int mpv = dot && (!strcasecmp_ascii(dot, ".m4a") || !strcasecmp_ascii(dot, ".webm") || !strcasecmp_ascii(dot, ".3gp"));
+        t = ex_ws_new_tab(a->ws, group, rel, mpv ? "media" : "audio"); a->focus_tab = t; return;
+    }
+    if (ex_file_kind(rel) == EX_KIND_PDF) { t = ex_ws_new_tab(a->ws, group, rel, "pdf"); a->focus_tab = t; return; }
+    if (ex_file_kind(rel) == EX_KIND_VIDEO) { t = ex_ws_new_tab(a->ws, group, rel, "media"); a->focus_tab = t; return; }
     if (ex_file_kind(rel) == EX_KIND_BASE && (!a->features || ex_features_enabled(a->features, "bases"))) { t = ex_ws_new_tab(a->ws, group, rel, "base"); a->focus_tab = t; return; }
     t = ex_ws_new_tab(a->ws, group, rel, "note");
     if (t && strcmp(ex_settings_get(a->settings, "editor", "default_view"), "reading") == 0) ex_ws_set_tab_mode(a->ws, t, "reading");
@@ -1039,9 +1124,9 @@ static int drop_file(ExPanes *p, ExId group, const char *path, void *user) {
 static void on_open_file(ExWidget *w, const char *rel, void *user) {
     App *a = user;
     (void)w;
-    if (ex_file_kind(rel) != EX_KIND_MARKDOWN && ex_file_kind(rel) != EX_KIND_BASE && ex_file_kind(rel) != EX_KIND_CANVAS && ex_file_kind(rel) != EX_KIND_IMAGE) {
+    if (ex_file_kind(rel) != EX_KIND_MARKDOWN && ex_file_kind(rel) != EX_KIND_BASE && ex_file_kind(rel) != EX_KIND_CANVAS && ex_file_kind(rel) != EX_KIND_IMAGE && ex_file_kind(rel) != EX_KIND_AUDIO && ex_file_kind(rel) != EX_KIND_VIDEO && ex_file_kind(rel) != EX_KIND_PDF) {
         char msg[400];
-        snprintf(msg, sizeof msg, "%s cannot be shown yet (audio, video and PDF viewers come in sub-slices 6c-ii to 6c-iv).", rel);
+        snprintf(msg, sizeof msg, "%s cannot be shown.", rel);
         set_status(a, msg);
         return;
     }
@@ -2659,7 +2744,7 @@ static void host_open_note(void *u, const char *path, size_t offset, int new_tab
         if (nn) open_path(a, 0, ex_note_path(nn));
         return;
     }
-    if (ex_file_kind(path) != EX_KIND_MARKDOWN && ex_file_kind(path) != EX_KIND_BASE && ex_file_kind(path) != EX_KIND_CANVAS && ex_file_kind(path) != EX_KIND_IMAGE) { on_open_file(NULL, path, a); return; }
+    if (ex_file_kind(path) != EX_KIND_MARKDOWN && ex_file_kind(path) != EX_KIND_BASE && ex_file_kind(path) != EX_KIND_CANVAS && ex_file_kind(path) != EX_KIND_IMAGE && ex_file_kind(path) != EX_KIND_AUDIO && ex_file_kind(path) != EX_KIND_VIDEO && ex_file_kind(path) != EX_KIND_PDF) { on_open_file(NULL, path, a); return; }
     open_path(a, 0, path);
     free(a->sel_path);
     a->sel_path = offset != (size_t)-1 ? dup_text(path) : NULL;
@@ -3022,6 +3107,7 @@ int main(int argc, char **argv) {
     app.ws = ex_ws_create();
     app.ccache = ex_canvascache_create();
     app.icache = ex_imagecache_create(0);
+    app.player = ex_player_create();
     ex_imagecache_set_loader(app.icache, image_want, &app);
 
     if (app.vault) {
@@ -3108,7 +3194,7 @@ int main(int argc, char **argv) {
         pi.host.user = &app;
         pi.host.open_note = host_open_note; pi.host.active_path = host_active_path; pi.host.active_text = host_active_text; pi.host.read_text = host_read_text;
         pi.host.replace_text = host_replace_text; pi.host.select_range = host_select_range; pi.host.move_file = host_move_file; pi.host.file_op = host_file_op; pi.host.message = host_message;
-        pi.host.history_version = host_history_version; pi.host.file_text = host_file_text; pi.host.image_result = host_image_result; pi.host.base_result = host_base_result; pi.host.graph_data = host_graph_data; pi.host.local_graph_data = host_local_graph_data; pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
+        pi.host.history_version = host_history_version; pi.host.file_text = host_file_text; pi.host.image_result = host_image_result; pi.host.audio_result = host_audio_result; pi.host.media_result = host_media_result; pi.host.pdf_result = host_pdf_result; pi.host.base_result = host_base_result; pi.host.graph_data = host_graph_data; pi.host.local_graph_data = host_local_graph_data; pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
         pi.wake = wake_ui;
         app.panels = ex_panels_create(&pi);
         if (app.panels) {
@@ -3214,7 +3300,7 @@ int main(int argc, char **argv) {
         ExKey key;
         int mods;
         script_step(&app);
-        int animating = (app.gm && ex_graphmodel_animating(app.gm)) || (app.gm_local && ex_graphmodel_animating(app.gm_local)) || ex_graphview_animations_running() > 0 || ex_imagecache_busy(app.icache);        /* the graph's layout is still moving the nodes: a frame every 16 ms */
+        int animating = (app.gm && ex_graphmodel_animating(app.gm)) || (app.gm_local && ex_graphmodel_animating(app.gm_local)) || ex_graphview_animations_running() > 0 || ex_imagecache_busy(app.icache) || (app.player && ex_player_state(app.player) == EX_PLAYER_PLAYING) || (app.mpv && ex_mpv_state(app.mpv) == EX_MPV_PLAYING);        /* the graph's layout is still moving the nodes: a frame every 16 ms */
         int timed_out = !SDL_WaitEventTimeout(&e, animating ? 16 : 100); /* wakes ten times a second for autosave and the watcher */
         static int idle_ticks;
         if (g_signal) running = 0;
@@ -3311,12 +3397,13 @@ int main(int argc, char **argv) {
                 float density = SDL_GetWindowPixelDensity(ex_renderer_window(app.r));
                 ExWidget *wheel_root = app.panels && ex_panels_modal(app.panels) ? ex_panels_overlay(app.panels) : app.root;
                 ExWidget *under = ex_ui_widget_at(wheel_root, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
-                while (under && !under->scrollable && (under->no_wheel || (under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE && under->type != EX_WIDGET_GRAPH && under->type != EX_WIDGET_CANVAS && under->type != EX_WIDGET_BASE && under->type != EX_WIDGET_IMAGE))) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
+                while (under && !under->scrollable && (under->no_wheel || (under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE && under->type != EX_WIDGET_GRAPH && under->type != EX_WIDGET_CANVAS && under->type != EX_WIDGET_BASE && under->type != EX_WIDGET_IMAGE && under->type != EX_WIDGET_PDF))) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
                 if (under && under->parent && (under->parent->type == EX_WIDGET_EDITOR || under->parent->type == EX_WIDGET_READING)) under = under->parent;   /* over the title: the note scrolls */
                 if (!under && wheel_root == app.root && app.editor && pop_of_widget(&app, app.editor) == app.cur_pop) under = app.editor;
                 if (under && under->scrollable) ex_ui_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));                       /* a scroll box: the settings screens (7a) */
                 else if (under && under->type == EX_WIDGET_GRAPH) ex_graphview_wheel(under, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);   /* zoom about the pointer */
                 else if (under && under->type == EX_WIDGET_CANVAS) ex_canvasview_wheel(under, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);   /* pan, or zoom (the setting) */
+                else if (under && under->type == EX_WIDGET_PDF) ex_pdfview_wheel(under, e.wheel.y, (SDL_GetModState() & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
                 else if (under && under->type == EX_WIDGET_IMAGE) ex_imageview_wheel(under, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
                 else if (under && under->type == EX_WIDGET_BASE) ex_baseview_wheel(under, e.wheel.x, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
                 else if (under && under->type == EX_WIDGET_TREE) ex_tree_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
@@ -3375,6 +3462,8 @@ int main(int argc, char **argv) {
     ex_graphmodel_free(app.gm_local);
     ex_canvascache_free(app.ccache);
     ex_imagecache_free(app.icache);
+    ex_player_free(app.player);
+    if (app.mpv) ex_mpv_close(app.mpv);
     free(app.graph_note);
     ex_findbar_free(app.findbar);
     ex_slash_free(app.slash);

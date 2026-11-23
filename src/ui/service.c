@@ -3,6 +3,9 @@
 #include <string.h>
 
 #include "exhaust_base_index.h"
+#include "exhaust_audio.h"
+#include "exhaust_mpv.h"
+#include "exhaust_pdf.h"
 #include "exhaust_image.h"
 #include "exhaust_history.h"
 #include "exhaust_platform.h"
@@ -36,6 +39,9 @@ void qres_free(QRes *r) {
     if (r->graph) { ex_graph_free(r->graph); free(r->graph); }
     if (r->base) { ex_base_result_free(r->base); free(r->base); }
     if (r->image) { ex_image_free(r->image); free(r->image); }
+    if (r->audio) ex_audio_decoder_close(r->audio);
+    if (r->mpv) ex_mpv_close(r->mpv);
+    if (r->pdf) ex_pdf_close(r->pdf);
     ex_rename_report_free(&r->report);
     free(r);
 }
@@ -389,6 +395,86 @@ static void do_expand(QService *s, QJob *j, QRes *res) {
     res->ok = res->text != NULL;
 }
 
+static int strcasecmp_ascii(const char *a, const char *b) {
+    for (; *a && *b; a++, b++) { char x = *a >= 'A' && *a <= 'Z' ? (char)(*a + 32) : *a, y = *b >= 'A' && *b <= 'Z' ? (char)(*b + 32) : *b; if (x != y) return x < y ? -1 : 1; }
+    return *a ? 1 : *b ? -1 : 0;
+}
+
+/* A PDF read and opened by PDFium on the document's own thread (6c-iv). */
+static void do_pdf(QService *s, QJob *j, QRes *res) {
+    char *abs, err[300] = "";
+    ExPathInfo pi;
+    size_t len = 0;
+    uint8_t *bytes;
+    const char *rel = j->a ? j->a : "";
+    ExPdf *d;
+    qrows_add(&res->rows, rel, NULL, NULL, 0, 0, 0, 0, 0, 0, 0);
+    res->ok = 0;
+    if (strstr(rel, "..") && (strstr(rel, "../") || strstr(rel, "/..") || !strcmp(rel, ".."))) { snprintf(res->summary, sizeof res->summary, "This path is outside the vault."); return; }
+    if (!ex_pdf_loaded() && !ex_pdf_load(NULL, err, sizeof err)) { snprintf(res->summary, sizeof res->summary, "%.200s", err); return; }
+    abs = malloc(strlen(s->root) + strlen(rel) + 2);
+    if (!abs) return;
+    sprintf(abs, "%s/%s", s->root, rel);
+    if (ex_platform_path_info(abs, &pi) != 0 || !pi.is_file) { snprintf(res->summary, sizeof res->summary, "This file does not exist any more."); free(abs); return; }
+    if (pi.size > (int64_t)512 * 1024 * 1024) { snprintf(res->summary, sizeof res->summary, "This PDF is too big (over 512 MB)."); free(abs); return; }
+    bytes = (uint8_t *)ex_platform_read_file(abs, &len);
+    free(abs);
+    if (!bytes) { snprintf(res->summary, sizeof res->summary, "This file cannot be read."); return; }
+    d = ex_pdf_open(bytes, len, err, sizeof err);                              /* takes the bytes */
+    if (!d) { snprintf(res->summary, sizeof res->summary, "%.200s", err[0] ? err : "This PDF cannot be opened."); if (res->summary[0] >= 'a' && res->summary[0] <= 'z') res->summary[0] = (char)(res->summary[0] - 32); return; }
+    res->pdf = d; res->ok = 1;
+}
+
+/* A media file opened by libmpv (6c-iii): only its path is passed on, libmpv reads the file. */
+static void do_mpv(QService *s, QJob *j, QRes *res) {
+    char *abs, err[300] = "";
+    ExPathInfo pi;
+    const char *rel = j->a ? j->a : "";
+    ExMpv *m;
+    qrows_add(&res->rows, rel, NULL, NULL, 0, 0, 0, 0, 0, 0, 0);
+    res->ok = 0;
+    if (strstr(rel, "..") && (strstr(rel, "../") || strstr(rel, "/..") || !strcmp(rel, ".."))) { snprintf(res->summary, sizeof res->summary, "This path is outside the vault."); return; }
+    abs = malloc(strlen(s->root) + strlen(rel) + 2);
+    if (!abs) return;
+    sprintf(abs, "%s/%s", s->root, rel);
+    if (ex_platform_path_info(abs, &pi) != 0 || !pi.is_file) { snprintf(res->summary, sizeof res->summary, "This file does not exist any more."); free(abs); return; }
+    m = ex_mpv_open(abs, j->i1, err, sizeof err);
+    free(abs);
+    if (!m) { snprintf(res->summary, sizeof res->summary, "%.200s", err[0] ? err : "This file cannot be played."); return; }
+    res->mpv = m; res->ok = 1;
+}
+
+/* An audio file read, its decoder opened, and the player's output device opened (6c-ii). */
+static void do_audio(QService *s, QJob *j, QRes *res) {
+    char *abs = NULL, err[200] = "";
+    ExPathInfo pi;
+    size_t len = 0;
+    uint8_t *bytes;
+    const char *rel = j->a ? j->a : "";
+    ExAudioDecoder *d;
+    qrows_add(&res->rows, rel, NULL, NULL, 0, 0, 0, 0, 0, 0, 0);
+    res->ok = 0;
+    if (strstr(rel, "..") && (strstr(rel, "../") || strstr(rel, "/..") || !strcmp(rel, ".."))) { snprintf(res->summary, sizeof res->summary, "This path is outside the vault."); return; }
+    abs = malloc(strlen(s->root) + strlen(rel) + 2);
+    if (!abs) return;
+    sprintf(abs, "%s/%s", s->root, rel);
+    if (ex_platform_path_info(abs, &pi) != 0 || !pi.is_file) { snprintf(res->summary, sizeof res->summary, "This file does not exist any more."); free(abs); return; }
+    if (pi.size > (int64_t)EX_AUDIO_MAX_FILE) { snprintf(res->summary, sizeof res->summary, "This audio file is too big (over 256 MB)."); free(abs); return; }
+    bytes = (uint8_t *)ex_platform_read_file(abs, &len);
+    free(abs);
+    if (!bytes) { snprintf(res->summary, sizeof res->summary, "This file cannot be read."); return; }
+    d = ex_audio_decoder_open(bytes, len, err, sizeof err);                   /* takes the bytes */
+    if (!d) {
+        const char *dot = strrchr(rel, '.');
+        if (dot && (!strcasecmp_ascii(dot, ".m4a") || !strcasecmp_ascii(dot, ".webm") || !strcasecmp_ascii(dot, ".3gp")))
+            snprintf(res->summary, sizeof res->summary, "This audio format is played by the media add-on (libmpv), which is not installed.");
+        else { snprintf(res->summary, sizeof res->summary, "%s", err[0] ? err : "This audio file cannot be played."); if (res->summary[0] >= 'a' && res->summary[0] <= 'z') res->summary[0] = (char)(res->summary[0] - 32); }
+        return;
+    }
+    if (j->ptr && ex_player_prepare((ExPlayer *)j->ptr, err, sizeof err) != 0) { ex_audio_decoder_close(d); snprintf(res->summary, sizeof res->summary, "No sound output: %s", err); return; }
+    res->audio = d; res->ok = 1;
+}
+
 /* A picture read and decoded (6c-i): the file's bytes, then pixels no bigger than 4096 on a side. */
 static void do_image(QService *s, QJob *j, QRes *res) {
     char *abs = NULL, err[200] = "";
@@ -507,7 +593,10 @@ static void service_job(ExWorker *self, const ExMessage *m, void *user) {
     if (!res) return;
     res->kind = j->kind; res->req = j->req;
     if (j->kind == QJ_HISTORY) do_history(j, res);
-    else if (j->kind == QJ_IMAGE) do_image(s, j, res);                     /* a picture needs no index */
+    else if (j->kind == QJ_IMAGE) do_image(s, j, res);
+    else if (j->kind == QJ_AUDIO) do_audio(s, j, res);
+    else if (j->kind == QJ_MPV) do_mpv(s, j, res);
+    else if (j->kind == QJ_PDF) do_pdf(s, j, res);                     /* a picture needs no index */
     else {
     if (!s->r) s->r = ex_index_open(s->index_path, 0, err, sizeof err);
     if (!s->r) snprintf(res->summary, sizeof res->summary, "The index is not ready yet");

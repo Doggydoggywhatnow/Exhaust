@@ -517,7 +517,7 @@ printf 'wait 1500\nmove 400 160\ndown 400 160\nup 400 160\nmove 400 160\ndown 40
 EXHAUST_OPEN=Board.canvas EXHAUST_SCRIPT="$work/canvas_edit.script" $lim "$exe" "$vault" >"$work/canvas_edit.log" 2>&1
 if grep -q '"text":"Hello canvas"' "$vault/Board.canvas" && grep -q '"zIndex":3' "$vault/Board.canvas" && grep -q '"meta":{"keep":\[1,2.50\]}' "$vault/Board.canvas" && grep -q '"text":"First"' "$vault/Board.canvas"; then echo "ok: a double click made a text card, the text typed in it was saved, and the keys the file had were kept"; else echo "FAILED: the canvas edit ($(cat "$vault/Board.canvas" | tr '\n\t' '  '))"; fail=1; fi
 # the view was written to the session
-if find "$work" -name session.ini -newer "$work/canvas_edit.script" 2>/dev/null | xargs grep -l 'view\.Board\.canvas' >/dev/null 2>&1; then echo "ok: the view of the canvas is in the session"; else echo "FAILED: the view of the canvas is not in the session"; fail=1; fi
+if [ -n "$(find "$work" -name session.ini -newer "$work/canvas_edit.script" -exec grep -l 'view\.Board\.canvas' {} + 2>/dev/null)" ]; then echo "ok: the view of the canvas is in the session"; else echo "FAILED: the view of the canvas is not in the session"; fail=1; fi
 # a canvas that is not valid JSON is never changed, whatever is done in it
 reset_state
 canvas_vault canvas_broken
@@ -576,7 +576,24 @@ for f in pic.png pic.avif logo.svg broken.png; do
     if [ $rc -eq 0 ]; then echo "ok: $f opened in a tab and the program ended normally"; else echo "FAILED: opening $f ended with status $rc"; fail=1; fi
 done
 if cmp -s "$vault/pic.png" "$work/pic.orig" && cmp -s "$vault/broken.png" "$work/broken.orig"; then echo "ok: opening pictures does not change them"; else echo "FAILED: a picture file was changed by opening it"; fail=1; fi
-if grep -q 'image' $(find "$work" -name session.ini | head -1) 2>/dev/null; then echo "ok: the picture tab is in the session"; else echo "FAILED: the picture tab is not in the session"; fail=1; fi
+if [ -n "$(find "$work" -name session.ini -exec grep -l 'image' {} + 2>/dev/null)" ]; then echo "ok: the picture tab is in the session"; else echo "FAILED: the picture tab is not in the session"; fail=1; fi
+reset_state
+
+# audio (6c-ii): an audio file opens in a tab, loads on the service thread, plays with Space on the dummy output driver and is never changed; a format the
+# built-in decoders do not take says so
+audio_dir=$(dirname "$0")/data/audio
+reset_state
+vault="$work/audio_open"; rm -rf "$vault"; mkdir -p "$vault"
+printf '# Welcome\n' > "$vault/Home.md"
+cp "$audio_dir/tone.flac" "$vault/a.flac"; cp "$audio_dir/tone.mp3" "$vault/a.mp3"; cp "$audio_dir/tone.ogg" "$vault/a.ogg"; cp "$audio_dir/tone16.wav" "$vault/a.wav"; printf 'not really audio' > "$vault/a.m4a"
+cp "$vault/a.flac" "$work/a.flac.orig"
+printf 'wait 1500\nkey space\nwait 500\nkey space\nwait 300\nquit\n' > "$work/audio_open.script"
+for f in a.flac a.mp3 a.ogg a.wav a.m4a; do
+    SDL_AUDIODRIVER=dummy EXHAUST_OPEN=$f EXHAUST_SCRIPT="$work/audio_open.script" $lim "$exe" "$vault" >"$work/audio_open.log" 2>&1
+    rc=$?
+    if [ $rc -eq 0 ]; then echo "ok: $f opened in a tab, was played and paused, and the program ended normally"; else echo "FAILED: opening $f ended with status $rc"; fail=1; fi
+done
+if cmp -s "$vault/a.flac" "$work/a.flac.orig"; then echo "ok: playing an audio file does not change it"; else echo "FAILED: an audio file was changed"; fail=1; fi
 reset_state
 
 exit $fail
