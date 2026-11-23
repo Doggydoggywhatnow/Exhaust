@@ -42,12 +42,16 @@ jobs:
       - uses: actions/checkout@v5
       - name: Install Linux build dependencies
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $LINUX_DEPS
+      - name: Free disk space (an ASan build of every test is about 20 GB with full debug information)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
       - run: >
           cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug
           -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          -DCMAKE_C_FLAGS_DEBUG="-O0 -g1" -DCMAKE_CXX_FLAGS_DEBUG="-O0 -g1"
       - run: cmake --build build-san --parallel
+      - run: df -h /
       - run: ctest --test-dir build-san --output-on-failure
 
   size:
