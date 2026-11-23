@@ -121,6 +121,7 @@ int main(int argc, char **argv) {
     CHECK(ex_mpv_position(PLAYER) < 0.1);
     key(EX_KEY_SPACE);                                                            /* Space plays again */
     WAIT_FOR(st.playing);
+    if (!st.playing) fprintf(stderr, "media_view: Space did not play again: state %d, position %.3f, frames %lu (macOS CI, ISSUES 76)\n", (int)ex_mpv_state(PLAYER), ex_mpv_position(PLAYER), st.frames_uploaded);
     CHECK(st.playing);
 
     /* ---- a file that fails to play ---- */
