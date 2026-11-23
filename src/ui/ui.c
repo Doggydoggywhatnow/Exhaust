@@ -187,6 +187,7 @@ ExWidget *ex_widget_reading(ExUi *ui, const char *text, size_t len, const char *
     return w;
 }
 void ex_reading_set_text(ExWidget *w, const char *text, size_t len) { if (w->reading) ex_readingview_set_text(w->reading, text, len); }
+void ex_reading_set_media(ExWidget *w, const ExReadingMedia *m) { if (w->reading) ex_readingview_set_media(w->reading, m); }
 void ex_reading_set_link_handler(ExWidget *w, void (*fn)(ExRSpanKind kind, const char *target, void *user), void *user) { if (w->reading) ex_readingview_set_link_handler(w->reading, fn, user); }
 int ex_reading_internal_link_at(ExWidget *w, float x, float y, char *target, size_t cap) { return w->reading ? ex_readingview_internal_link_at(w->reading, x, y, target, cap) : 0; }
 

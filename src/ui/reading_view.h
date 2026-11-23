@@ -2,6 +2,7 @@
 #define EXHAUST_READING_VIEW_H
 
 #include "exhaust_editor.h"
+#include "exhaust_imagecache.h"
 #include "exhaust_reading.h"
 #include "exhaust_render.h"
 #include "exhaust_text.h"
@@ -9,6 +10,13 @@
 
 typedef struct ExReadingView ExReadingView;
 typedef void (*ExReadingLinkFn)(ExRSpanKind kind, const char *target, void *user);
+
+/* Embedded media (6c-v). A paragraph that is only `![[photo.png|640x480]]`, `![[song.flac]]`, `![[clip.mp4]]`, `![[f.pdf#page=3&height=400]]` or `![[x.canvas]]` (or a
+ * Markdown image of a vault file) is drawn as the picture, or as a card with the file's name: a click on a card hands "path#fragment" to the link handler as an
+ * EX_RSK_EMBED link (the application plays an audio file, or opens the file in a tab). The view only draws and finds what was clicked. */
+
+void ex_readingview_set_media(ExReadingView *v, const ExReadingMedia *m);
+
 
 ExReadingView *ex_readingview_create(const char *text, size_t len);
 void ex_readingview_free(ExReadingView *v);

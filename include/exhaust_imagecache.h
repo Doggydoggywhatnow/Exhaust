@@ -35,6 +35,8 @@ void ex_imagecache_get(ExImageCache *c, ExRenderer *r, const char *path, int svg
 void ex_imagecache_result(ExImageCache *c, const char *path, int svg_width, ExImage *img, const char *err);
 /* The file changed or went (an empty path: everything): the next get asks again. */
 void ex_imagecache_invalidate(ExImageCache *c, const char *path);
+/* Grows whenever a picture arrived, failed or was dropped: a layout that depends on picture sizes lays out again. */
+unsigned long ex_imagecache_version(const ExImageCache *c);
 /* Sends the next rows of pictures that are being uploaded to the card (about a million pixels a frame); the application calls it once a frame. */
 void ex_imagecache_pump(ExImageCache *c, ExRenderer *r);
 /* True while some picture is loading or uploading (the main loop keeps drawing). */

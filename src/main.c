@@ -16,6 +16,7 @@
 #include "exhaust_audioview.h"
 #include "exhaust_mediaview.h"
 #include "exhaust_pdfview.h"
+#include "exhaust_reading.h"
 #include "exhaust_graphview.h"
 #include "exhaust_history.h"
 #include "exhaust_layouts.h"
@@ -84,6 +85,8 @@ typedef struct App {
     ExWidget *title;               /* the inline title of the active tab (a child of its editor), or NULL */
     ExGraphModel *gm;              /* the graph's data and layout, while a graph tab exists */
     ExGraphModel *gm_local;        /* the local graph's (5c), while a local graph tab exists */
+    char pdf_goto_path[700]; int pdf_goto_page, pdf_goto_s, pdf_goto_e, pdf_goto_set;   /* a link to a PDF page or selection, while the tab opens (6c-v) */
+    char audio_embed_path[700];    /* an audio embed that was pressed: plays when its file is loaded */
     char pending_url[600];         /* a web address a PDF link asked to open, while the user is asked (6c-iv) */
     ExMpv *mpv;                    /* the libmpv player, one at a time (6c-iii) */
     char mpv_path[600];
@@ -549,6 +552,9 @@ static ExWidget *make_graph(App *a) {
  * screen costs nothing, and a missing file only shows a message: its tab stays in the session. */
 /* A note of the vault by its name (case-insensitive, without the extension); the link rules of 4a will replace this. */
 static void open_path(App *a, ExId group, const char *rel);
+static const ExNode *find_file_node(const ExNode *n, const char *text);
+static void open_file_target(App *a, const char *path, const char *frag);
+static int strcasecmp_ascii(const char *a, const char *b);
 static const ExNode *find_note_node(const ExNode *n, const char *name, size_t len) {
     size_t i;
     if (!n) return NULL;
@@ -573,6 +579,14 @@ static void follow_note_link(App *a, const char *target, int create) {
     const ExNode *n;
     size_t i, o = 0;
     if (!a->vault || !len) return;
+    {   /* a link to a picture, audio, video, PDF or canvas (`[[f.pdf#page=3&selection=120,148]]`) opens that file (6c-v) */
+        char file[700], frag[200];
+        ex_embed_split(target, file, sizeof file, NULL, 0, frag, sizeof frag);
+        if (ex_embed_media_kind(file)) {
+            const ExNode *fn = find_file_node(ex_vault_root(a->vault), file);
+            if (fn) { open_file_target(a, fn->rel, frag); return; }
+        }
+    }
     n = find_note_node(ex_vault_root(a->vault), target, len);
     if (n) { host_open_note(a, n->rel, (size_t)-1, 0); return; }
     for (i = 0; i < len && o + 1 < sizeof name; i++) {                       /* a Markdown link's address: %20 and the extension */
@@ -601,9 +615,15 @@ static void on_editor_link_click(void *user, const char *target, const char *hea
     if (target && target[0]) follow_note_link(user, target, 1);
 }
 
+static void pdf_apply_goto(App *a, const char *path);
+static void embed_click(App *a, const char *target);
+static int embed_resolve(void *u, const char *name, char *path, size_t cap);
+static int embed_audio_state(void *u, const char *path);
+
 static void on_reading_link(ExRSpanKind kind, const char *target, void *user) {
     App *a = user;
     char msg[400];
+    if (kind == EX_RSK_EMBED) { embed_click(a, target); return; }
     if (kind == EX_RSK_LINK_EXTERNAL && target && (strncmp(target, "http://", 7) == 0 || strncmp(target, "https://", 8) == 0 || strncmp(target, "mailto:", 7) == 0)) {
         if (!SDL_OpenURL(target)) { snprintf(msg, sizeof msg, "Could not open %s", target); set_status(a, msg); }
     } else if (kind == EX_RSK_LINK_INTERNAL && target && a->vault) {
@@ -699,7 +719,7 @@ static void host_pdf_result(void *u, const char *path, ExPdf *doc, const char *e
     for (i = 0; a->panes && i < nt; i++) {
         const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
         ExWidget *c = t ? ex_panes_content(a->panes, t->id) : NULL;
-        if (c && c->type == EX_WIDGET_PDF && !ex_pdfview_has_doc(c) && !strcmp(ex_pdfview_path(c), path)) { ex_pdfview_set_doc(c, doc, err); return; }
+        if (c && c->type == EX_WIDGET_PDF && !ex_pdfview_has_doc(c) && !strcmp(ex_pdfview_path(c), path)) { ex_pdfview_set_doc(c, doc, err); pdf_apply_goto(a, path); return; }
     }
     ex_pdf_close_async(doc);                                                          /* its tab was closed while it opened */
 }
@@ -729,7 +749,7 @@ static void audio_open_external(void *u, const char *path) { App *a = u; if (a->
 static void host_audio_result(void *u, const char *path, ExAudioDecoder *d, const char *err) {
     App *a = u;
     size_t i, nt = a->ws ? ex_ws_tab_count(a->ws) : 0;
-    if (d) { ex_player_set_path(a->player, path); if (ex_player_attach(a->player, d) != 0) { err = "No sound output."; d = NULL; } else ex_player_set_path(a->player, path); }
+    if (d) { ex_player_set_path(a->player, path); if (ex_player_attach(a->player, d) != 0) { err = "No sound output."; d = NULL; } else { ex_player_set_path(a->player, path); if (!strcmp(a->audio_embed_path, path)) { ex_player_play(a->player); a->audio_embed_path[0] = 0; } } }
     for (i = 0; a->panes && i < nt; i++) {
         const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
         ExWidget *c = t ? ex_panes_content(a->panes, t->id) : NULL;
@@ -766,6 +786,56 @@ static int canvas_resolve(void *u, const char *text, char *path, size_t cap) {
     if (!n) return 0;
     snprintf(path, cap, "%s", n->rel);
     return 1;
+}
+
+
+/* ---- embeds in reading mode, and links to a PDF page or selection (6c-v) ---- */
+
+static int embed_resolve(void *u, const char *name, char *path, size_t cap) { return canvas_resolve(u, name, path, cap); }
+static int embed_audio_state(void *u, const char *path) {
+    App *a = u;
+    if (!a->player || strcmp(ex_player_path(a->player), path) != 0 || ex_player_state(a->player) == EX_PLAYER_IDLE) return 0;
+    return ex_player_state(a->player) == EX_PLAYER_PLAYING ? 2 : 1;
+}
+
+/* the PDF tab at this path shows a page and selects text (now when it has its document, else when it gets it) */
+static void pdf_apply_goto(App *a, const char *path) {
+    size_t i, nt = a->ws ? ex_ws_tab_count(a->ws) : 0;
+    if (!a->pdf_goto_set || strcmp(a->pdf_goto_path, path)) return;
+    for (i = 0; a->panes && i < nt; i++) {
+        const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
+        ExWidget *c = t ? ex_panes_content(a->panes, t->id) : NULL;
+        if (c && c->type == EX_WIDGET_PDF && !strcmp(ex_pdfview_path(c), path) && ex_pdfview_has_doc(c)) { ex_pdfview_goto(c, a->pdf_goto_page, a->pdf_goto_s, a->pdf_goto_e); a->pdf_goto_set = 0; return; }
+    }
+}
+
+/* Opens a file of the vault that is not a note, by the kind of file; frag is what followed the # of the link. */
+static void open_file_target(App *a, const char *path, const char *frag) {
+    if (ex_file_kind(path) == EX_KIND_PDF && frag && frag[0]) {
+        int pg = 0, s = 0, e = 0;
+        if (ex_pdf_parse_fragment(frag, &pg, &s, &e)) {
+            snprintf(a->pdf_goto_path, sizeof a->pdf_goto_path, "%s", path);
+            a->pdf_goto_page = pg; a->pdf_goto_s = s; a->pdf_goto_e = e; a->pdf_goto_set = 1;
+        }
+    }
+    open_path(a, 0, path);
+    if (a->pdf_goto_set) pdf_apply_goto(a, path);
+}
+
+static void embed_click(App *a, const char *target) {
+    char path[700], frag[200];
+    const char *dot;
+    int builtin_audio;
+    ex_embed_split(target, path, sizeof path, NULL, 0, frag, sizeof frag);
+    dot = strrchr(path, '.');
+    builtin_audio = ex_file_kind(path) == EX_KIND_AUDIO && dot && strcasecmp_ascii(dot, ".m4a") && strcasecmp_ascii(dot, ".webm") && strcasecmp_ascii(dot, ".3gp");
+    if (builtin_audio && a->player && a->panels) {                                   /* an audio embed plays here, with the one player */
+        if (!strcmp(ex_player_path(a->player), path) && ex_player_state(a->player) != EX_PLAYER_IDLE) { ex_player_toggle(a->player); return; }
+        snprintf(a->audio_embed_path, sizeof a->audio_embed_path, "%s", path);
+        ex_panels_load_audio(a->panels, path, a->player);
+        return;
+    }
+    open_file_target(a, path, frag);
 }
 
 /* Convert to file: the text of a card becomes a note beside the canvas, named by its first line. */
@@ -916,6 +986,15 @@ static void bases_follow_index(App *a) {
         const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
         ExWidget *c = t && t->view && !strcmp(t->view, "base") ? ex_panes_content(a->panes, t->id) : NULL;
         if (c && c->type == EX_WIDGET_BASE) ex_baseview_invalidate(c);
+        else if (t && t->view && !strcmp(t->view, "note") && is_reading(t->mode)) {              /* a note shown in reading mode: its query blocks, bases and embeds are read again (6c-v) */
+            ExNote *n = note_for_tab(a, t->id);
+            ExWidget *rw = ex_panes_content(a->panes, t->id);
+            if (n && rw && rw->type == EX_WIDGET_READING) {
+                size_t tl = 0;
+                char *txt = ex_buffer_text(ex_doc_buffer(ex_note_doc(n)), &tl);
+                if (txt) { ex_panels_expand_queries(a->panels, t->path, txt, tl); free(txt); }
+            }
+        }
     }
 }
 
@@ -1032,6 +1111,7 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
         if (rv) {
             make_title(a, rv, t->id);
             ex_reading_set_link_handler(rv, on_reading_link, a);
+            { ExReadingMedia rm; memset(&rm, 0, sizeof rm); rm.user = a; rm.images = a->icache; rm.resolve = embed_resolve; rm.audio_state = embed_audio_state; ex_reading_set_media(rv, &rm); }
             if (a->panels) ex_panels_expand_queries(a->panels, t->path, txt, tl);
             if (!note_for_tab(a, t->id)) remember_tab_note(a, t->id, n);
             free(txt);
@@ -1411,7 +1491,7 @@ static void refresh_reading_views(App *a) {
         if (ver != rs->shown && now - rs->seen_at >= 200) {
             size_t tl = 0;
             char *txt = ex_buffer_text(ex_doc_buffer(ex_note_doc(n)), &tl);
-            if (txt) { ex_reading_set_text(w, txt, tl); free(txt); }
+            if (txt) { ex_reading_set_text(w, txt, tl); if (a->panels) ex_panels_expand_queries(a->panels, t->path, txt, tl); free(txt); }
             rs->shown = ver;
         }
     }

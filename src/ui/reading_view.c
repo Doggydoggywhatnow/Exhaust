@@ -8,7 +8,7 @@
 
 #include "reading_view.h"
 
-typedef enum OpKind { OP_TEXT, OP_RECT, OP_BOX, OP_CHEVRON, OP_RULE } OpKind;
+typedef enum OpKind { OP_TEXT, OP_RECT, OP_BOX, OP_CHEVRON, OP_RULE, OP_IMAGE, OP_CARD } OpKind;
 
 typedef struct Op {
     OpKind kind;
@@ -22,6 +22,9 @@ typedef struct Op {
     int toggle;               /* callout id for a title, or -1 */
     int checked;              /* BOX */
     int open;                 /* CHEVRON */
+    const char *path;         /* IMAGE and CARD: the file's path in the vault (owned by the view) */
+    int media;                /* CARD: 2 audio, 3 video, 4 PDF, 5 canvas, 6 an address that is not loaded */
+    int svg_w;                /* IMAGE: the width an SVG is drawn at */
 } Op;
 
 typedef struct Link { ExRSpanKind kind; const char *target; } Link;
@@ -43,6 +46,8 @@ struct ExReadingView {
     ExReadingLinkFn on_link; void *link_user;
     int press_link, press_toggle;
     float base_size;
+    ExReadingMedia media;
+    unsigned long img_version;
 };
 
 /* ---- storage helpers ---- */
@@ -253,6 +258,119 @@ static void flow(Lay *L, const ExRSpan *sp, size_t n, unsigned base_style, float
     L->x = L->x_left;
 }
 
+
+/* ---- embedded media (6c-v) ---- */
+
+static int ci_ext(const char *name, const char *ext) {
+    size_t n = strlen(name), e = strlen(ext), i;
+    if (n < e) return 0;
+    for (i = 0; i < e; i++) { char c = name[n - e + i]; if (c >= 'A' && c <= 'Z') c = (char)(c + 32); if (c != ext[i]) return 0; }
+    return 1;
+}
+int ex_embed_media_kind(const char *name) {
+    static const char *const img[] = { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".avif", ".svg" };
+    static const char *const aud[] = { ".flac", ".m4a", ".mp3", ".ogg", ".wav", ".3gp" };
+    static const char *const vid[] = { ".mkv", ".mov", ".mp4", ".ogv", ".webm" };
+    size_t i;
+    for (i = 0; i < sizeof img / sizeof *img; i++) if (ci_ext(name, img[i])) return 1;
+    for (i = 0; i < sizeof aud / sizeof *aud; i++) if (ci_ext(name, aud[i])) return 2;
+    for (i = 0; i < sizeof vid / sizeof *vid; i++) if (ci_ext(name, vid[i])) return 3;
+    if (ci_ext(name, ".pdf")) return 4;
+    if (ci_ext(name, ".canvas")) return 5;
+    return 0;
+}
+void ex_embed_split(const char *target, char *name, size_t ncap, char *size, size_t scap, char *frag, size_t fcap) {
+    const char *bar = strchr(target, '|'), *hash = strchr(target, '#'), *end_name = target + strlen(target);
+    if (bar && bar < end_name) end_name = bar;
+    if (hash && hash < end_name) end_name = hash;
+    if (name && ncap) snprintf(name, ncap, "%.*s", (int)(end_name - target), target);
+    if (size && scap) { size[0] = 0; if (bar) { const char *e = hash && hash > bar ? hash : target + strlen(target); snprintf(size, scap, "%.*s", (int)(e - bar - 1), bar + 1); } }
+    if (frag && fcap) { frag[0] = 0; if (hash) { const char *e = bar && bar > hash ? bar : target + strlen(target); snprintf(frag, fcap, "%.*s", (int)(e - hash - 1), hash + 1); } }
+}
+void ex_readingview_set_media(ExReadingView *v, const ExReadingMedia *m) { if (v) { if (m) v->media = *m; else memset(&v->media, 0, sizeof v->media); v->dirty = 1; } }
+
+static char *own(ExReadingView *v, const char *s) {
+    size_t n = strlen(s);
+    char *c = malloc(n + 1);
+    if (!c) return NULL;
+    memcpy(c, s, n + 1);
+    if (v->nowned == v->capowned) { size_t nc = v->capowned ? v->capowned * 2 : 16; char **no = realloc(v->owned, nc * sizeof *no); if (!no) { free(c); return NULL; } v->owned = no; v->capowned = nc; }
+    v->owned[v->nowned++] = c;
+    return c;
+}
+
+/* The media a paragraph is only made of, or 0. Lays it out at the cursor and advances it. */
+static int layout_media(Lay *L, const ExRBlock *b, float x0, float col_w, float em) {
+    ExReadingView *v = L->v;
+    const ExRSpan *s = NULL;
+    size_t i;
+    char name[400], size[40], frag[200], path[700];
+    int kind;
+    Op op;
+    for (i = 0; i < b->nspans; i++) {
+        if (b->spans[i].kind == EX_RSK_BREAK) continue;
+        if (s) return 0;
+        s = &b->spans[i];
+    }
+    if (!s || (s->kind != EX_RSK_EMBED && s->kind != EX_RSK_IMAGE) || !s->target || b->marker) return 0;
+    ex_embed_split(s->kind == EX_RSK_IMAGE && s->text && s->text[0] && strchr(s->text, '|') ? s->text : s->target, name, sizeof name, size, sizeof size, frag, sizeof frag);
+    if (s->kind == EX_RSK_IMAGE) {                                         /* a Markdown image: the address is the target, a size may follow a | in the alt text */
+        const char *bar = s->text ? strrchr(s->text, '|') : NULL;
+        ex_embed_split(s->target, name, sizeof name, NULL, 0, frag, sizeof frag);
+        size[0] = 0;
+        if (bar) snprintf(size, sizeof size, "%s", bar + 1);
+    }
+    memset(&op, 0, sizeof op);
+    op.link = -1; op.toggle = -1; op.fg = EX_COLOR_TEXT; op.bg = -1;
+    if (!strncmp(name, "http://", 7) || !strncmp(name, "https://", 8)) {   /* an address: external images need the network and are off by default */
+        float lh = line_height(L, L->base), h = lh * 2.6f;
+        char label[500];
+        snprintf(label, sizeof label, "External image, not loaded: %s", name);
+        op.kind = OP_CARD; op.media = 6; op.x = L->x_left; op.y = L->y; op.w = x0 + col_w - L->x_left; op.h = h;
+        op.text = own(v, label); op.len = op.text ? strlen(op.text) : 0; op.path = NULL; op.font = font_for(L, 0); op.size = L->base;
+        push_op(&v->ops, &v->nops, &v->capops, &op);
+        L->y += h + 0.4f * lh;
+        return 1;
+    }
+    kind = ex_embed_media_kind(name);
+    if (!kind || !v->media.resolve || !v->media.resolve(v->media.user, name, path, sizeof path)) return 0;
+    if (kind == 1) {
+        int w = 0, h = 0, natural_w = 0, natural_h = 0;
+        float scale = ex_renderer_scale(L->r), dw, dh;
+        ExImageRef ref;
+        if (sscanf(size, "%dx%d", &w, &h) != 2) { h = 0; w = atoi(size); }
+        if (v->media.images) {
+            ex_imagecache_get(v->media.images, L->r, path, (int)(col_w > 0 ? col_w : 512), &ref);
+            if (ref.state == EX_IMAGE_READY) { natural_w = ref.src_w ? ref.src_w : ref.w; natural_h = ref.src_h ? ref.src_h : ref.h; }
+        }
+        if (!natural_w) { natural_w = 480; natural_h = 270; }                       /* until it is loaded */
+        dw = w > 0 ? (float)w * scale : (float)natural_w * scale;
+        if (dw > x0 + col_w - L->x_left) dw = x0 + col_w - L->x_left;
+        dh = h > 0 && w > 0 ? (float)h * scale * dw / ((float)w * scale) : dw * (float)natural_h / (float)natural_w;
+        if (h > 0 && w > 0 && dw < (float)w * scale) dh = dw * (float)h / (float)w;
+        op.kind = OP_IMAGE; op.x = L->x_left; op.y = L->y; op.w = dw; op.h = dh; op.path = own(v, path); op.svg_w = (int)dw;
+        push_op(&v->ops, &v->nops, &v->capops, &op);
+        L->y += dh + 0.4f * line_height(L, L->base);
+        (void)em;
+        return 1;
+    } else {
+        float lh = line_height(L, L->base), h = lh * 2.6f;
+        char label[900], target[900];
+        const char *base = strrchr(path, '/');
+        int st = kind == 2 && v->media.audio_state ? v->media.audio_state(v->media.user, path) : 0;
+        base = base ? base + 1 : path;
+        snprintf(label, sizeof label, "%s%s%s", kind == 2 ? (st == 2 ? "Pause  " : "Play  ") : kind == 3 ? "Video  " : kind == 4 ? "PDF  " : "Canvas  ", base, frag[0] && kind == 4 ? "  (" : "");
+        if (frag[0] && kind == 4) { size_t n = strlen(label); snprintf(label + n, sizeof label - n, "%s)", frag); }
+        snprintf(target, sizeof target, "%s%s%s", path, frag[0] ? "#" : "", frag);
+        op.kind = OP_CARD; op.media = kind; op.x = L->x_left; op.y = L->y; op.w = x0 + col_w - L->x_left; op.h = kind == 4 && size[0] == 0 && frag[0] ? h : h;
+        op.text = own(v, label); op.len = op.text ? strlen(op.text) : 0; op.font = font_for(L, 0); op.size = L->base;
+        op.link = add_link(v, EX_RSK_EMBED, own(v, target));
+        push_op(&v->ops, &v->nops, &v->capops, &op);
+        L->y += h + 0.4f * lh;
+        return 1;
+    }
+}
+
 static const ExRBlock *blk(const ExReadingView *v, size_t i) { return ex_reading_block(v->model, i); }
 
 static int hidden_by_fold(const ExReadingView *v, const ExRBlock *b) {
@@ -304,6 +422,7 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
         }
         case EX_RBK_PARAGRAPH: case EX_RBK_CALLOUT_TITLE: {
             float ty = L.y;
+            if (b->kind == EX_RBK_PARAGRAPH && layout_media(&L, b, x0, col_w, em)) break;
             if (b->marker) {                                           /* the bullet, number or box of a list item */
                 Op m;
                 float mw = em * 1.4f;
@@ -468,6 +587,7 @@ void ex_readingview_draw(ExReadingView *v, ExRenderer *r, const ExTheme *t, floa
     float top, bottom;
     if (!v->model || v->vw <= 0) return;
     v->base_size = base_size > 0 ? base_size : 16.0f;
+    if (v->media.images && ex_imagecache_version(v->media.images) != v->img_version) { v->img_version = ex_imagecache_version(v->media.images); v->dirty = 1; }
     if (v->dirty || fabsf(v->laid_w - v->vw) > 0.5f || v->laid_scale != ex_renderer_scale(r)) layout(v, r, v->vw);
     top = v->scroll - 100.0f; bottom = v->scroll + v->vh + 100.0f;
     ex_set_clip(r, (int)v->vx, (int)v->vy, (int)v->vw, (int)v->vh);
@@ -512,6 +632,28 @@ void ex_readingview_draw(ExReadingView *v, ExRenderer *r, const ExTheme *t, floa
             float s = o->h * 0.28f, cx = x + o->w / 2.0f, cy = y + o->h / 2.0f;
             if (o->open) ex_fill_triangle(r, cx - s, cy - s / 2, cx + s, cy - s / 2, cx, cy + s / 2, col);
             else ex_fill_triangle(r, cx - s / 2, cy - s, cx - s / 2, cy + s, cx + s / 2, cy, col);
+            break;
+        }
+        case OP_IMAGE: {
+            ExImageRef ref;
+            ExColor mut = ex_theme_color(t, EX_COLOR_CODE_BACKGROUND);
+            if (v->media.images && o->path) {
+                ex_imagecache_get(v->media.images, r, o->path, o->svg_w, &ref);
+                if (ref.state == EX_IMAGE_READY && ref.tex) { ex_texture_draw(r, ref.tex, 0, 0, 0, 0, x, y, o->w, o->h, 255, 1); break; }
+                ex_fill_rect(r, x, y, o->w, o->h, mut);
+                if (ref.state == EX_IMAGE_FAILED && ref.err) ex_text_draw(r, ex_font_builtin(ex_renderer_fonts(r), EX_FONT_UI_REGULAR), v->base_size, x + 8.0f, y + 8.0f, ref.err, strlen(ref.err), ex_theme_color(t, EX_COLOR_TEXT_MUTED));
+            }
+            break;
+        }
+        case OP_CARD: {
+            ExFontMetrics m;
+            float ty = y + o->h / 2.0f;
+            char fit[700];
+            ex_fill_round_rect(r, x, y, o->w, o->h, 6.0f * ex_renderer_scale(r), ex_theme_color(t, EX_COLOR_CODE_BACKGROUND));
+            ex_stroke_round_rect(r, x, y, o->w, o->h, 6.0f * ex_renderer_scale(r), 1.0f * ex_renderer_scale(r), ex_theme_color(t, EX_COLOR_BORDER));
+            if (ex_text_metrics(r, o->font, o->size, &m) == 0) ty = y + (o->h - (float)m.line_height) / 2.0f;
+            ex_text_fit(r, o->font, o->size, o->text, o->len, o->w - 24.0f * ex_renderer_scale(r), fit, sizeof fit);
+            ex_text_draw(r, o->font, o->size, x + 12.0f * ex_renderer_scale(r), ty, fit, strlen(fit), ex_theme_color(t, o->media == 6 ? EX_COLOR_TEXT_MUTED : EX_COLOR_LINK));
             break;
         }
         case OP_RECT: break;

@@ -27,6 +27,7 @@ struct ExImageCache {
     unsigned long frame;
     ExRenderer *owner;             /* the window the textures belong to (a texture is drawn only by the renderer that made it) */
     size_t requests, rows, evictions;
+    unsigned long version;
 };
 
 static char *dups(const char *s) { size_t n = strlen(s); char *p = malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
@@ -53,6 +54,8 @@ void ex_imagecache_free(ExImageCache *c) {
 }
 
 void ex_imagecache_set_loader(ExImageCache *c, void (*want)(void *user, const char *path, int svg_width), void *user) { if (c) { c->want = want; c->user = user; } }
+
+unsigned long ex_imagecache_version(const ExImageCache *c) { return c ? c->version : 0; }
 
 int ex_imagecache_svg_bucket(int px) { int b = 256; while (b < px && b < 4096) b *= 2; return b; }
 
@@ -115,11 +118,12 @@ void ex_imagecache_result(ExImageCache *c, const char *path, int svg_width, ExIm
     if (!e) { if (img) ex_image_free(img); return; }                       /* it was dropped while the service worked */
     ex_image_free(&e->img);
     if (e->tex) { c->bytes -= (size_t)e->w * (size_t)e->h * 4; ex_texture_free(e->tex); e->tex = NULL; }
-    if (!img || !img->rgba) { e->state = EX_IMAGE_FAILED; snprintf(e->err, sizeof e->err, "%s", err && *err ? err : "this picture cannot be opened"); return; }
+    if (!img || !img->rgba) { c->version++; e->state = EX_IMAGE_FAILED; snprintf(e->err, sizeof e->err, "%s", err && *err ? err : "this picture cannot be opened"); return; }
     e->img = *img;                                                       /* the cache owns the pixels now */
     memset(img, 0, sizeof *img);
     e->w = e->img.w; e->h = e->img.h; e->src_w = e->img.src_w; e->src_h = e->img.src_h; e->has_alpha = e->img.has_alpha;
     e->rows_done = 0;
+    c->version++;
     e->state = EX_IMAGE_LOADING;                                         /* ready when the first rows are on the card (pump) */
 }
 

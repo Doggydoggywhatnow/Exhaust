@@ -374,7 +374,7 @@ void ex_pdfview_draw(ExUi *ui, ExWidget *w) {
     const ExTheme *t;
     ExFont *f;
     ExFontMetrics fm;
-    ExColor c_bg, c_text, c_muted, c_surface, c_border, c_accent;
+    ExColor c_bg, c_text, c_muted, c_surface, c_border, c_accent, c_sel;
     float sc, size, x, ox;
     double t0;
     char line[400];
@@ -386,6 +386,7 @@ void ex_pdfview_draw(ExUi *ui, ExWidget *w) {
     sc = ex_renderer_scale(r); size = ex_ui_base_size(ui);
     c_bg = ex_theme_color(t, EX_COLOR_BACKGROUND); c_text = ex_theme_color(t, EX_COLOR_TEXT); c_muted = ex_theme_color(t, EX_COLOR_TEXT_MUTED);
     c_surface = ex_theme_color(t, EX_COLOR_SURFACE); c_border = ex_theme_color(t, EX_COLOR_BORDER); c_accent = ex_theme_color(t, EX_COLOR_ACCENT);
+    c_sel = ex_theme_color(t, EX_COLOR_SELECTION); c_sel.a = 110;
     f = ex_ui_font(ui, EX_FONT_TOKEN_INTERFACE, 0);
     ex_text_metrics(r, f, size, &fm);
     ex_fill_rect(r, w->x, w->y, w->w, w->h, c_bg);
@@ -433,8 +434,8 @@ void ex_pdfview_draw(ExUi *ui, ExWidget *w) {
         int dw = (int)(pw + 0.5f), dh = (int)(ph + 0.5f);
         page_origin(v, i, in, ox, &px, &py);
         p->used = v->frame;
-        ex_fill_rect(r, px + 3.0f * sc, py + 3.0f * sc, pw, ph, (ExColor){ c_border.r, c_border.g, c_border.b, 90 });
-        ex_fill_rect(r, px, py, pw, ph, (ExColor){ 255, 255, 255, 255 });
+        { ExColor shadow = c_border; shadow.a = 90; ex_fill_rect(r, px + 3.0f * sc, py + 3.0f * sc, pw, ph, shadow); }
+        ex_fill_rect(r, px, py, pw, ph, c_surface);   /* the page's own bitmap (white paper) covers this once it is drawn */
         if (p->tex && fabsf(p->rscale - v->scale) / v->scale < 0.15f) ex_texture_draw(r, p->tex, 0, 0, 0, 0, px, py, pw, ph, 255, 1);
         else if (p->tex) ex_texture_draw(r, p->tex, 0, 0, 0, 0, px, py, pw, ph, 255, 1);            /* a texture of another scale: shown stretched until the new one is back */
         if ((!p->tex || fabsf(p->rscale - v->scale) / v->scale >= 0.12f) && (p->req_w != dw || p->req_h != dh) && dw > 0 && dh > 0 && dw <= 8000 && dh <= 8000) { ex_pdf_request_render(v->doc, i, dw, dh); p->req_w = dw; p->req_h = dh; }
@@ -450,9 +451,11 @@ void ex_pdfview_draw(ExUi *ui, ExWidget *w) {
                     if (!v->highlight_all && !is_cur) continue;
                     for (c = v->hits[k].start; c < v->hits[k].start + v->hits[k].count && (size_t)c < p->nchars; c++) {
                         float x0, y0, x1, y1;
+                        ExColor c_hit = c_accent;
+                        c_hit.a = is_cur ? 150 : 80;
                         to_screen(v, i, in, p->boxes[c * 4], p->boxes[c * 4 + 3], &x0, &y0, ox);
                         to_screen(v, i, in, p->boxes[c * 4 + 2], p->boxes[c * 4 + 1], &x1, &y1, ox);
-                        ex_fill_rect(r, x0, y0, x1 - x0, y1 - y0, (ExColor){ c_accent.r, c_accent.g, c_accent.b, is_cur ? 150 : 80 });
+                        ex_fill_rect(r, x0, y0, x1 - x0, y1 - y0, c_hit);
                     }
                 }
             }
@@ -463,7 +466,7 @@ void ex_pdfview_draw(ExUi *ui, ExWidget *w) {
                     if (p->chars[c] == 10 || p->chars[c] == 13) continue;
                     to_screen(v, i, in, p->boxes[c * 4], p->boxes[c * 4 + 3], &x0, &y0, ox);
                     to_screen(v, i, in, p->boxes[c * 4 + 2], p->boxes[c * 4 + 1], &x1, &y1, ox);
-                    ex_fill_rect(r, x0, y0, x1 - x0, y1 - y0, (ExColor){ 60, 120, 220, 110 });
+                    ex_fill_rect(r, x0, y0, x1 - x0, y1 - y0, c_sel);
                 }
             }
         }

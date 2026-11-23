@@ -199,7 +199,8 @@ void ex_panels_expand_queries(ExPanels *p, const char *path, const char *text, s
     QJob *j;
     int queries = ex_features_enabled(p->in.features, "search") && (strstr(text, "```query") || strstr(text, "~~~query"));
     int bases = ex_features_enabled(p->in.features, "bases") && (strstr(text, "```base") || strstr(text, "~~~base") || strstr(text, ".base]]") || strstr(text, ".base#") || strstr(text, ".base|"));
-    if (!p->index_ready || !(queries || bases)) return;
+    int embeds = strstr(text, "![[") != NULL;                                       /* the notes a note embeds (6c-v) */
+    if (!p->index_ready || !(queries || bases || embeds)) return;
     j = qjob_new(QJ_EXPAND, ++p->next_req);
     if (!j) return;
     j->a = dup_s(path);

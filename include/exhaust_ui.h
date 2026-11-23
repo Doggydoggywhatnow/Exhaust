@@ -155,6 +155,7 @@ ExWidget *ex_widget_editor(ExUi *ui, ExDoc *doc, const char *name);
  * and folds callouts). The text is copied; use ex_reading_set_text to show another or a changed one. */
 ExWidget *ex_widget_reading(ExUi *ui, const char *text, size_t len, const char *name);
 void ex_reading_set_text(ExWidget *w, const char *text, size_t len);
+void ex_reading_set_media(ExWidget *w, const ExReadingMedia *m);                 /* embedded pictures, audio, video, PDFs and canvases (6c-v) */
 void ex_reading_set_link_handler(ExWidget *w, void (*fn)(ExRSpanKind kind, const char *target, void *user), void *user);
 int ex_reading_internal_link_at(ExWidget *w, float x, float y, char *target, size_t cap);
 void ex_reading_scroll(ExWidget *w, float dy);

@@ -4,6 +4,7 @@
 
 #include "exhaust_base_index.h"
 #include "exhaust_audio.h"
+#include "exhaust_embed.h"
 #include "exhaust_mpv.h"
 #include "exhaust_pdf.h"
 #include "exhaust_image.h"
@@ -390,6 +391,11 @@ static void do_expand(QService *s, QJob *j, QRes *res) {
         size_t bl = 0;
         char *with_bases = ex_base_expand(s->r, s->root, j->a ? j->a : "", res->text, strlen(res->text), ex_platform_tz_offset_minutes(), (double)ex_platform_unix_time() * 1000.0, &bl);
         if (with_bases) { free(res->text); res->text = with_bases; }
+        {   /* the notes a note embeds (6c-v) */
+            size_t el = 0;
+            char *with_embeds = ex_embed_expand(s->r, s->root, j->a ? j->a : "", res->text, strlen(res->text), &el);
+            if (with_embeds) { free(res->text); res->text = with_embeds; }
+        }
     }
     snprintf(res->summary, sizeof res->summary, "%s", j->a ? j->a : "");
     res->ok = res->text != NULL;

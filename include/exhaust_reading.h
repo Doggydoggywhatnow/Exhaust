@@ -53,6 +53,21 @@ typedef struct ExRBlock {
     int task;                           /* 0 none, 1 open, 2 done, 3 other */
 } ExRBlock;
 
+/* What the reading view needs to draw embedded media (6c-v): see src/ui/reading_view.h. */
+struct ExImageCache;
+typedef struct ExReadingMedia {
+    void *user;
+    struct ExImageCache *images;                                           /* the pictures' textures (the view asks, never decodes) */
+    int (*resolve)(void *user, const char *name, char *path, size_t cap);  /* a file of the vault by the name written in the note: 1 with its path */
+    int (*audio_state)(void *user, const char *path);                      /* 0 not the one the player holds, 1 paused, 2 playing */
+} ExReadingMedia;
+
+/* Whether a name is an embeddable file by its extension: 1 image, 2 audio, 3 video, 4 PDF, 5 canvas, 0 not. */
+int ex_embed_media_kind(const char *name);
+/* Splits `name|size#fragment` as written in an embed: the file name (without the size and the fragment), the size part (`640x480` or `100`, or empty) and the
+ * fragment (after the #, or empty). Each out buffer may be NULL. */
+void ex_embed_split(const char *target, char *name, size_t ncap, char *size, size_t scap, char *frag, size_t fcap);
+
 typedef struct ExReading ExReading;
 
 /* Builds the reading model of a note's text (front matter, comments and footnote definitions removed from the flow). */
