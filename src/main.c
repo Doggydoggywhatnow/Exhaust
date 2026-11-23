@@ -13,6 +13,7 @@
 #include "exhaust_datefmt.h"
 #include "exhaust_templates.h"
 #include "exhaust_compose.h"
+#include "exhaust_slides.h"
 #include "exhaust_canvasview.h"
 #include "exhaust_baseview.h"
 #include "exhaust_imageview.h"
@@ -1354,6 +1355,62 @@ static void cmd_merge(void *u) {
     ex_panels_ask_text(a->panels, "Merge into another note", "Merge this note into (a note's name, or Folder/Name)", "", merge_target_done, a);
 }
 
+/* ---- slides (6e-iii) ---- */
+typedef struct SlideShow { App *a; ExId tab; char *text; size_t len; ExSlide *sl; size_t n, idx; ExWidget *w; } SlideShow;
+static void slideshow_free(void *p) { SlideShow *s = p; if (s) { free(s->text); ex_slides_free(s->sl); free(s); } }
+static void slide_go(SlideShow *s, size_t idx) {
+    char msg[200];
+    if (s->n == 0) { ex_reading_set_text(s->w, "", 0); set_status(s->a, "This note has nothing to present: put --- on a line of its own, with a blank line before it, between slides."); return; }
+    if (idx >= s->n) idx = s->n - 1;
+    s->idx = idx;
+    ex_reading_set_text(s->w, s->text + s->sl[idx].start, s->sl[idx].end - s->sl[idx].start);
+    ex_reading_set_scroll(s->w, 0);
+    snprintf(msg, sizeof msg, "Slide %zu of %zu. Right, Space or Page Down: next. Left or Page Up: back. Home and End: first and last. Escape: end.", idx + 1, s->n);
+    set_status(s->a, msg);
+}
+static int slide_key(ExWidget *w, ExKey key, int mods, void *user) {
+    SlideShow *s = user;
+    (void)w; (void)mods;
+    switch (key) {
+    case EX_KEY_RIGHT: case EX_KEY_PAGE_DOWN: case EX_KEY_SPACE: case EX_KEY_ENTER: if (s->idx + 1 < s->n) slide_go(s, s->idx + 1); return 1;
+    case EX_KEY_LEFT: case EX_KEY_PAGE_UP: case EX_KEY_BACKSPACE: if (s->idx > 0) slide_go(s, s->idx - 1); return 1;
+    case EX_KEY_HOME: slide_go(s, 0); return 1;
+    case EX_KEY_END: slide_go(s, s->n ? s->n - 1 : 0); return 1;
+    case EX_KEY_ESCAPE: ex_ws_close_tab(s->a->ws, s->tab); return 1;
+    default: return 0;
+    }
+}
+static ExWidget *make_slides(App *a, ExNote *n, const ExTab *t) {
+    SlideShow *s = calloc(1, sizeof *s);
+    ExWidget *rv;
+    if (!s) return NULL;
+    s->a = a; s->tab = t->id;
+    s->text = ex_buffer_text(ex_doc_buffer(ex_note_doc(n)), &s->len);
+    if (!s->text) { free(s); return NULL; }
+    if (ex_slides_split(s->text, s->len, &s->sl, &s->n) != 0) { slideshow_free(s); return NULL; }
+    rv = ex_widget_reading(a->ui, "", 0, t->path);
+    if (!rv) { slideshow_free(s); return NULL; }
+    s->w = rv;
+    ex_reading_set_page_scale(rv, 1.8f);
+    ex_reading_set_link_handler(rv, on_reading_link, a);
+    { ExReadingMedia rm; memset(&rm, 0, sizeof rm); rm.user = a; rm.images = a->icache; rm.resolve = embed_resolve; rm.audio_state = embed_audio_state; ex_reading_set_media(rv, &rm); }
+    rv->on_key = slide_key; rv->on_key_user = s;
+    rv->owned = s; rv->free_owned = slideshow_free;
+    if (!note_for_tab(a, t->id)) remember_tab_note(a, t->id, n);
+    slide_go(s, 0);
+    return rv;
+}
+/* slides.start-presentation: the open note, as slides in a tab of its own (the note's own tab stays). */
+static void cmd_slides_start(void *u) {
+    App *a = u;
+    ExId g = ex_ws_active_group(a->ws), t = ex_ws_group_active(a->ws, g);
+    const ExTab *tab = t ? ex_ws_tab(a->ws, t) : NULL;
+    ExId nt;
+    if (!tab || !tab->path[0] || ex_file_kind(tab->path) != EX_KIND_MARKDOWN) { set_status(a, "Open a note first: Start presentation shows the open note as slides."); return; }
+    nt = ex_ws_new_tab(a->ws, g, tab->path, "slides");
+    if (nt) a->focus_tab = nt;
+}
+
 /* bases.create-new-base: a new base beside the open note or in the vault folder (the canvas setting), with one table view; written at once. */
 static void cmd_new_base(void *u) {
     App *a = u;
@@ -1442,6 +1499,7 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
         return info_label(a, msg);
     }
     if (!strcmp(t->view, "base")) return make_base(a, n, res, t);              /* a .base file: its views over the vault (6b-iii) */
+    if (!strcmp(t->view, "slides")) return make_slides(a, n, t);               /* a note as slides, one at a time (6e-iii) */
     if (!strcmp(t->view, "canvas")) return make_canvas(a, n, res, t);          /* a .canvas file: its text is JSON, drawn as a board (6a) */
     if (is_reading(t->mode)) {                                                  /* reading mode: the note as formatted pages */
         size_t tl = 0;
@@ -2427,6 +2485,7 @@ static void register_features_and_commands(App *a) {
     ex_commands_bind(a->commands, "templates.insert-current-date", cmd_tpl_date, has_editor, a);
     ex_commands_bind(a->commands, "templates.insert-current-time", cmd_tpl_time, has_editor, a);
     ex_commands_bind(a->commands, "templates.insert-template", cmd_tpl_insert, has_editor, a);
+    ex_commands_bind(a->commands, "slides.start-presentation", cmd_slides_start, has_notes, a);
     ex_commands_bind(a->commands, "unique-note-creator.create-new-unique-note", cmd_unique_new, has_notes, a);
     ex_commands_bind(a->commands, "unique-note-creator.add-unique-internal-link", cmd_unique_link, has_editor, a);
     ex_commands_bind(a->commands, "note-composer.extract-current-selection", cmd_extract_selection, has_editor, a);
@@ -2818,7 +2877,8 @@ static void sync_ui(App *a) {
     if (a->findbar && ex_findbar_is_open(a->findbar)) { if (a->editor) ex_findbar_set_target(a->findbar, a->editor); ex_findbar_update(a->findbar); }
     if (a->diff_doc && a->banner_kind == BANNER_HISTORY && a->note != a->banner_note) { stop_showing_diff(a); free(a->hist_old); a->hist_old = NULL; banner_for_note(a, a->note); }   /* another tab: the comparison ends */
     if (a->note != a->banner_note && !a->diff_doc) banner_for_note(a, a->note);
-    if (a->focus_tab && a->focus_tab == t && c && c->type == EX_WIDGET_CANVAS) { ex_ui_set_focus(ui_of(a, c), c); a->focus_tab = 0; }       /* a canvas takes the keyboard when its tab is shown (6a) */
+    if (a->focus_tab && a->focus_tab == t && c && c->on_key == slide_key) { ex_ui_set_focus(ui_of(a, c), c); a->focus_tab = 0; }       /* the slides take the keyboard (6e-iii) */
+    else if (a->focus_tab && a->focus_tab == t && c && c->type == EX_WIDGET_CANVAS) { ex_ui_set_focus(ui_of(a, c), c); a->focus_tab = 0; }       /* a canvas takes the keyboard when its tab is shown (6a) */
     else if (a->focus_tab && a->focus_tab == t && a->editor) { if (!(a->title && !a->title->hidden && a->note && !ex_note_exists_on_disk(a->note))) ex_ui_set_focus(ui_of(a, a->editor), a->editor); a->focus_tab = 0; }   /* a new note keeps the focus on its title */
     else if (a->focus_tab && !ex_ws_tab(a->ws, a->focus_tab)) a->focus_tab = 0;
 }

@@ -52,6 +52,7 @@ struct ExReadingView {
     ExReadingLinkFn on_link; void *link_user;
     int press_link, press_toggle;
     float base_size;
+    float page_scale;                  /* 1, or the factor of the slides' larger text: the page gets wider with it */
     ExReadingMedia media;
     unsigned long img_version;
     ExMathCache *math;                 /* layouts of equations, kept between layouts (6d-i) */
@@ -145,6 +146,7 @@ static void clamp_scroll(ExReadingView *v) {
 }
 void ex_readingview_column(const ExReadingView *v, float *x, float *w) { *x = v->col_x; *w = v->col_w; }
 void ex_readingview_set_head(ExReadingView *v, float px) { if (px < 0) px = 0; if (px != v->head) { v->head = px; v->dirty = 1; } }
+void ex_readingview_set_page_scale(ExReadingView *v, float f) { if (v && f > 0 && f != v->page_scale) { v->page_scale = f; v->dirty = 1; } }
 void ex_readingview_scroll(ExReadingView *v, float dy) { v->scroll += dy; clamp_scroll(v); }
 void ex_readingview_set_scroll(ExReadingView *v, float y) { v->scroll = y; clamp_scroll(v); }
 
@@ -448,7 +450,7 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
     Lay L;
     size_t i, nb = v->model ? ex_reading_block_count(v->model) : 0;
     float scale = ex_renderer_scale(r), pad = 18.0f * scale, col_w, x0, em;
-    float readable = 720.0f * scale;
+    float readable = 720.0f * scale * (v->page_scale > 0 ? v->page_scale : 1.0f);
     free(v->ops); v->ops = NULL; v->nops = v->capops = 0;
     free(v->back); v->back = NULL; v->nback = v->capback = 0;
     for (i = 0; i < v->nowned; i++) free(v->owned[i]);

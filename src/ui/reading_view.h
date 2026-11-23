@@ -26,6 +26,7 @@ void ex_readingview_set_viewport(ExReadingView *v, float x, float y, float w, fl
 void ex_readingview_column(const ExReadingView *v, float *x, float *w);   /* left offset and width for a header whose text lines up with the page (after a layout; w is 0 before) */
 void ex_readingview_set_head(ExReadingView *v, float px);   /* room above the first block for a header widget that scrolls with the page */
 void ex_readingview_scroll(ExReadingView *v, float dy);
+void ex_readingview_set_page_scale(ExReadingView *v, float f);   /* the readable width of the page grows with the text (slides); the text size itself comes with draw's base_size */
 float ex_readingview_scroll_y(const ExReadingView *v);
 void ex_readingview_set_scroll(ExReadingView *v, float y);
 /* Lays out (if needed) for the viewport width and draws. */

@@ -161,6 +161,8 @@ int ex_reading_internal_link_at(ExWidget *w, float x, float y, char *target, siz
 void ex_reading_scroll(ExWidget *w, float dy);
 float ex_reading_scroll_y(const ExWidget *w);
 void ex_reading_set_scroll(ExWidget *w, float y);
+/* The text and the width of the page grow by this factor (1 = as usual): the slides use it (6e-iii). */
+void ex_reading_set_page_scale(ExWidget *w, float f);
 /* The file explorer's tree: shows ex_vault_row() rows with chevrons, keeps a selection,
  * and calls on_open for a file. Up and Down move the selection, Right and Left open
  * and close folders (Left on a closed folder or a file goes to its folder), Enter opens. */

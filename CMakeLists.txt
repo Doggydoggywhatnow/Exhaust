@@ -267,7 +267,7 @@ add_library(exhaust_spell STATIC src/spell/spell.c src/spell/words.c src/spell/b
 target_include_directories(exhaust_spell PUBLIC include)
 target_link_libraries(exhaust_spell PUBLIC pcre2_8 exhaust_markdown SDL3::SDL3-static)
 
-add_library(exhaust_markdown STATIC src/markdown/html.c src/markdown/markdown.c src/markdown/md_inline.c src/markdown/reading.c third_party/md4c/md4c.c)
+add_library(exhaust_markdown STATIC src/markdown/html.c src/markdown/markdown.c src/markdown/md_inline.c src/markdown/reading.c src/markdown/slides.c third_party/md4c/md4c.c)
 target_include_directories(exhaust_markdown PRIVATE src/markdown third_party/md4c)
 set_source_files_properties(third_party/md4c/md4c.c PROPERTIES COMPILE_OPTIONS "$<$<NOT:$<C_COMPILER_ID:MSVC>>:-w>")
 target_include_directories(exhaust_markdown PUBLIC include)
@@ -1039,6 +1039,10 @@ target_link_libraries(test_mermaid PRIVATE exhaust_ui exhaust_render exhaust_dia
 target_include_directories(test_mermaid PRIVATE src/ui)
 add_test(NAME mermaid_basic COMMAND test_mermaid ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid)
 add_test(NAME mermaid_more COMMAND test_mermaid ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid --more)
+
+add_executable(test_slides tests/test_slides.c)
+target_link_libraries(test_slides PRIVATE exhaust_markdown)
+add_test(NAME slides COMMAND test_slides)
 
 add_executable(test_compose tests/test_compose.c)
 target_link_libraries(test_compose PRIVATE exhaust_index exhaust_templates exhaust_platform)
