@@ -405,6 +405,13 @@ static int block_command(ExDoc *d, ExFormat f) {
             else { cl_add(&l, pos, 0, "\n\n---", 5); after.anchor = after.head = pos + 5; }
             break;
         }
+        case EX_FMT_BASE: {                                              /* where the caret is: on a blank line the line becomes the block, else the block follows the line */
+            static const char blk[] = "```base\nviews:\n  - type: table\n    name: Table\n```";
+            size_t pos = line_end(&x, la), bl = sizeof blk - 1;
+            if (a == b && is_blank(x.t + st, pos - st)) { cl_add(&l, st, pos - st, blk, bl); after.anchor = after.head = st + bl; }
+            else { char *two = malloc(bl + 3); if (!two) break; memcpy(two, "\n\n", 2); memcpy(two + 2, blk, bl); cl_add(&l, pos, 0, two, bl + 2); free(two); after.anchor = after.head = pos + bl + 2; }
+            break;
+        }
         case EX_FMT_CODE_BLOCK:
         case EX_FMT_MATH_BLOCK: {
             const char *o = f == EX_FMT_CODE_BLOCK ? "```\n" : "$$\n", *c = f == EX_FMT_CODE_BLOCK ? "\n```" : "\n$$";
@@ -630,7 +637,7 @@ int ex_doc_format(ExDoc *d, ExFormat f, const ExFormatOptions *opt) {
     case EX_FMT_MOVE_LINE_UP: return move_lines(d, 0);
     case EX_FMT_MOVE_LINE_DOWN: return move_lines(d, 1);
     case EX_FMT_DELETE_PARAGRAPH: return delete_paragraph(d);
-    case EX_FMT_HR: case EX_FMT_CODE_BLOCK: case EX_FMT_CALLOUT: case EX_FMT_MATH_BLOCK: case EX_FMT_TABLE: case EX_FMT_FOOTNOTE:
+    case EX_FMT_HR: case EX_FMT_CODE_BLOCK: case EX_FMT_CALLOUT: case EX_FMT_MATH_BLOCK: case EX_FMT_TABLE: case EX_FMT_FOOTNOTE: case EX_FMT_BASE:
         return block_command(d, f);
     case EX_FMT_MD_LINK: return surround(d, "[", "]()", 1);
     case EX_FMT_INTERNAL_LINK: return surround(d, "[[", "]]", 2);

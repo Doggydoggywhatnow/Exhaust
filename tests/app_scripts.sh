@@ -517,7 +517,7 @@ printf 'wait 1500\nmove 400 160\ndown 400 160\nup 400 160\nmove 400 160\ndown 40
 EXHAUST_OPEN=Board.canvas EXHAUST_SCRIPT="$work/canvas_edit.script" $lim "$exe" "$vault" >"$work/canvas_edit.log" 2>&1
 if grep -q '"text":"Hello canvas"' "$vault/Board.canvas" && grep -q '"zIndex":3' "$vault/Board.canvas" && grep -q '"meta":{"keep":\[1,2.50\]}' "$vault/Board.canvas" && grep -q '"text":"First"' "$vault/Board.canvas"; then echo "ok: a double click made a text card, the text typed in it was saved, and the keys the file had were kept"; else echo "FAILED: the canvas edit ($(cat "$vault/Board.canvas" | tr '\n\t' '  '))"; fail=1; fi
 # the view was written to the session
-if find "$work/data" "$work/home" -name session.ini 2>/dev/null | xargs grep -l 'view\.Board\.canvas' >/dev/null 2>&1; then echo "ok: the view of the canvas is in the session"; else echo "FAILED: the view of the canvas is not in the session"; fail=1; fi
+if find "$work" -name session.ini -newer "$work/canvas_edit.script" 2>/dev/null | xargs grep -l 'view\.Board\.canvas' >/dev/null 2>&1; then echo "ok: the view of the canvas is in the session"; else echo "FAILED: the view of the canvas is not in the session"; fail=1; fi
 # a canvas that is not valid JSON is never changed, whatever is done in it
 reset_state
 canvas_vault canvas_broken
@@ -531,6 +531,33 @@ canvas_vault canvas_new
 printf 'wait 1200\nkey mod+p\nwait 400\ntext create new canvas\nwait 400\nkey enter\nwait 1200\nmove 400 160\ndown 400 160\nup 400 160\nmove 400 160\ndown 400 160\nup 400 160\nwait 400\ntext Brand new\nwait 300\nkey escape\nwait 2200\nquit\n' > "$work/canvas_new.script"
 EXHAUST_OPEN=Home.md EXHAUST_SCRIPT="$work/canvas_new.script" $lim "$exe" "$vault" >"$work/canvas_new.log" 2>&1
 if [ -f "$vault/Untitled.canvas" ] && grep -q '"text":"Brand new"' "$vault/Untitled.canvas" && grep -q '"edges":\[\]' "$vault/Untitled.canvas"; then echo "ok: Create new canvas made Untitled.canvas, written when the first card was added"; else echo "FAILED: the new canvas ($(ls "$vault"); $(cat "$vault/Untitled.canvas" 2>/dev/null | tr '\n\t' '  '))"; fail=1; fi
+reset_state
+
+# bases (6b-iii): a .base file opens as a table and is never rewritten by opening it (comments, unknown keys and odd spacing stay byte for byte); Create new base
+# from the command palette makes Untitled.base with one table view; a base block in a note is shown in reading mode without changing the note
+bases_vault() {   # name: a vault with Notes.base (a comment, an unknown key) and a few notes with properties
+    vault="$work/$1"; rm -rf "$vault"; mkdir -p "$vault"
+    printf -- '---\nstatus: Done\nprice: 3\n---\n# One\n' > "$vault/One.md"
+    printf -- '---\nstatus: Planned\nprice: 4\n---\n# Two\n' > "$vault/Two.md"
+    printf '# a comment\nfilters:   file.ext == "md"\nviews:\n  - {type: table, name: "All  notes", order: [file.name, status, price]}\nkeep: [1,   2]\n' > "$vault/Notes.base"
+    printf 'Text\n\n```base\nviews:\n  - type: list\n    order: [file.name]\n```\n' > "$vault/Embed.md"
+}
+reset_state
+bases_vault bases_open
+cp "$vault/Notes.base" "$work/bases_open.orig"; cp "$vault/Embed.md" "$work/bases_embed.orig"
+printf 'wait 2500\nmove 400 160\nwheel 400 300 -3\nwait 500\nquit\n' > "$work/bases_open.script"
+EXHAUST_OPEN=Notes.base EXHAUST_SCRIPT="$work/bases_open.script" $lim "$exe" "$vault" >"$work/bases_open.log" 2>&1
+if cmp -s "$vault/Notes.base" "$work/bases_open.orig"; then echo "ok: a base that was only opened and scrolled is byte for byte as it was"; else echo "FAILED: opening a base changed it ($(cat "$vault/Notes.base"))"; fail=1; fi
+reset_state
+bases_vault bases_embed
+printf 'wait 2500\nquit\n' > "$work/bases_embed.script"
+EXHAUST_OPEN=Embed.md EXHAUST_SCRIPT="$work/bases_embed.script" $lim "$exe" "$vault" >"$work/bases_embed.log" 2>&1
+if cmp -s "$vault/Embed.md" "$work/bases_embed.orig"; then echo "ok: a note with a base block is not changed by showing it"; else echo "FAILED: a note with a base block was changed"; fail=1; fi
+reset_state
+bases_vault bases_new
+printf 'wait 1200\nkey mod+p\nwait 400\ntext create new base\nwait 400\nkey enter\nwait 1500\nquit\n' > "$work/bases_new.script"
+EXHAUST_OPEN=One.md EXHAUST_SCRIPT="$work/bases_new.script" $lim "$exe" "$vault" >"$work/bases_new.log" 2>&1
+if [ -f "$vault/Untitled.base" ] && grep -q 'type: table' "$vault/Untitled.base"; then echo "ok: Create new base made Untitled.base with a table view"; else echo "FAILED: the new base ($(ls "$vault"); $(cat "$vault/Untitled.base" 2>/dev/null | tr '\n' ' '))"; fail=1; fi
 reset_state
 
 exit $fail

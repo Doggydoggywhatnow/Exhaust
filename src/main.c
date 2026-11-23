@@ -11,6 +11,7 @@
 #include "exhaust.h"
 #include "exhaust_commands.h"
 #include "exhaust_canvasview.h"
+#include "exhaust_baseview.h"
 #include "exhaust_graphview.h"
 #include "exhaust_history.h"
 #include "exhaust_layouts.h"
@@ -79,6 +80,7 @@ typedef struct App {
     ExWidget *title;               /* the inline title of the active tab (a child of its editor), or NULL */
     ExGraphModel *gm;              /* the graph's data and layout, while a graph tab exists */
     ExGraphModel *gm_local;        /* the local graph's (5c), while a local graph tab exists */
+    unsigned long base_gen_seen;   /* the index generation the open bases were run at (6b-iii) */
     ExCanvasCache *ccache;         /* the start of the notes that canvas cards show (6a) */
     ExGraphOptions gopts;          /* the graph's settings (5b): filters, groups, forces, display; kept in the session's [graph] section */
     char *graph_note;              /* the note last open in a tab: drawn in the focus color (the graph's own tab is not a note) */
@@ -769,11 +771,127 @@ static void canvas_save_views(App *a) {
     }
 }
 
+/* ---- the Bases view (6b-iii) ---- */
+
+static unsigned long base_run(void *u, const char *text, size_t len, size_t view, const char *this_path) { App *a = u; return a->panels ? ex_panels_run_base(a->panels, text, len, view, this_path) : 0; }
+static void base_open_file(void *u, const char *path, int new_tab) { host_open_note(u, path, (size_t)-1, new_tab); }
+static void base_message(void *u, const char *text) { set_status(u, text); }
+
+/* Export as CSV: a save dialog comes with the PDF export (6e); until then the file is written beside the base, under a name that is not taken. */
+static int base_export_file(void *u, const char *name, const char *data, size_t len) {
+    App *a = u;
+    ExId t = a->ws ? ex_ws_group_active(a->ws, ex_ws_active_group(a->ws)) : 0;
+    const ExTab *tab = t ? ex_ws_tab(a->ws, t) : NULL;
+    char rel[1100], full[1700], parent[600] = "", stem[300], msg[1300];
+    const char *dot;
+    ExSaveResult sr;
+    int n;
+    if (!a->vault || !tab) return -1;
+    if (strrchr(tab->path, '/')) snprintf(parent, sizeof parent, "%.*s", (int)(strrchr(tab->path, '/') - tab->path), tab->path);
+    dot = strrchr(name, '.');
+    snprintf(stem, sizeof stem, "%.*s", (int)(dot ? (size_t)(dot - name) : strlen(name)), name);
+    for (n = 0; n < 1000; n++) {
+        char fn[400];
+        if (n) snprintf(fn, sizeof fn, "%s %d.csv", stem, n); else snprintf(fn, sizeof fn, "%s.csv", stem);
+        snprintf(rel, sizeof rel, "%s%s%s", parent, parent[0] ? "/" : "", fn);
+        snprintf(full, sizeof full, "%s/%s", ex_vault_path(a->vault), rel);
+        if (!ex_platform_file_exists(full)) break;
+    }
+    if (n >= 1000) return -1;
+    if (ex_platform_save_file(full, data, len, &sr) != 0) return -1;
+    ex_vault_rescan(a->vault);
+    snprintf(msg, sizeof msg, "Exported %s.", rel);
+    set_status(a, msg);
+    return 0;
+}
+
+static void host_base_result(void *u, unsigned long req, ExBaseResult *result, const char *error) {
+    App *a = u;
+    size_t i, nt = a->ws ? ex_ws_tab_count(a->ws) : 0;
+    for (i = 0; a->panes && i < nt; i++) {
+        const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
+        ExWidget *c = t ? ex_panes_content(a->panes, t->id) : NULL;
+        if (c && c->type == EX_WIDGET_BASE && ex_baseview_owns_request(c, req)) { ex_baseview_set_result(c, req, result, error); return; }
+    }
+    ex_baseresult_free_heap(result);                                         /* its tab was closed while it ran */
+}
+
+static ExWidget *make_base(App *a, ExNote *n, ExOpenResult res, const ExTab *t) {
+    ExBaseViewHandlers h;
+    ExWidget *bw;
+    memset(&h, 0, sizeof h);
+    h.user = a; h.panels = a->panels; h.run = base_run; h.open_file = base_open_file; h.open_url = canvas_open_url; h.message = base_message; h.export_file = base_export_file;
+    bw = ex_widget_base(a->ui, ex_note_doc(n), t->path, &h);
+    if (!bw) return NULL;
+    if (!note_for_tab(a, t->id)) remember_tab_note(a, t->id, n);
+    if (res == EX_OPEN_RECOVERED) show_banner(a, BANNER_RECOVERED, "Exhaust closed unexpectedly. The changes you made to this base were restored from the recovery journal.", "OK", NULL, NULL);
+    a->banner_note = n;
+    return bw;
+}
+
+/* Every frame: when the index changed, the bases that are open run again; every pane's bases, not only the active one. */
+static void bases_follow_index(App *a) {
+    size_t i, nt;
+    unsigned long g;
+    if (!a->panels || !a->panes) return;
+    g = ex_panels_index_generation(a->panels);
+    if (g == a->base_gen_seen) return;
+    a->base_gen_seen = g;
+    nt = ex_ws_tab_count(a->ws);
+    for (i = 0; i < nt; i++) {
+        const ExTab *t = ex_ws_tab(a->ws, ex_ws_tab_at(a->ws, i));
+        ExWidget *c = t && t->view && !strcmp(t->view, "base") ? ex_panes_content(a->panes, t->id) : NULL;
+        if (c && c->type == EX_WIDGET_BASE) ex_baseview_invalidate(c);
+    }
+}
+
 /* The canvas widget of the active tab, or NULL. */
 static ExWidget *active_canvas(App *a) {
     ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
     ExWidget *c = t && a->panes ? ex_panes_content(a->panes, t) : NULL;
     return c && c->type == EX_WIDGET_CANVAS ? c : NULL;
+}
+static ExWidget *active_base(App *a) {
+    ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+    ExWidget *c = t && a->panes ? ex_panes_content(a->panes, t) : NULL;
+    return c && c->type == EX_WIDGET_BASE ? c : NULL;
+}
+static void format_cmd(App *a, ExFormat f);
+static int has_base(void *u) { return active_base(u) != NULL; }
+static void cmd_base_add_view(void *u) { ExWidget *b = active_base(u); if (b) ex_baseview_add_view(b, "table"); }
+static void cmd_base_switch_view(void *u) { ExWidget *b = active_base(u); if (b) ex_baseview_view_menu(b); }
+static void cmd_base_copy(void *u) { ExWidget *b = active_base(u); if (b) ex_baseview_copy(b); }
+static void cmd_base_insert(void *u) { format_cmd(u, EX_FMT_BASE); }
+/* bases.create-new-base: a new base beside the open note or in the vault folder (the canvas setting), with one table view; written at once. */
+static void cmd_new_base(void *u) {
+    App *a = u;
+    char parent[600] = "";
+    ExNote *n;
+    static const char text[] = "views:\n  - type: table\n    name: Table\n";
+    ExChange ch;
+    if (!a->notes || !a->vault) return;
+    {
+        ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+        const ExTab *tab = t ? ex_ws_tab(a->ws, t) : NULL;
+        if (tab && tab->path[0] && strrchr(tab->path, '/')) snprintf(parent, sizeof parent, "%.*s", (int)(strrchr(tab->path, '/') - tab->path), tab->path);
+    }
+    n = ex_notes_new_file(a->notes, parent, "Untitled", "base");
+    if (!n) return;
+    ch.offset = 0; ch.remove_len = 0; ch.text = text; ch.text_len = sizeof text - 1;
+    ex_doc_apply(ex_note_doc(n), &ch, 1, 0, NULL, 0);
+    open_path(a, 0, ex_note_path(n));
+}
+/* bases.add-item: a new note beside the base (the view's filters are not applied to it in 0.1.0). */
+static void cmd_base_add_item(void *u) {
+    App *a = u;
+    ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+    const ExTab *tab = t ? ex_ws_tab(a->ws, t) : NULL;
+    char parent[600] = "";
+    ExNote *n;
+    if (!a->notes || !a->vault) return;
+    if (tab && tab->path[0] && strrchr(tab->path, '/')) snprintf(parent, sizeof parent, "%.*s", (int)(strrchr(tab->path, '/') - tab->path), tab->path);
+    n = ex_notes_new(a->notes, parent, "Untitled");
+    if (n) open_path(a, 0, ex_note_path(n));
 }
 static int has_canvas(void *u) { return active_canvas(u) != NULL; }
 static int has_canvas_selection(void *u) { ExWidget *c = active_canvas(u); return c && ex_canvasview_has_selection(c); }
@@ -827,6 +945,7 @@ static ExWidget *make_content(ExPanes *p, const ExTab *t, void *user) {
                                  : res == EX_OPEN_NOT_FOUND ? "%s does not exist any more. Close this tab, or restore the file." : "%s could not be opened.", t->path);
         return info_label(a, msg);
     }
+    if (!strcmp(t->view, "base")) return make_base(a, n, res, t);              /* a .base file: its views over the vault (6b-iii) */
     if (!strcmp(t->view, "canvas")) return make_canvas(a, n, res, t);          /* a .canvas file: its text is JSON, drawn as a board (6a) */
     if (is_reading(t->mode)) {                                                  /* reading mode: the note as formatted pages */
         size_t tl = 0;
@@ -887,6 +1006,7 @@ static void open_path(App *a, ExId group, const char *rel) {
     ExId t = ex_ws_find_tab(a->ws, rel);
     if (t) { ex_ws_activate(a->ws, t); a->focus_tab = t; return; }
     if (ex_file_kind(rel) == EX_KIND_CANVAS) { t = ex_ws_new_tab(a->ws, group, rel, "canvas"); a->focus_tab = t; return; }
+    if (ex_file_kind(rel) == EX_KIND_BASE && (!a->features || ex_features_enabled(a->features, "bases"))) { t = ex_ws_new_tab(a->ws, group, rel, "base"); a->focus_tab = t; return; }
     t = ex_ws_new_tab(a->ws, group, rel, "note");
     if (t && strcmp(ex_settings_get(a->settings, "editor", "default_view"), "reading") == 0) ex_ws_set_tab_mode(a->ws, t, "reading");
     else if (t && strcmp(ex_settings_get(a->settings, "editor", "default_mode"), "source") == 0) ex_ws_set_tab_mode(a->ws, t, "source");
@@ -1784,6 +1904,7 @@ static void register_features_and_commands(App *a) {
     ex_features_register(a->features, "files", "Files", on_files_feature, a);
     ex_features_register(a->features, "graph", "Graph view", on_graph_feature, a);
     ex_features_register(a->features, "canvas", "Canvas", on_graph_feature, a);
+    ex_features_register(a->features, "bases", "Bases", NULL, a);
     on_files_feature("files", ex_features_enabled(a->features, "files"), a);
     ex_features_register(a->features, "slash_commands", "Slash commands", NULL, a);
     ex_features_register(a->features, "word_count", "Word count", on_wordcount_feature, a);
@@ -1791,6 +1912,12 @@ static void register_features_and_commands(App *a) {
     a->commands = ex_commands_create(a->features);
     ex_commands_bind(a->commands, "graph-view.open-graph-view", cmd_open_graph, NULL, a);
     ex_commands_bind(a->commands, "app.open-settings", cmd_open_settings, NULL, a);
+    ex_commands_bind(a->commands, "bases.create-new-base", cmd_new_base, has_notes, a);
+    ex_commands_bind(a->commands, "bases.add-view", cmd_base_add_view, has_base, a);
+    ex_commands_bind(a->commands, "bases.switch-view", cmd_base_switch_view, has_base, a);
+    ex_commands_bind(a->commands, "bases.copy-table-to-clipboard", cmd_base_copy, has_base, a);
+    ex_commands_bind(a->commands, "bases.add-item", cmd_base_add_item, has_base, a);
+    ex_commands_bind(a->commands, "bases.insert-new-base", cmd_base_insert, has_editor, a);
     ex_commands_bind(a->commands, "canvas.create-new-canvas", cmd_new_canvas, has_notes, a);
     ex_commands_bind(a->commands, "canvas.add-text-card", cmd_canvas_add_text, has_canvas, a);
     ex_commands_bind(a->commands, "canvas.add-note-card", cmd_canvas_add_note, has_canvas, a);
@@ -2103,6 +2230,7 @@ static void sync_title(App *a) {
 static void sync_ui(App *a) {
     ExId g, t;
     ExWidget *c;
+    bases_follow_index(a);
     ex_sidebar_sync(a->left_sb);
     ex_sidebar_sync(a->right_sb);
     {   /* the main text view squeezed to less than a character's width is hidden; the two divider strips next to it are its handle (GitHub issue 2) */
@@ -2501,7 +2629,7 @@ static void host_query_results(void *u, const char *path, const char *expanded) 
 }
 
 static void host_message(void *u, const char *text) { set_status(u, text); }
-static void host_flush(void *u) { App *a = u; ExWidget *cv = a->panes ? active_canvas(a) : NULL; if (cv) ex_canvasview_commit(cv); if (a->notes) ex_notes_flush(a->notes); }
+static void host_flush(void *u) { App *a = u; ExWidget *cv = a->panes ? active_canvas(a) : NULL; if (cv) ex_canvasview_commit(cv); { ExWidget *bv = active_base(a); if (bv) ex_baseview_commit(bv); } if (a->notes) ex_notes_flush(a->notes); }
 
 static void host_open_note(void *u, const char *path, size_t offset, int new_tab) {
     App *a = u;
@@ -2970,7 +3098,7 @@ int main(int argc, char **argv) {
         pi.host.user = &app;
         pi.host.open_note = host_open_note; pi.host.active_path = host_active_path; pi.host.active_text = host_active_text; pi.host.read_text = host_read_text;
         pi.host.replace_text = host_replace_text; pi.host.select_range = host_select_range; pi.host.move_file = host_move_file; pi.host.file_op = host_file_op; pi.host.message = host_message;
-        pi.host.history_version = host_history_version; pi.host.file_text = host_file_text; pi.host.graph_data = host_graph_data; pi.host.local_graph_data = host_local_graph_data; pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
+        pi.host.history_version = host_history_version; pi.host.file_text = host_file_text; pi.host.base_result = host_base_result; pi.host.graph_data = host_graph_data; pi.host.local_graph_data = host_local_graph_data; pi.host.flush_notes = host_flush; pi.host.query_results = host_query_results; pi.host.active_version = host_active_version; pi.host.caret_offset = host_caret_offset;
         pi.wake = wake_ui;
         app.panels = ex_panels_create(&pi);
         if (app.panels) {
@@ -3147,9 +3275,9 @@ int main(int argc, char **argv) {
                     if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && app.panels && input_root == app.root) {
                         ExWidget *gw = ex_ui_widget_at(app.root, x, y), *cv = gw;
                         while (gw && gw->type != EX_WIDGET_GRAPH) gw = gw->parent;
-                        while (cv && cv->type != EX_WIDGET_CANVAS) cv = cv->parent;
+                        while (cv && cv->type != EX_WIDGET_CANVAS && cv->type != EX_WIDGET_BASE) cv = cv->parent;
                         ex_panels_pointer(app.panels, app.root, -1, -1, 0);
-                        if (gw) ex_graphview_context(gw, x, y); else if (cv) ex_canvasview_context(cv, x, y); else ex_panels_context_menu(app.panels, app.root, x, y);
+                        if (gw) ex_graphview_context(gw, x, y); else if (cv && cv->type == EX_WIDGET_BASE) ex_baseview_context(cv, x, y); else if (cv) ex_canvasview_context(cv, x, y); else ex_panels_context_menu(app.panels, app.root, x, y);
                     }
                 } else if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
                     Uint64 now = SDL_GetTicks();
@@ -3173,12 +3301,13 @@ int main(int argc, char **argv) {
                 float density = SDL_GetWindowPixelDensity(ex_renderer_window(app.r));
                 ExWidget *wheel_root = app.panels && ex_panels_modal(app.panels) ? ex_panels_overlay(app.panels) : app.root;
                 ExWidget *under = ex_ui_widget_at(wheel_root, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
-                while (under && !under->scrollable && (under->no_wheel || (under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE && under->type != EX_WIDGET_GRAPH && under->type != EX_WIDGET_CANVAS))) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
+                while (under && !under->scrollable && (under->no_wheel || (under->type != EX_WIDGET_EDITOR && under->type != EX_WIDGET_READING && under->type != EX_WIDGET_LIST && under->type != EX_WIDGET_TREE && under->type != EX_WIDGET_GRAPH && under->type != EX_WIDGET_CANVAS && under->type != EX_WIDGET_BASE))) under = under->parent;   /* the editor, reading view or list under the pointer, not only the active one */
                 if (under && under->parent && (under->parent->type == EX_WIDGET_EDITOR || under->parent->type == EX_WIDGET_READING)) under = under->parent;   /* over the title: the note scrolls */
                 if (!under && wheel_root == app.root && app.editor && pop_of_widget(&app, app.editor) == app.cur_pop) under = app.editor;
                 if (under && under->scrollable) ex_ui_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));                       /* a scroll box: the settings screens (7a) */
                 else if (under && under->type == EX_WIDGET_GRAPH) ex_graphview_wheel(under, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);   /* zoom about the pointer */
                 else if (under && under->type == EX_WIDGET_CANVAS) ex_canvasview_wheel(under, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);   /* pan, or zoom (the setting) */
+                else if (under && under->type == EX_WIDGET_BASE) ex_baseview_wheel(under, e.wheel.x, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
                 else if (under && under->type == EX_WIDGET_TREE) ex_tree_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 else if (under && under->type == EX_WIDGET_LIST) ex_list_scroll(under, -e.wheel.y * 3.0f * ex_list_row_height(under));
                 else if (under && under->type == EX_WIDGET_READING) ex_reading_scroll(under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));

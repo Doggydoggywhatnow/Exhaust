@@ -665,6 +665,9 @@ int ex_base_run(const ExBase *b, size_t view, const ExBaseData *data, const char
     }
     out->nrows = nrows;
     for (i = 0; i < nrows; i++) out->files[i] = &data->files[rows[i]];
+    out->paths = ex_arena_alloc(c.arena, (nrows ? nrows : 1) * sizeof *out->paths);
+    if (!out->paths) goto fail;
+    for (i = 0; i < nrows; i++) { out->paths[i] = ex_arena_strdup(c.arena, out->files[i]->path); if (!out->paths[i]) goto fail; }
     /* cells */
     out->cells = ex_arena_alloc(c.arena, (nrows * out->ncols > 0 ? nrows * out->ncols : 1) * sizeof *out->cells);
     if (!out->cells) goto fail;

@@ -51,6 +51,7 @@ struct ExPanels {
     unsigned long text_version; unsigned long text_seen_at; int text_dirty;
     unsigned long index_dirty_at;
     int index_ready;
+    unsigned long index_gen;       /* grows whenever the index changed (6b-iii: bases run again) */
     char *recent[16]; size_t nrecent;
     /* search */
     ExDoc *search_doc; ExWidget *search_field, *b_case, *b_collapse, *b_context, *b_sort;

@@ -139,6 +139,8 @@ int main(void) {
     /* blocks */
     T("text" S "", EX_FMT_HR, "text\n\n---" S "");
     T("" S "", EX_FMT_HR, "---" S "");
+    T("" S "", EX_FMT_BASE, "```base\nviews:\n  - type: table\n    name: Table\n```" S "");
+    T("text" S "", EX_FMT_BASE, "text\n\n```base\nviews:\n  - type: table\n    name: Table\n```" S "");
     T("" S "x" E "", EX_FMT_CODE_BLOCK, "```\n" S "x" E "\n```");
     T("" S "", EX_FMT_CODE_BLOCK, "```\n" S "\n```");
     T("" S "x" E "", EX_FMT_MATH_BLOCK, "$$\n" S "x" E "\n$$");

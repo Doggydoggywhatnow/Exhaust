@@ -13,6 +13,7 @@
 #include "exhaust_workspace.h"
 
 struct ExGraph;
+struct ExBaseResult;
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,6 +48,8 @@ typedef struct ExPanelsHost {
     void (*history_version)(void *user, const char *rel, const char *label, const char *old_text, size_t len, const char *diff);
     /* the start of a note a canvas card shows (6a), asked for with ex_panels_file_text: key is what was asked for, text NULL when it cannot be read */
     void (*file_text)(void *user, const char *key, const char *text);
+    /* a base view run (6b-iii), asked for with ex_panels_run_base: the callback takes the result (NULL: error holds the reason) */
+    void (*base_result)(void *user, unsigned long req, struct ExBaseResult *result, const char *error);
 } ExPanelsHost;
 
 typedef struct ExPanelsInit {
@@ -122,6 +125,11 @@ int ex_panels_context_menu(ExPanels *p, ExWidget *root, float x, float y);   /* 
 void ex_panels_expand_queries(ExPanels *p, const char *path, const char *text, size_t len);
 /* Asks the service thread for the start of a note (6a): `path`, `path#Heading` or `path#^block`; the answer goes to host.file_text. */
 void ex_panels_file_text(ExPanels *p, const char *key);
+/* Runs view `view` of the base file `text` over the vault on the service thread (6b-iii); this_path is what `this` stands for. Returns the request number the
+ * answer (host.base_result) carries, or 0 when the index is not ready. */
+/* Grows whenever the index changed (a note was saved and read again, the first index finished): views of the vault's data run again. */
+unsigned long ex_panels_index_generation(const ExPanels *p);
+unsigned long ex_panels_run_base(ExPanels *p, const char *text, size_t len, size_t view, const char *this_path);
 void ex_panels_open_switcher(ExPanels *p);
 void ex_panels_open_palette(ExPanels *p);
 void ex_panels_close_dialog(ExPanels *p);

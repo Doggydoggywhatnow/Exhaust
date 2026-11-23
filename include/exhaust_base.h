@@ -71,6 +71,7 @@ typedef struct ExBaseResult {
     size_t ncols; ExBaseColumn *cols;
     size_t nrows;
     const ExBaseFile **files;                                 /* the file of each row, in the order shown (by group when grouped) */
+    const char **paths;                                       /* the path of each row's file, in the result's arena (the files above belong to the data, which a view may outlive) */
     ExValue *cells;                                           /* nrows * ncols */
     size_t ngroups; ExBaseGroup *groups;                      /* none when the view does not group */
     size_t total;                                             /* the files that passed the filters, before `limit` */

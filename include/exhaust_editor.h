@@ -175,6 +175,7 @@ typedef enum ExFormat {
     EX_FMT_INDENT, EX_FMT_UNINDENT, EX_FMT_MOVE_LINE_UP, EX_FMT_MOVE_LINE_DOWN, EX_FMT_DELETE_PARAGRAPH,
     EX_FMT_HR, EX_FMT_CODE_BLOCK, EX_FMT_CALLOUT, EX_FMT_MATH_BLOCK, EX_FMT_TABLE, EX_FMT_FOOTNOTE,
     EX_FMT_MD_LINK, EX_FMT_INTERNAL_LINK, EX_FMT_EMBED, EX_FMT_TAG, EX_FMT_CLEAR,
+    EX_FMT_BASE,                                                    /* a new base block (6b-iii): a fenced `base` block with one table view */
     EX_FMT_COUNT
 } ExFormat;
 typedef struct ExFormatOptions { int use_tabs; int indent_width; } ExFormatOptions;   /* the settings indent_with_tabs and indent_width */

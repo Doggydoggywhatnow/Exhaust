@@ -159,6 +159,7 @@ ExWidget *ex_panels_bottom(ExPanels *p) { return p->bottom; }
 ExWidget *ex_panels_overlay(ExPanels *p) { return p->overlay ? p->overlay : p->preview; }
 int ex_panels_modal(const ExPanels *p) { return p->overlay != NULL; }
 int ex_panels_index_ready(const ExPanels *p) { return p->index_ready; }
+unsigned long ex_panels_index_generation(const ExPanels *p) { return p->index_gen; }
 
 static void graph_msg_ok(ExPanels *p, int button, void *arg) { (void)p; (void)button; (void)arg; }
 
@@ -228,6 +229,7 @@ void ex_panels_tree_changed(ExPanels *p) { if (p->indexer) ex_indexer_sync(p->in
 void ex_panels_files_moved(ExPanels *p, const char *from, const char *to) { if (p->bookmarks && ex_bookmarks_follow_rename(p->bookmarks, from, to)) p->views[V_BOOKMARKS].stale = 1; }
 
 static void mark_index_views_stale(ExPanels *p) {
+    p->index_gen++;
     p->views[V_BACKLINKS].stale = p->views[V_OUTGOING].stale = p->views[V_TAGS].stale = p->views[V_PROPS].stale = 1;
     if (p->views[V_SEARCH].rows.n || ex_ws_search_text(p->in.ws)[0]) p->views[V_SEARCH].stale = 1;
 }
@@ -433,6 +435,7 @@ void ex_panels_update(ExPanels *p) {
                 break;
             case QJ_HISTORY: history_result(p, r); break;
             case QJ_FILETEXT: if (p->in.host.file_text && r->rows.n) p->in.host.file_text(p->in.host.user, r->rows.v[0].text, r->ok ? r->text : NULL); break;
+            case QJ_BASE: if (p->in.host.base_result) { struct ExBaseResult *b = r->ok ? r->base : NULL; if (b) r->base = NULL; p->in.host.base_result(p->in.host.user, r->req, b, b ? NULL : r->summary); } break;
             case QJ_EXPAND: if (r->ok && r->text && p->in.host.query_results) p->in.host.query_results(p->in.host.user, r->summary, r->text); break;
             default: views_result(p, r); break;
             }
@@ -519,6 +522,19 @@ void ex_panels_file_text(ExPanels *p, const char *key) {
     if (!j) return;
     j->a = dup_s(key);
     send_job(p, j);
+}
+
+unsigned long ex_panels_run_base(ExPanels *p, const char *text, size_t len, size_t view, const char *this_path) {
+    QJob *j;
+    if (!p || !p->index_ready) return 0;
+    j = qjob_new(QJ_BASE, ++p->next_req);
+    if (!j) return 0;
+    j->a = dup_s(this_path ? this_path : "");
+    j->text = malloc(len + 1);
+    if (!j->text) { free(j->a); free(j); return 0; }
+    memcpy(j->text, text, len); j->text[len] = 0; j->len = len; j->i1 = (int)view;
+    send_job(p, j);
+    return j->req;
 }
 
 void ex_panels_pointer(ExPanels *p, ExWidget *root, float x, float y, int ctrl) {

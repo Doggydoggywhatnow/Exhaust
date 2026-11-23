@@ -435,6 +435,7 @@ int main(void) {
         free(deep);
     }
     E("\"ab\".repeat(1000000000)", "too long");
+    E("\"x\".repeat(500000).replace(/x/g, \"yyyyyyyyyyyyyyyyyy\")", "too long");                     /* the regular expression's objects are freed on this way out too (the fuzz job found a leak here) */
     E("[1,2,3,4,5,6,7,8,9,10].map([1,2,3,4,5,6,7,8,9,10].map([1,2,3,4,5,6,7,8,9,10].map([1,2,3,4,5,6,7,8,9,10].map([1,2,3,4,5,6,7,8,9,10].map([1,2,3,4,5,6,7,8,9,10].map([1,2,3,4,5,6,7,8,9,10].map(value)))))))", "takes too long");
     E("formula.c0", "too deeply"); T("formula.c10", "5");                                                   /* the formulas that call each other are limited in depth */
     S("[1,2,3].map(value * 2).join(\"+\")", "2+4+6");

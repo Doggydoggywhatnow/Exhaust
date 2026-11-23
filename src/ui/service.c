@@ -33,6 +33,7 @@ void qres_free(QRes *r) {
     free(r->text);
     ex_switcher_free(r->snapshot);
     if (r->graph) { ex_graph_free(r->graph); free(r->graph); }
+    if (r->base) { ex_base_result_free(r->base); free(r->base); }
     ex_rename_report_free(&r->report);
     free(r);
 }
@@ -386,6 +387,24 @@ static void do_expand(QService *s, QJob *j, QRes *res) {
     res->ok = res->text != NULL;
 }
 
+/* A base view run over the vault (6b-iii). */
+static void do_base(QService *s, QJob *j, QRes *res) {
+    char err[200] = "";
+    ExBase *b = ex_base_parse(j->text ? j->text : "", j->len, err, sizeof err);
+    ExBaseData data;
+    ExBaseResult *out;
+    res->ok = 0;
+    if (!b) { snprintf(res->summary, sizeof res->summary, "%s", err[0] ? err : "This base cannot be read."); return; }
+    out = calloc(1, sizeof *out);
+    if (out && ex_base_data_load(s->r, &data) == 0) {
+        if (ex_base_run(b, (size_t)j->i1, &data, j->a, (double)ex_platform_unix_time() * 1000.0, ex_platform_tz_offset_minutes(), out) == 0) { res->base = out; out = NULL; res->ok = 1; }
+        else snprintf(res->summary, sizeof res->summary, "This view could not be run.");
+        ex_base_data_free(&data);
+    } else snprintf(res->summary, sizeof res->summary, "The index is not ready.");
+    free(out);
+    ex_base_free(b);
+}
+
 /* File recovery (7e): the snapshots of a note, one snapshot with its changes, or clearing the history. No index needed. */
 static size_t differing_lines(const char *a, const char *b) {
     char *d = ex_diff_unified(a, b, "a", "b"), *line;
@@ -498,6 +517,7 @@ static void service_job(ExWorker *self, const ExMessage *m, void *user) {
     case QJ_PROPOP: do_propop(s, j, res); break;
     case QJ_LINKIT: do_linkit(s, j, res); break;
     case QJ_EXPAND: do_expand(s, j, res); break;
+    case QJ_BASE: do_base(s, j, res); break;
     case QJ_GRAPH:
         res->graph = calloc(1, sizeof *res->graph);
         if (res->graph && ex_graph_load(s->r, res->graph) == 0 && ex_graph_apply_options(s->r, s->root, &j->gopts, res->graph, NULL, res->summary, sizeof res->summary) == 0) {

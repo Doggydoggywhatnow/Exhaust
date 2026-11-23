@@ -11,6 +11,7 @@
 #include <SDL3/SDL.h>
 
 #include "exhaust_canvasview.h"
+#include "exhaust_baseview.h"
 #include "exhaust_panes.h"
 #include "exhaust_popwin.h"
 #include "exhaust_ui.h"
@@ -60,6 +61,8 @@ static ExWidget *big_content(ExPanes *p, const ExTab *tab, void *user) {
     ex_editor_set_wrap(e->editor, 1);
     return e;
 }
+
+static unsigned long base_budget_run(void *u, const char *text, size_t len, size_t view, const char *path) { unsigned long *n = u; (void)text; (void)len; (void)view; (void)path; return ++*n; }
 
 int main(void) {
     ExTheme theme;
@@ -237,6 +240,61 @@ int main(void) {
         ex_doc_free(cdoc);
         ex_canvascache_free(cc);
         free(js);
+    }
+    {   /* a big base (6b-iii): 20,000 files as a table, a list, cards and a kanban board, scrolled; a frame draws the rows in view, not the 20,000 (the run is the service thread's work and is not timed here) */
+        static const char *layouts[] = { "table", "list", "cards", "kanban" };
+        ExBaseData *bd = calloc(1, sizeof *bd);
+        size_t nb = 20000, li;
+        for (i = 0; i < nb; i++) {
+            char pth[80], v2[40];
+            ExBaseFile *f;
+            snprintf(pth, sizeof pth, "Big/Note %05zu.md", i);
+            f = ex_base_data_add(bd, pth, 1, 1.7e12, 1.7e12 + (double)i, 100.0);
+            ex_base_file_prop(f, "status", EXB_TEXT, i % 3 == 0 ? "Planned" : i % 3 == 1 ? "Doing" : "Done");
+            snprintf(v2, sizeof v2, "%zu", i % 97);
+            ex_base_file_prop(f, "price", EXB_NUMBER, v2);
+        }
+        for (li = 0; li < 4; li++) {
+            char yaml[500], name[100];
+            ExDoc *bdoc;
+            ExWidget *bw, *broot;
+            ExBaseViewHandlers bh;
+            ExBase *bs;
+            ExBaseResult *br = calloc(1, sizeof *br);
+            unsigned long reqs = 0;
+            double bf[160];
+            size_t nbf = 0;
+            ExBaseViewStats bst;
+            snprintf(yaml, sizeof yaml, "views:\n  - type: %s\n    name: Big\n%s    order: [file.name, status, price]\n    summaries:\n      price: Sum\n", layouts[li],
+                     li == 0 || li == 1 ? "" : "    groupBy:\n      property: note.status\n      direction: ASC\n");
+            bdoc = ex_doc_create(yaml, strlen(yaml));
+            memset(&bh, 0, sizeof bh);
+            bh.user = &reqs; bh.run = base_budget_run;
+            broot = ex_widget_box(ui, 1, "base root");
+            broot->width = ex_size_grow(); broot->height = ex_size_grow();
+            bw = ex_widget_base(ui, bdoc, "Big.base", &bh);
+            ex_widget_add(broot, bw);
+            ex_ui_layout(ui, broot, 1000, 700); ex_ui_draw(ui, broot, 1);                 /* the first frame asks for the run */
+            bs = ex_base_parse(yaml, strlen(yaml), NULL, 0);
+            CHECK(bs && reqs == 1 && ex_base_run(bs, 0, bd, "Big.base", 1.7e12, 0, br) == 0);
+            ex_baseview_set_result(bw, 1, br, NULL);
+            for (i = 0; i < 60; i++) {
+                if (i % 2) ex_baseview_wheel(bw, 0, -3.0f, 500.0f, 350.0f); else ex_baseview_wheel(bw, 0, 2.0f, 500.0f, 350.0f);
+                ex_ui_layout(ui, broot, 1000, 700); ex_ui_draw(ui, broot, 1);
+                ex_baseview_stats(bw, &bst);
+                if (nbf < 160) bf[nbf++] = bst.own_ms;
+                finish_frame(r);
+            }
+            ex_baseview_stats(bw, &bst);
+            CHECK(bst.rows == nb && bst.items_drawn > 0 && bst.items_drawn < 400 && !bst.failed);
+            snprintf(name, sizeof name, "the base view's own work for a frame of 20,000 rows (%s)", layouts[li]);
+            report(name, bf, nbf, frame_limit);
+            ex_base_free(bs);
+            ex_ui_release(ui, broot);
+            ex_widget_free(broot);
+            ex_doc_free(bdoc);
+        }
+        ex_base_data_free(bd); free(bd);
     }
     {   /* two windows (7g): the same big note in the first window and in a pop-out window of its own; every pass handles a key press, draws the first window and then the second (one frame each) */
         ExWorkspace *ws2 = ex_ws_create();

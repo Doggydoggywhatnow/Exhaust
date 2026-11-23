@@ -972,8 +972,12 @@ static void slice_range(const ExValue *a, size_t n, size_t len, size_t *from, si
 static ExValue string_replace(Ev *ev, const char *s, ExValue pat, const char *repl) {
     size_t slen = strlen(s), rlen = strlen(repl), cap = slen + 64, o = 0;
     char *out = ex_arena_alloc(ev->a, cap);
+    pcre2_match_data *g_md = NULL;                                              /* the regular expression's objects, freed on every way out */
+    pcre2_match_context *g_mc = NULL;
+    pcre2_code *g_code = NULL;
     if (!out) return err(ev, "out of memory");
-#define GROW(extra) do { if (o + (extra) + 1 > cap) { size_t nc = cap * 2 + (extra); char *no; if (nc > MAX_STRING * 4) return err(ev, "the text is too long"); no = ex_arena_alloc(ev->a, nc); if (!no) return err(ev, "out of memory"); memcpy(no, out, o); out = no; cap = nc; } } while (0)
+#define RE_CLEANUP() do { pcre2_match_data_free(g_md); pcre2_match_context_free(g_mc); pcre2_code_free(g_code); g_md = NULL; g_mc = NULL; g_code = NULL; } while (0)
+#define GROW(extra) do { if (o + (extra) + 1 > cap) { size_t nc = cap * 2 + (extra); char *no; if (nc > MAX_STRING * 4) { RE_CLEANUP(); return err(ev, "the text is too long"); } no = ex_arena_alloc(ev->a, nc); if (!no) { RE_CLEANUP(); return err(ev, "out of memory"); } memcpy(no, out, o); out = no; cap = nc; } } while (0)
     if (pat.t == EXV_STR) {
         size_t plen = strlen(pat.u.str), i = 0;
         if (!plen) return str_v(ev, s);
@@ -994,6 +998,7 @@ static ExValue string_replace(Ev *ev, const char *s, ExValue pat, const char *re
         if (re_compile(pat, &re, eb, sizeof eb)) return err(ev, "%s", eb);
         md = pcre2_match_data_create_from_pattern(re.code, NULL);
         mc = re_limits();
+        g_md = md; g_mc = mc; g_code = re.code;
         while (start <= slen) {
             int rc = pcre2_match(re.code, (PCRE2_SPTR)s, slen, start, 0, md, mc);
             PCRE2_SIZE *ov;
@@ -1022,19 +1027,23 @@ static ExValue string_replace(Ev *ev, const char *s, ExValue pat, const char *re
         (void)first;
         if (start <= slen) { GROW(slen - (start < slen ? start : slen)); if (start < slen) { memcpy(out + o, s + start, slen - start); o += slen - start; } }
         out[o] = 0;
-        pcre2_match_data_free(md); pcre2_match_context_free(mc); pcre2_code_free(re.code);
+        RE_CLEANUP();
         return str_v(ev, out);
     }
 #undef GROW
+#undef RE_CLEANUP
 }
 
 static ExValue string_split(Ev *ev, const char *s, ExValue sep, ExValue limit) {
     ExValue *parts;
     size_t cnt = 0, cap = 16, slen = strlen(s), max = (size_t)-1;
     if (limit.t == EXV_NUM && limit.u.num >= 0) max = (size_t)limit.u.num;
+    pcre2_match_data *g_md = NULL;
+    pcre2_match_context *g_mc = NULL;
+    pcre2_code *g_code = NULL;
     parts = ex_arena_alloc(ev->a, cap * sizeof *parts);
     if (!parts) return err(ev, "out of memory");
-#define PUSH(str, len) do { if (cnt >= max) goto done; if (cnt == cap) { ExValue *np = ex_arena_alloc(ev->a, cap * 2 * sizeof *np); if (!np) return err(ev, "out of memory"); memcpy(np, parts, cnt * sizeof *np); parts = np; cap *= 2; } parts[cnt++] = ex_v_strn(ev->a, (str), (len)); } while (0)
+#define PUSH(str, len) do { if (cnt >= max) goto done; if (cnt == cap) { ExValue *np = ex_arena_alloc(ev->a, cap * 2 * sizeof *np); if (!np) { pcre2_match_data_free(g_md); pcre2_match_context_free(g_mc); pcre2_code_free(g_code); return err(ev, "out of memory"); } memcpy(np, parts, cnt * sizeof *np); parts = np; cap *= 2; } parts[cnt++] = ex_v_strn(ev->a, (str), (len)); } while (0)
     if (sep.t == EXV_STR) {
         size_t plen = strlen(sep.u.str), i = 0, start = 0;
         if (!plen) { while (i < slen) { size_t l = cp_len((unsigned char)s[i]); if (i + l > slen) l = slen - i; PUSH(s + i, l); i += l; } goto done; }
@@ -1049,6 +1058,7 @@ static ExValue string_split(Ev *ev, const char *s, ExValue sep, ExValue limit) {
         if (re_compile(sep, &re, eb, sizeof eb)) return err(ev, "%s", eb);
         md = pcre2_match_data_create_from_pattern(re.code, NULL);
         mc = re_limits();
+        g_md = md; g_mc = mc; g_code = re.code;
         while (pos <= slen) {
             int rc = pcre2_match(re.code, (PCRE2_SPTR)s, slen, pos, 0, md, mc);
             PCRE2_SIZE *ov;
@@ -1056,7 +1066,7 @@ static ExValue string_split(Ev *ev, const char *s, ExValue sep, ExValue limit) {
             ov = pcre2_get_ovector_pointer(md);
             if (ov[1] == ov[0]) { if (ov[0] >= slen) break; if (ov[0] == start) { pos = ov[0] + 1; continue; } }
             if (cnt >= max) break;
-            if (cnt == cap) { ExValue *np = ex_arena_alloc(ev->a, cap * 2 * sizeof *np); if (!np) return err(ev, "out of memory"); memcpy(np, parts, cnt * sizeof *np); parts = np; cap *= 2; }
+            if (cnt == cap) { ExValue *np = ex_arena_alloc(ev->a, cap * 2 * sizeof *np); if (!np) { pcre2_match_data_free(md); pcre2_match_context_free(mc); pcre2_code_free(re.code); return err(ev, "out of memory"); } memcpy(np, parts, cnt * sizeof *np); parts = np; cap *= 2; }
             parts[cnt++] = ex_v_strn(ev->a, s + start, ov[0] - start);
             start = ov[1]; pos = ov[1] > ov[0] ? ov[1] : ov[0] + 1;
         }

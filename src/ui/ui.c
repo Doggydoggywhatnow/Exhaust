@@ -785,6 +785,7 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
     if (w->type == EX_WIDGET_LIST) ex_list_draw(ui, w);
     if (w->type == EX_WIDGET_GRAPH) ex_graphview_draw(ui, w);
     if (w->type == EX_WIDGET_CANVAS) ex_canvasview_draw(ui, w);
+    if (w->type == EX_WIDGET_BASE) ex_baseview_draw(ui, w);
     if (w->clip && (w->type == EX_WIDGET_EDITOR || w->type == EX_WIDGET_READING) && w->first_child) clip_apply(ui);   /* the editor drew with its own clip: the child (title) is clipped to the widget */
     for (c = w->first_child; c; c = c->next) draw_widget(ui, c, blink_on);
     if (w->clip) clip_pop(ui, &saved_clip);
