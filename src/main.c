@@ -3895,10 +3895,11 @@ int main(int argc, char **argv) {
     ex_player_free(app.player);
     if (app.mpv) ex_mpv_close(app.mpv);
     free(app.graph_note);
-    ex_findbar_free(app.findbar);
     ex_slash_free(app.slash);
     ex_spell_free(app.spell);
-    ex_panes_free(app.panes);                                          /* contents are detached and closed; their notes are closed too */
+    ex_panes_free(app.panes);                                          /* contents are detached and closed; their notes are closed too (content_closed still tells the find bar) */
+    ex_findbar_free(app.findbar);
+    app.findbar = NULL;
     if (app.panels) {
         ex_panels_free(app.panels);
         ex_widget_free(app.left_content);                              /* the explorer: the panels only held it */

@@ -237,7 +237,7 @@ static void test_merge(void) {
             free(r);
             c.template_text = NULL; c.template_len = 0;
         }
-        r = ex_compose_merge_text("\xEF\xBB\xBF---\ntags: [z]\n---\nbody\n", 28, "F", "Into\n", 5, "I", &c, &n);
+        r = ex_compose_merge_text("\xEF\xBB\xBF---\ntags: [z]\n---\nbody\n", 26, "F", "Into\n", 5, "I", &c, &n);
         CHECK(r && strstr(r, "tags: [z]") && strstr(r, "body"));                              /* a byte order mark in the merged note */
         free(r);
     }

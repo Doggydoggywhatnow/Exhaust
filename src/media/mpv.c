@@ -31,6 +31,7 @@ typedef struct Api {
 } Api;
 
 static Api g_api;
+static SDL_AtomicInt g_open_players;      /* players that may still call into the library, one closing in the background included (ex_mpv_unload waits for them) */
 static SDL_Mutex *g_load_lock;
 static char g_load_err[300];
 
@@ -109,6 +110,8 @@ int ex_mpv_load(const char *path, char *err, size_t errcap) {
 int ex_mpv_loaded(void) { return g_api.lib != NULL; }
 unsigned long ex_mpv_api_version(void) { return g_api.lib ? g_api.client_api_version() : 0; }
 void ex_mpv_unload(void) {
+    int i;
+    for (i = 0; i < 10000 && SDL_GetAtomicInt(&g_open_players) > 0; i++) SDL_Delay(1);   /* a player closing in the background still calls the library */
     if (g_api.lib) SDL_UnloadObject(g_api.lib);
     memset(&g_api, 0, sizeof g_api);
 }
@@ -279,6 +282,7 @@ ExMpv *ex_mpv_open(const char *abs_path, int video, char *err, size_t errcap) {
         g_api.terminate_destroy(m->h); SDL_DestroyMutex(m->lock); free(m);
         return NULL;
     }
+    SDL_AddAtomicInt(&g_open_players, 1);
     return m;
 }
 
@@ -291,6 +295,7 @@ void ex_mpv_close(ExMpv *m) {
     free(m->ready); free(m->front);
     SDL_DestroyMutex(m->lock);
     free(m);
+    SDL_AddAtomicInt(&g_open_players, -1);
 }
 
 static int SDLCALL closer(void *arg) { ex_mpv_close((ExMpv *)arg); return 0; }

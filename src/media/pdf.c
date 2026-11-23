@@ -57,6 +57,7 @@ static Api g_api;
 static SDL_Mutex *g_lock;                  /* guards loading and the one-time library initialisation */
 static char g_err[300];
 static int g_inited;
+static SDL_AtomicInt g_open_docs;          /* documents whose thread may still call into the library, a closing one included (ex_pdf_unload waits for them) */
 
 static void *sym(const char *name) { return (void *)SDL_LoadFunction(g_api.lib, name); }
 
@@ -155,7 +156,9 @@ int ex_pdf_load(const char *path, char *err, size_t errcap) {
 }
 int ex_pdf_loaded(void) { return g_api.lib != NULL; }
 void ex_pdf_unload(void) {
+    int i;
     if (!g_api.lib) return;
+    for (i = 0; i < 10000 && SDL_GetAtomicInt(&g_open_docs) > 0; i++) SDL_Delay(1);   /* a document being closed in the background still calls the library until its thread ends (found by the sanitizer run: a call through the zeroed table) */
     if (g_inited) { g_api.destroy_library(); g_inited = 0; }
     SDL_UnloadObject(g_api.lib);
     memset(&g_api, 0, sizeof g_api);
@@ -438,6 +441,7 @@ ExPdf *ex_pdf_open(uint8_t *bytes, size_t len, char *err, size_t errcap) {
         free(d->info.w); free(d->info.h); free(d->bytes); free(d);
         return NULL;
     }
+    SDL_AddAtomicInt(&g_open_docs, 1);
     return d;
 }
 
@@ -467,6 +471,7 @@ void ex_pdf_close(ExPdf *d) {
     SDL_DestroyMutex(d->lock); SDL_DestroyCondition(d->cond); SDL_DestroySemaphore(d->opened);
     free(d->bytes);
     free(d);
+    SDL_AddAtomicInt(&g_open_docs, -1);
 }
 static int SDLCALL closer(void *arg) { ex_pdf_close((ExPdf *)arg); return 0; }
 void ex_pdf_close_async(ExPdf *d) {
