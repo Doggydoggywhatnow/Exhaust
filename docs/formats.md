@@ -85,7 +85,7 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 | `indent_with_tabs` | bool | `true` | 0.1.0 |
 | `indent_width` | int | `4` | 0.1.0 |
 | `paste_html_as_markdown` | bool | `true` | 0.1.0 |
-| `vim_mode` | bool | `false` | 0.1.0 |
+| `vim_mode` | bool | `false` (stub) | 0.1.0 |
 
 ### [files]
 
@@ -1117,6 +1117,7 @@ The Interface page of the settings has a button *Choose ribbon items*: a list of
 - *File recovery page (7e).* Below its two numbers the page has a button row, *Clear history*, which asks for a confirmation and then deletes every automatic snapshot (see *File recovery snapshots*). A row with a button (`EX_ROW_ACTION`) has no setting; the application does what its id says.
 - *Hotkeys (7c).* The page *Hotkeys* (in the *Options* group, after Files and links) lists every command of the Commands table in table order: its name, its shortcuts as chips (a chip with a cross removes that shortcut; a chip in red has a shortcut another command has too), a `+` button that waits for the next key press and adds it (Escape cancels; a modifier alone is waited out) and, for a command that differs from its defaults, a *Reset* button. A filter field above the list narrows it by name, id or shortcut, and *Customized only* shows just the commands with a line in `hotkeys.ini`. Only the rows near the view are built (the list has 200 rows). The test `hotkeys` covers the file and chord rules, `hotkeys_screen` the page.
 - *Plugins (8b).* The page *Plugins* (in the *Options* group, after Hotkeys) has the switch *Allow plugins* (`[plugins] allow`, off by default), and under it a card for every folder of `.exhaust/plugins` (a plugin with an unusable manifest shows its folder name and the reason): name, version, author, description, the permissions it asks for, one line of status (*Off*, *Running*, *Needs approval again: ...*, *Stopped: ...*, *On, waiting: plugins are not allowed*) and a button *Turn on* or *Turn off*. *Turn on* asks first, listing the permissions; the plugin runs after the user says yes. The cards are built again when a plugin's state changes (the scroll position is kept). The test `plugins_page` walks it.
+- *Stubs (8c).* The features of the README that are not in 0.1.0 are rows that are shown, disabled and labelled, and do nothing: *Vim key bindings* (Editor; `[editor] vim_mode` is a stub key, so the settings code refuses to turn it on, like `sync` and `publish`), *Command line* and *Program icon*, *Language* and *Community themes* (Appearance), *Community plugins* and *Web clipper* (Plugins), *Saved secrets* (Keychain), *Sync*, *Shared vaults* and *Publish* (Sync) and the switches of Sync and Publish on the Core plugins list. A stub row's button is disabled, its accessible name says *not in this version* (a switch) or is the button's label (an information row, whose explanation says *Not in this version*), and no stub calls the application or makes a network request; the test `stubs_disabled` walks every such row, and scans `src/` and `include/` for calls that open a connection. The web clipper's folder `extras/clipper/` holds only a README that says it is a stub.
 - *Theme (7d).* The page *Theme* of the *Options* group, after Appearance: see "Loading themes and snippets" above.
 - *Names.* Each control's accessible name is its row's name followed by its state (`Spell check: on`).
 

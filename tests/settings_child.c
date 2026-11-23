@@ -12,7 +12,7 @@ int main(int argc, char **argv) {
     if (argc < 4) return 2;
     s = ex_settings_open(argv[1], argv[2]);
     if (!s) return 3;
-    ex_settings_set_bool(s, "editor", "vim_mode", 1);
+    ex_settings_set_bool(s, "editor", "strict_line_breaks", 1);
     ex_settings_set_int(s, "appearance", "font_size", 24);
     ex_settings_set(s, "files", "trash_mode", "vault_trash");
     ex_settings_flush(s);                                    /* write-through: they are on disk now, nothing waits for an exit */

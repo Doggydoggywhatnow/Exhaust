@@ -72,7 +72,7 @@ Exhaust's goal is feature parity with Obsidian's documented feature set, in a pr
 - **HTML** in notes: a safe subset of tags, drawn by Exhaust itself.
 - **Slash commands**: type `/` at the start of a line or after a space for a menu of the editor commands, narrowed as you type (fuzzy matching, Up and Down, Enter or Tab to run it, Escape or a space to close it). The feature is off until *Slash commands* is turned on in Core plugins. Editor commands whose features are not built yet are listed disabled. The text formatting commands that work now: bold, italic, strikethrough, highlight, code, inline math, comment, headings (set, remove, cycle), bullet and numbered lists, quote, checkbox status, indent and unindent list items, move line up and down, delete paragraph, horizontal rule, code block, callout, math block, table, footnote, links, embeds, tags, clear formatting and adding cursors.
 - **Audio recorder**: record straight into a note *(later)*. *Build status (sub-slice 6e-v):* a disabled switch in *Core plugins* (under *Not in this version*); nothing records.
-- **Vim mode** *(later)*: not in 0.1.0; the switch in Editor settings is shown disabled and labelled.
+- **Vim mode** *(later)*: not in 0.1.0; the switch in Editor settings is shown disabled and labelled (`vim_mode` is a stub key: it cannot be turned on).
 
 ## Links
 
@@ -215,7 +215,7 @@ Then one page for each built-in feature that has options:
 - **Themes**: light, dark, high contrast and your own; see [Themes](#themes).
 - **Fonts and size**: separate fonts for the interface, the editor and code, a text size, and an interface zoom. Atkinson Hyperlegible is the default interface and editor font and Atkinson Hyperlegible Mono is the default code font. Any font installed on the system can be chosen. Emoji use the system's emoji font; Exhaust bundles none.
 - **Accent color**: pick any color; Exhaust adjusts shades so text stays readable.
-- **Languages**: interface translations *(later)*.
+- **Languages**: interface translations *(later)*. *Build status (8c):* a *Language* row in Appearance, disabled and labelled; Exhaust is in English (US).
 - **Accessibility**: full keyboard use, scalable text, high contrast and screen reader support, designed in from the first slice.
 - **Window**: set the default size of a new Exhaust window.
 
@@ -236,7 +236,7 @@ Themes can be changed at any time, in Settings, without restarting. The theme an
 ## Extending
 
 - **Plugins**: an open API for new commands, panes, views and file types, written in Lua. Plugins are off until you allow them and declare what they can touch. The manifest format, the Lua API and the permission names are in [`docs/formats.md`](docs/formats.md). A community directory *(optional, later)* needs the network. *Build status (sub-slice 8b):* Lua 5.4.7 runs sandboxed (no `io`, `os`, `package`, `debug` or `load`; a time limit of one second for the loading and for each callback and 32 MB of memory for each plugin; a plugin over a limit is stopped), all plugins on one thread of their own, so a slow or stuck plugin never makes the window wait. A plugin is a folder in `.exhaust/plugins` with a `manifest.ini`; nothing runs until *Allow plugins* is on (*Settings, Plugins*, off by default) and you have turned that plugin on after reading the permissions it asks for (approvals are kept in `.exhaust/plugins.ini` and are asked again when a plugin's permissions or version change). The API of version 1 can add commands (in the palette and the slash menu) and panes (a tab with read-only Markdown), read and write files of the vault, read and replace the text of the open note, show a notice, keep a few settings of its own and react to the events `vault-open`, `file-open`, `file-save`, `file-rename` and `editor-change`. No plugin can use the network: `network` can be approved, and the call fails with *network use is off*. Not built: plugin views and file types, a way to install a plugin from inside Exhaust, `vault.rename` that updates links (ISSUES 77), plugin commands with shortcuts, panes that refresh by themselves, plugin settings pages.
-- **Web clipper** *(later)*: a small extension for your own browser that saves pages into the vault. Exhaust itself has no browser.
+- **Web clipper** *(later)*: a small extension for your own browser that saves pages into the vault. Exhaust itself has no browser. *Build status (8c):* a stub: `extras/clipper/` holds a README that says so, and *Settings, Plugins* has a disabled *Web clipper* row.
 
 ## Sync, sharing and publishing *(optional, later)*
 
@@ -244,6 +244,7 @@ Themes can be changed at any time, in Settings, without restarting. The theme an
 - **Shared vaults**: invite collaborators with owner and editor roles.
 - **Publish**: turn chosen notes into a website with themes, custom domains, permalinks, passwords and SEO controls.
 - Because plain files are the format, **any** file-sync tool can already sync a vault. These features are a convenience, not a requirement.
+- *Build status (8c):* all three are stubs: the *Sync* page of the settings lists Sync, Shared vaults and Publish as disabled, labelled rows, the Core plugins switches of Sync and Publish are disabled, and the vault manager's *Open synced vault* is a labelled stub. The *community directory* of plugins and themes *(optional, later)* is a disabled row on the Plugins and Appearance pages. None of them makes a network request (the test `stubs_disabled` checks the sources for any call that opens a connection).
 
 ## Technical design
 
@@ -300,7 +301,7 @@ Two registries exist from sub-slice 2d, and every feature uses them from the sta
 ### Size, safety and quality gates
 
 - **Size budget**: the core install (without the optional PDF and media add-on) is at most 25 MB, checked in CI.
-- **Size, measured after slice 5g (2026-11-15):** a Release install is 9,556 KB (about 9.3 MB, 16 MB under the budget): the program 9,448 KB, the rest (licences, fonts, other data) about 108 KB. Next check: after 6e-v.
+- **Size, measured after slice 5g (2026-11-15):** a Release install is 9,556 KB (about 9.3 MB, 16 MB under the budget): the program 9,448 KB, the rest (licences, fonts, other data) about 108 KB. **Size, measured after 6e-v and after 8c (2026-11-23):** 14,700 KB, then 15,020 KB (about 14.7 MB, 10.5 MB under the budget): the program 14,900 KB, the rest about 120 KB; Lua and the plugin runtime cost about 320 KB. The add-on package is not counted.
 - **Sanitizers**: a CI job builds and tests with AddressSanitizer and UndefinedBehaviorSanitizer.
 - **Fuzzing**: libFuzzer targets for the Markdown tokenizer, frontmatter, HTML subset, canvas JSON, base expressions and importers.
 - **Hardening**: builds use `-fstack-protector-strong` and `-D_FORTIFY_SOURCE=2` where the compiler supports them.

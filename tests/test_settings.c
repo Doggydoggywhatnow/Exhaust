@@ -26,41 +26,41 @@ static void expect(const char *got, const char *want, int line) {
 
 static void test_patch(void) {
     /* an existing key keeps its line and its trailing comment; everything else is untouched */
-    EXPECT(patch("# my settings\n[editor]\nvim_mode = false  # try it\nunknown = 1\n\n[files]\ntrash_mode = system\n", "editor", "vim_mode", "true"),
-           "# my settings\n[editor]\nvim_mode = true  # try it\nunknown = 1\n\n[files]\ntrash_mode = system\n");
+    EXPECT(patch("# my settings\n[editor]\nstrict_line_breaks = false  # try it\nunknown = 1\n\n[files]\ntrash_mode = system\n", "editor", "strict_line_breaks", "true"),
+           "# my settings\n[editor]\nstrict_line_breaks = true  # try it\nunknown = 1\n\n[files]\ntrash_mode = system\n");
     /* a new key goes at the end of its section, before the blank line */
-    EXPECT(patch("[editor]\nvim_mode = false\n\n[files]\na = b\n", "editor", "line_numbers", "true"),
-           "[editor]\nvim_mode = false\nline_numbers = true\n\n[files]\na = b\n");
+    EXPECT(patch("[editor]\nstrict_line_breaks = false\n\n[files]\na = b\n", "editor", "line_numbers", "true"),
+           "[editor]\nstrict_line_breaks = false\nline_numbers = true\n\n[files]\na = b\n");
     /* a new section goes at the end */
-    EXPECT(patch("[editor]\nvim_mode = false\n", "files", "trash_mode", "permanent"), "[editor]\nvim_mode = false\n\n[files]\ntrash_mode = permanent\n");
+    EXPECT(patch("[editor]\nstrict_line_breaks = false\n", "files", "trash_mode", "permanent"), "[editor]\nstrict_line_breaks = false\n\n[files]\ntrash_mode = permanent\n");
     /* a value that is itself a colour starts with # and is not a trailing comment: it is replaced, not kept (found in 7d) */
     EXPECT(patch("[appearance]\naccent_color = #112233\n", "appearance", "accent_color", "#aabbcc"), "[appearance]\naccent_color = #aabbcc\n");
     EXPECT(patch("[appearance]\naccent_color = #112233  # mine\n", "appearance", "accent_color", "#aabbcc"), "[appearance]\naccent_color = #aabbcc  # mine\n");
     /* an empty file */
     EXPECT(patch("", "general", "language", "de"), "[general]\nlanguage = de\n");
     /* no line ending at the end of the file */
-    EXPECT(patch("[editor]\nvim_mode = false", "editor", "line_numbers", "true"), "[editor]\nvim_mode = false\nline_numbers = true\n");
-    EXPECT(patch("[editor]\nvim_mode = false", "editor", "vim_mode", "true"), "[editor]\nvim_mode = true");
+    EXPECT(patch("[editor]\nstrict_line_breaks = false", "editor", "line_numbers", "true"), "[editor]\nstrict_line_breaks = false\nline_numbers = true\n");
+    EXPECT(patch("[editor]\nstrict_line_breaks = false", "editor", "strict_line_breaks", "true"), "[editor]\nstrict_line_breaks = true");
     /* CRLF files stay CRLF */
-    EXPECT(patch("[editor]\r\nvim_mode = false\r\n", "editor", "line_numbers", "true"), "[editor]\r\nvim_mode = false\r\nline_numbers = true\r\n");
-    EXPECT(patch("[editor]\r\nvim_mode = false\r\n", "editor", "vim_mode", "true"), "[editor]\r\nvim_mode = true\r\n");
+    EXPECT(patch("[editor]\r\nstrict_line_breaks = false\r\n", "editor", "line_numbers", "true"), "[editor]\r\nstrict_line_breaks = false\r\nline_numbers = true\r\n");
+    EXPECT(patch("[editor]\r\nstrict_line_breaks = false\r\n", "editor", "strict_line_breaks", "true"), "[editor]\r\nstrict_line_breaks = true\r\n");
     /* a byte-order mark stays */
-    EXPECT(patch("\xEF\xBB\xBF[editor]\nvim_mode = false\n", "editor", "vim_mode", "true"), "\xEF\xBB\xBF[editor]\nvim_mode = true\n");
+    EXPECT(patch("\xEF\xBB\xBF[editor]\nstrict_line_breaks = false\n", "editor", "strict_line_breaks", "true"), "\xEF\xBB\xBF[editor]\nstrict_line_breaks = true\n");
     /* the key name is matched exactly and only inside its section */
-    EXPECT(patch("[a]\nvim_mode = 1\n[editor]\nvim_mode_x = 2\n", "editor", "vim_mode", "true"), "[a]\nvim_mode = 1\n[editor]\nvim_mode_x = 2\nvim_mode = true\n");
+    EXPECT(patch("[a]\nstrict_line_breaks = 1\n[editor]\nstrict_line_breaks_x = 2\n", "editor", "strict_line_breaks", "true"), "[a]\nstrict_line_breaks = 1\n[editor]\nstrict_line_breaks_x = 2\nstrict_line_breaks = true\n");
     /* a duplicated key: the last line is the one that counts when reading, so it is the one changed */
-    EXPECT(patch("[editor]\nvim_mode = false\nvim_mode = false\n", "editor", "vim_mode", "true"), "[editor]\nvim_mode = false\nvim_mode = true\n");
+    EXPECT(patch("[editor]\nstrict_line_breaks = false\nstrict_line_breaks = false\n", "editor", "strict_line_breaks", "true"), "[editor]\nstrict_line_breaks = false\nstrict_line_breaks = true\n");
     /* spaces around the key and no spaces around the equals sign */
-    EXPECT(patch("[editor]\n  vim_mode=false\n", "editor", "vim_mode", "true"), "[editor]\n  vim_mode = true\n");
+    EXPECT(patch("[editor]\n  strict_line_breaks=false\n", "editor", "strict_line_breaks", "true"), "[editor]\n  strict_line_breaks = true\n");
     /* commented-out key is not the key */
-    EXPECT(patch("[editor]\n# vim_mode = false\n", "editor", "vim_mode", "true"), "[editor]\n# vim_mode = false\nvim_mode = true\n");
+    EXPECT(patch("[editor]\n# strict_line_breaks = false\n", "editor", "strict_line_breaks", "true"), "[editor]\n# strict_line_breaks = false\nstrict_line_breaks = true\n");
     /* a section that appears twice: the new key goes in the last block */
     EXPECT(patch("[files]\na = 1\n[editor]\nx = 1\n[files]\nb = 2\n", "files", "c", "3"), "[files]\na = 1\n[editor]\nx = 1\n[files]\nb = 2\nc = 3\n");
     /* the result reads back */
     {
-        char *t = patch("[editor]\nvim_mode = false\n", "editor", "indent_width", "2");
+        char *t = patch("[editor]\nstrict_line_breaks = false\n", "editor", "indent_width", "2");
         ExIni *ini = ex_ini_parse(t, strlen(t));
-        CHECK(ex_ini_get_int(ini, "editor", "indent_width", 0) == 2 && !ex_ini_get_bool(ini, "editor", "vim_mode", 1));
+        CHECK(ex_ini_get_int(ini, "editor", "indent_width", 0) == 2 && !ex_ini_get_bool(ini, "editor", "strict_line_breaks", 1));
         ex_ini_free(ini);
         free(t);
     }
@@ -79,7 +79,7 @@ static void test_values(void) {
     s = ex_settings_open(DIR "/vault/.exhaust", DIR "/global");
     CHECK(s != NULL);
     CHECK(strcmp(ex_settings_get(s, "files", "trash_mode"), "system") == 0);
-    CHECK(ex_settings_get_bool(s, "editor", "spellcheck") == 1 && ex_settings_get_bool(s, "editor", "vim_mode") == 0);
+    CHECK(ex_settings_get_bool(s, "editor", "spellcheck") == 1 && ex_settings_get_bool(s, "editor", "strict_line_breaks") == 0);
     CHECK(ex_settings_get_int(s, "appearance", "font_size") == 16 && ex_settings_get_int(s, "files", "autosave_idle_ms") == 1000);
     CHECK(strcmp(ex_settings_get(s, "appearance", "font_mono"), "Atkinson Hyperlegible Mono") == 0);
     CHECK(ex_settings_get(s, "nothing", "here") == NULL);
@@ -100,7 +100,7 @@ static void test_values(void) {
     CHECK(strcmp(ex_settings_get(s, "future", "thing"), "1") == 0);                      /* unknown keys can be read */
 
     /* validation */
-    CHECK(ex_settings_set(s, "editor", "vim_mode", "maybe") == -1);
+    CHECK(ex_settings_set(s, "editor", "strict_line_breaks", "maybe") == -1);
     CHECK(ex_settings_set(s, "editor", "indent_width", "four") == -1);
     CHECK(ex_settings_set(s, "appearance", "color_scheme", "sepia") == -1);
     CHECK(ex_settings_set(s, "appearance", "accent_color", "red") == -1 && ex_settings_set(s, "appearance", "accent_color", "#aabbcc") == 0);
@@ -108,14 +108,14 @@ static void test_values(void) {
     CHECK(ex_settings_set(s, "nothing", "here", "1") == -1);                              /* only known keys are created */
     CHECK(ex_settings_set(s, "features", "sync", "true") == -1);                          /* a stub cannot be turned on */
     CHECK(ex_settings_set(s, "features", "sync", "false") == 0);
-    CHECK(ex_settings_set(s, "editor", "vim_mode", "yes") == 0 && strcmp(ex_settings_get(s, "editor", "vim_mode"), "true") == 0);   /* canonical spelling */
+    CHECK(ex_settings_set(s, "editor", "strict_line_breaks", "yes") == 0 && strcmp(ex_settings_get(s, "editor", "strict_line_breaks"), "true") == 0);   /* canonical spelling */
     CHECK(ex_settings_set_int(s, "appearance", "font_size", 22) == 0 && ex_settings_get_int(s, "appearance", "font_size") == 22);
     ex_settings_flush(s);
     {
         char *t = ex_platform_read_file(DIR "/vault/.exhaust/settings.ini", NULL);
         CHECK(t && strncmp(t, "# mine\n[appearance]\nfont_size = 22\ncolor_scheme = sepia\n", 52) == 0);   /* the bad value was not touched */
         CHECK(t && strstr(t, "[future]\nthing = 1\n") != NULL);
-        CHECK(t && strstr(t, "vim_mode = true") != NULL);
+        CHECK(t && strstr(t, "strict_line_breaks = true") != NULL);
         free(t);
     }
     ex_settings_close(s);

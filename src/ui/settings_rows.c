@@ -38,6 +38,8 @@ static const ExSettingsRow rows[] = {
     X("appearance", "Fonts", "appearance", "font_mono", "Monospace font", "The font of code, in notes and elsewhere."),
     N("appearance", "Fonts", "appearance", "font_size", "Font size", "The size of text in points, for the whole program. Applies when Exhaust starts again.", 8, 48, 1),
     T("appearance", "Fonts", "appearance", "quick_font_size", "Change the font size with Ctrl and the mouse wheel", "Hold Ctrl and turn the wheel over a note to make its text larger or smaller."),
+    { "appearance", "Language", NULL, NULL, EX_ROW_INFO, "Language", "Interface translations (later). Not in this version: Exhaust is in English (US).", 0, 0, 0, "Choose language" },
+    { "appearance", "Community directory", NULL, NULL, EX_ROW_INFO, "Community themes", "Browsing themes from a public directory (optional, later) needs the network and is off. Not in this version: nothing is downloaded.", 0, 0, 0, "Browse themes" },
     U("appearance", "Window", "appearance", "app_icon", "Program icon", "Use another icon for the program. Not in this version."),
     T("appearance", "Window", "appearance", "translucent_window", "Translucent window", "Let the desktop show through the window. macOS only."),
     N("appearance", "Window", "appearance", "window_width", "Width of a new window", "The width, in pixels, of the window when no earlier size is remembered.", 600, 4000, 50),
@@ -106,6 +108,9 @@ static const ExSettingsRow rows[] = {
 
     /* ---- Plugins (8b): the master switch; the plugins found are cards the page builds itself ---- */
     T("plugins", "Plugins", "plugins", "allow", "Allow plugins", "Plugins are Lua programs in the .exhaust/plugins folder of the vault. Nothing runs while this is off. A plugin runs only after you turn it on and approve what it may do. Exhaust's plugins never use the network in this version."),
+
+    { "plugins", "Community directory", NULL, NULL, EX_ROW_INFO, "Community plugins", "Browsing and installing plugins from a public directory (optional, later) needs the network and is off. Not in this version: nothing is downloaded.", 0, 0, 0, "Browse plugins" },
+    { "plugins", "Web clipper", NULL, NULL, EX_ROW_INFO, "Web clipper", "A small extension for your own browser that saves pages into the vault (later). Not in this version: see extras/clipper in the source.", 0, 0, 0, "Get the extension" },
 
     /* ---- Keychain ---- */
     { "keychain", "Keychain", NULL, NULL, EX_ROW_INFO, "Saved secrets", "Exhaust keeps no passwords or tokens. Plugins that need one will ask you to store it here. Not in this version.", 0, 0, 0, "Add a secret" },
@@ -186,6 +191,8 @@ static const ExSettingsRow rows[] = {
     T("quick_switcher", "Quick switcher", "quick_switcher", "show_attachments", "Show attachments", "List images and other files as well as notes."),
 
     { "sync", "Sync", NULL, NULL, EX_ROW_INFO, "Sync", "Keeping a vault the same on several devices is not in this version. Your notes stay in plain files that any sync program can copy.", 0, 0, 0, "Set up sync" },
+    { "sync", "Sharing and publishing", NULL, NULL, EX_ROW_INFO, "Shared vaults", "Inviting collaborators with owner and editor roles (optional, later). Not in this version.", 0, 0, 0, "Invite people" },
+    { "sync", "Sharing and publishing", NULL, NULL, EX_ROW_INFO, "Publish", "Turning chosen notes into a website (optional, later). Not in this version.", 0, 0, 0, "Set up publishing" },
 
     X("templates", "Templates", "templates", "folder", "Template folder", "The folder that holds your template notes. Empty lists every note."),
     X("templates", "Templates", "templates", "date_format", "Date format", "How {{date}} is written in a template, for example YYYY-MM-DD."),

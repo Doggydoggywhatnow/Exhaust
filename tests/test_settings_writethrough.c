@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
 
     s = ex_settings_open(BASE "/vault/.exhaust", BASE "/global");
     CHECK(s != NULL);
-    CHECK(ex_settings_get_bool(s, "editor", "vim_mode") == 1);
+    CHECK(ex_settings_get_bool(s, "editor", "strict_line_breaks") == 1);
     CHECK(ex_settings_get_int(s, "appearance", "font_size") == 24);
     CHECK(strcmp(ex_settings_get(s, "files", "trash_mode"), "vault_trash") == 0);
     ex_settings_close(s);

@@ -130,7 +130,7 @@ static void test_model(void) {
         ex_platform_make_dirs(BASE "/tv/Source/.exhaust/themes");
         ex_platform_make_dirs(BASE "/tv/Source/.exhaust/snippets");
         ex_platform_make_dirs(BASE "/tv/Target/.exhaust/themes");
-        write_text(BASE "/tv/Source/.exhaust/settings.ini", "# source\n[editor]\nvim_mode = true\nindent_width = 2\n[appearance]\nfont_size = 20\n");
+        write_text(BASE "/tv/Source/.exhaust/settings.ini", "# source\n[editor]\nstrict_line_breaks = true\nindent_width = 2\n[appearance]\nfont_size = 20\n");
         write_text(BASE "/tv/Source/.exhaust/hotkeys.ini", "[hotkeys]\napp.close-current-tab = Ctrl+Q\n");
         write_text(BASE "/tv/Source/.exhaust/themes/mine.theme", "[theme]\nname = Mine\n");
         write_text(BASE "/tv/Source/.exhaust/themes/shared.theme", "[theme]\nname = Source version\n");
@@ -144,10 +144,10 @@ static void test_model(void) {
         CHECK(ex_vaultmgr_transfer_settings(m, a_copy, a_copy, NULL) == EX_VM_SAME_VAULT);
         CHECK(ex_vaultmgr_transfer_settings(m, a_copy, "nope", NULL) == EX_VM_NOT_FOUND);
         CHECK(ex_vaultmgr_transfer_settings(m, a_copy, b_copy, &tr) == EX_VM_OK);
-        CHECK(tr.files_copied == 2 && tr.keys_added >= 3 && tr.skipped >= 2);          /* mine.theme and wide.style; vim_mode, font_size, the hotkey; indent_width and shared.theme kept */
+        CHECK(tr.files_copied == 2 && tr.keys_added >= 3 && tr.skipped >= 2);          /* mine.theme and wide.style; strict_line_breaks, font_size, the hotkey; indent_width and shared.theme kept */
         t = ex_platform_read_file(BASE "/tv/Target/.exhaust/settings.ini", NULL);
         CHECK(t && strstr(t, "# target\n[editor]\nindent_width = 8  # mine\n") == t);        /* the target's own text, comment and all, is untouched */
-        CHECK(t && strstr(t, "vim_mode = true") && strstr(t, "font_size = 20") && strstr(t, "[future]\nx = 1\n"));
+        CHECK(t && strstr(t, "strict_line_breaks = true") && strstr(t, "font_size = 20") && strstr(t, "[future]\nx = 1\n"));
         CHECK(t && !strstr(t, "indent_width = 2"));
         free(t);
         t = ex_platform_read_file(BASE "/tv/Target/.exhaust/hotkeys.ini", NULL);
@@ -158,7 +158,7 @@ static void test_model(void) {
         free(t);
         CHECK(exists(BASE "/tv/Target/.exhaust/themes/mine.theme") && exists(BASE "/tv/Target/.exhaust/snippets/wide.style"));
         t = ex_platform_read_file(BASE "/tv/Source/.exhaust/settings.ini", NULL);
-        CHECK(t && strstr(t, "# source\n[editor]\nvim_mode = true\nindent_width = 2\n[appearance]\nfont_size = 20\n") == t);   /* the source is only read */
+        CHECK(t && strstr(t, "# source\n[editor]\nstrict_line_breaks = true\nindent_width = 2\n[appearance]\nfont_size = 20\n") == t);   /* the source is only read */
         free(t);
         /* doing it again changes nothing */
         CHECK(ex_vaultmgr_transfer_settings(m, a_copy, b_copy, &tr) == EX_VM_OK && tr.files_copied == 0 && tr.keys_added == 0);
