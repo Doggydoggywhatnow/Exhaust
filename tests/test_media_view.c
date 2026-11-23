@@ -86,14 +86,13 @@ int main(int argc, char **argv) {
     CHECK(externals == 1);
 
     /* ---- with the stand-in ---- */
-    SDL_setenv_unsafe("EXHAUST_STUB_MPV_SECONDS", "40", 1);                       /* a file that no runner plays to its end before the first pause: at two seconds a slow macOS runner reached the end first, Space then meant "play again" and the test went out of step (ISSUES 76) */
-    CHECK(ex_mpv_load(STUB, err, sizeof err) == 1);
+    CHECK(ex_mpv_load(STUB, err, sizeof err) == 1);                               /* "b.long.mp4" is 40 seconds in the stand-in: at two seconds a slow macOS runner reached the end before the first pause, and Space then meant "play again" (ISSUES 76) */
     loads = 0;
-    open_view("/media/b.mp4");
+    open_view("/media/b.long.mp4");
     CHECK(loads == 1);
     frame(); frame();
     CHECK(loads == 1);                                                            /* asked once */
-    serve("/media/b.mp4");
+    serve("/media/b.long.mp4");
     SDL_Delay(150);
     frame();
     ex_mediaview_stats(MW, &st);

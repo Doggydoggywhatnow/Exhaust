@@ -57,7 +57,7 @@ static void advance(Ctx *c) {
 
 MPV_EXPORT unsigned long mpv_client_api_version(void) { return MPV_MAKE_VERSION(2, 5); }
 MPV_EXPORT const char *mpv_error_string(int e) { return e == MPV_ERROR_LOADING_FAILED ? "loading failed" : e == MPV_ERROR_INVALID_PARAMETER ? "invalid parameter" : "error"; }
-MPV_EXPORT mpv_handle *mpv_create(void) { Ctx *c = calloc(1, sizeof *c); if (c) { c->paused = 1; c->volume = 100.0; c->duration = (getenv("EXHAUST_STUB_MPV_SECONDS") && atof(getenv("EXHAUST_STUB_MPV_SECONDS")) > 0.5) ? atof(getenv("EXHAUST_STUB_MPV_SECONDS")) : 2.0; c->t_last = now_s(); MUTEX_INIT(&c->mu); } return (mpv_handle *)c; }
+MPV_EXPORT mpv_handle *mpv_create(void) { Ctx *c = calloc(1, sizeof *c); if (c) { c->paused = 1; c->volume = 100.0; c->duration = 2.0; c->t_last = now_s(); MUTEX_INIT(&c->mu); } return (mpv_handle *)c; }
 MPV_EXPORT int mpv_initialize(mpv_handle *h) { (void)h; return 0; }
 MPV_EXPORT void mpv_terminate_destroy(mpv_handle *h) { if (h) MUTEX_FREE(&((Ctx *)h)->mu); free(h); }
 MPV_EXPORT int mpv_set_option_string(mpv_handle *h, const char *n, const char *d) { (void)h; (void)n; (void)d; return 0; }
@@ -97,6 +97,7 @@ MPV_EXPORT int mpv_command(mpv_handle *h, const char **args) {
         size_t n = strlen(args[1]);
         strncpy(c->path, args[1], sizeof c->path - 1);
         c->pos = 0; c->ended = 0; c->eof_sent = 0; c->sent_loaded = 0; c->sent_end = 0;
+        c->duration = strstr(args[1], ".long.") ? 40.0 : 2.0;     /* a name with ".long." is 40 seconds: no runner plays it to its end before a test has paused it (the name, not the environment: a library of another C runtime does not see the program's variables) */
         c->failed = n >= 4 && !strcmp(args[1] + n - 4, ".bad");
         c->loaded = !c->failed;
         rc = 0;
