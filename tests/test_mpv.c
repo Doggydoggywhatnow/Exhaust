@@ -85,10 +85,11 @@ int main(int argc, char **argv) {
     SDL_Delay(150);
     CHECK(ex_mpv_position(m) > 1.45 && ex_mpv_position(m) < 1.6);
     ex_mpv_play(m);
-    wait_state(m, EX_MPV_ENDED, 1500);
+    wait_state(m, EX_MPV_ENDED, 8000);
     CHECK(ex_mpv_state(m) == EX_MPV_ENDED);
     ex_mpv_play(m);                                                                           /* play after the end starts again */
-    SDL_Delay(200);
+    wait_state(m, EX_MPV_PLAYING, 4000);
+    SDL_Delay(100);
     CHECK(ex_mpv_state(m) == EX_MPV_PLAYING && ex_mpv_position(m) < 1.0);
     ex_mpv_set_volume(m, 0.4f);
     SDL_Delay(60);

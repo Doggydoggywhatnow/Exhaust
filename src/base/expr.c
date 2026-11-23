@@ -623,7 +623,7 @@ static ExValue index_of(Ev *ev, ExValue o, ExValue idx) {
     if (o.t == EXV_LIST && to_num(idx, &d)) { if (d >= 0 && d < (double)o.u.list.n && d == floor(d)) return o.u.list.v[(size_t)d]; return ex_v_null(); }
     if ((o.t == EXV_STR || o.t == EXV_URL) && to_num(idx, &d)) {
         const char *t;
-        if (as_text(o, &t) && d >= 0 && d == floor(d) && d < (double)cp_count(t)) { size_t b = cp_offset(t, (size_t)d), l = cp_len((unsigned char)t[b]); return ex_v_strn(ev->a, t + b, l); }
+        if (as_text(o, &t) && d >= 0 && d == floor(d) && d < (double)cp_count(t)) { size_t b = cp_offset(t, (size_t)d), l = cp_len((unsigned char)t[b]), k; for (k = 0; k < l && t[b + k]; k++) {} return ex_v_strn(ev->a, t + b, k); }   /* a cut-off multi-byte character ends at the string's end */
         return ex_v_null();
     }
     if ((o.t == EXV_OBJECT || o.t == EXV_NS || o.t == EXV_FILE) && idx.t == EXV_STR) return member(ev, o, idx.u.str);

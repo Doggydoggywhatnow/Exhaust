@@ -56,6 +56,8 @@ static void open_view(const char *path) {
 }
 static void click(float x, float y) { ex_ui_mouse(UI, ROOT, EX_MOUSE_DOWN, x, y, 0, 1); ex_ui_mouse(UI, ROOT, EX_MOUSE_UP, x, y, 0, 1); frame(); }
 static void key(ExKey k) { ex_ui_key(UI, k, 0); frame(); }
+/* The player works on its own thread: wait until a condition holds (up to about 8 seconds on a slow runner) instead of sleeping a fixed time. The condition may read `st`. */
+#define WAIT_FOR(expr) do { int w_; for (w_ = 0; w_ < 4000; w_++) { frame(); ex_mediaview_stats(MW, &st); if (expr) break; SDL_Delay(2); } } while (0)
 
 int main(int argc, char **argv) {
     ExTheme theme;
@@ -109,18 +111,16 @@ int main(int argc, char **argv) {
         CHECK(st.frames_uploaded > u0 + 3);                                       /* new frames keep arriving */
     }
     key(EX_KEY_SPACE);
-    SDL_Delay(100);
-    ex_mediaview_stats(MW, &st);
+    WAIT_FOR(!st.playing);
     CHECK(!st.playing);
     click(st.bar_x + st.bar_w * 0.75f, st.bar_y);
-    SDL_Delay(120);
+    WAIT_FOR(ex_mpv_position(PLAYER) > 1.35 && ex_mpv_position(PLAYER) < 1.65);
     CHECK(ex_mpv_position(PLAYER) > 1.35 && ex_mpv_position(PLAYER) < 1.65);       /* three quarters of 2 seconds */
     key(EX_KEY_HOME);
-    SDL_Delay(120);
+    WAIT_FOR(ex_mpv_position(PLAYER) < 0.1);
     CHECK(ex_mpv_position(PLAYER) < 0.1);
     key(EX_KEY_SPACE);                                                            /* Space plays again */
-    SDL_Delay(100);
-    ex_mediaview_stats(MW, &st);
+    WAIT_FOR(st.playing);
     CHECK(st.playing);
 
     /* ---- a file that fails to play ---- */
