@@ -12,6 +12,7 @@ static uint32_t rnd(void) { g_state ^= g_state << 13; g_state ^= g_state >> 7; g
 
 int main(int argc, char **argv) {
     const char *save = getenv("MUTATE_SAVE");
+    if (getenv("MUTATE_SEED")) g_state ^= (uint64_t)atol(getenv("MUTATE_SEED")) * 0x2545F4914F6CDD1Dull;       /* another run of the same mutations: a way to look further when CI finds something */
     long iters = argc > 1 ? atol(argv[1]) : 1000, i;
     int nseeds = argc - 2, s;
     uint8_t **seed = calloc((size_t)(nseeds > 0 ? nseeds : 1), sizeof *seed);
