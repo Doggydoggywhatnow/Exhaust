@@ -112,6 +112,24 @@ static int only_changed(const char *a, size_t al, const char *b, size_t bl, size
     return bl == al - removed + inserted && !memcmp(a, b, at) && !memcmp(a + at + removed, b + at + inserted, al - at - removed);
 }
 
+/* A byte order mark at the start of the properties' text (found by the frontmatter fuzzer): libyaml does not count it, and the first property's lines
+ * began one character too early, so setting it wrote `---a: ...` and the property was lost. */
+static void test_bom_in_properties(void) {
+    const char *s = "---\n\xEF\xBB\xBF---\na:\n---";
+    size_t len = strlen(s), n = 0, i;
+    ExExtract *x = ex_extract(s, len), *y;
+    char *out;
+    CHECK(x && x->front_valid && x->nprops == 1 && !strcmp(x->props[0].name, "a"));
+    CHECK(x && x->props[0].start == (size_t)(strstr(s, "a:") - s));                  /* the start of the line of `a` */
+    out = ex_prop_text_set(s, len, "a", EX_PROP_TEXT, "v", &n);
+    y = out ? ex_extract(out, n) : NULL;
+    CHECK(y && y->front_valid && y->nprops == 1 && !strcmp(y->props[0].name, "a") && !strcmp(y->props[0].value, "v"));
+    CHECK(out && strstr(out, "---\na: v\n---") != NULL);                           /* only the property's line changed */
+    for (i = 0; y && i < 1; i++) ex_extract_free(y);
+    free(out);
+    ex_extract_free(x);
+}
+
 static void test_edits(void) {
     size_t len = strlen(NOTE_A), n = 0, i;
     char *out;
@@ -254,6 +272,7 @@ int main(void) {
     if (w) { test_read(w); ex_index_close(w); }
     free(root);
     test_edits();
+    test_bom_in_properties();
     test_vault();
     if (failures) { fprintf(stderr, "%d check(s) failed\n", failures); return 1; }
     printf("ok\n");

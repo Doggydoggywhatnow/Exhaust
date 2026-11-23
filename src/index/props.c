@@ -115,6 +115,7 @@ void ex_extract_props(ExExtract *x, const char *text, size_t len) {
     if (ls < cs) ls = cs;
     if (!yaml_parser_initialize(&parser)) return;
     yaml_parser_set_input_string(&parser, (const unsigned char *)text + cs, ls - cs);
+    if (ls - cs >= 3 && !memcmp(text + cs, "\xEF\xBB\xBF", 3)) scan_byte = 3;      /* libyaml skips a byte order mark at the start and does not count it: the first key is found 3 bytes in, not 1 character (a fuzzer found the line start one character early: ISSUES 80) */
     while (!done) {
         if (!yaml_parser_parse(&parser, &ev)) { ok = 0; break; }
         switch (ev.type) {
