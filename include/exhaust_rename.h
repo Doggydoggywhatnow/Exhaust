@@ -34,6 +34,11 @@ int ex_rename_plan(ExIndex *r, const ExNoteIO *io, const ExMove *moves, size_t n
 /* Rewrites the links. Returns 0 if every note was handled (report->failed counts the ones that were not). */
 int ex_rename_links(ExIndex *r, const ExNoteIO *io, const ExMove *moves, size_t n, ExRenameReport *report);
 
+/* Merging (6e-ii): the links to the note `from` are made to point at the existing note `into` (the parts after # are kept); `from` itself is neither read nor
+ * changed (the caller has added its text to `into` and deletes it), and `into` is not treated as a moved note. The plan writes nothing. */
+int ex_retarget_plan(ExIndex *r, const ExNoteIO *io, const char *from, const char *into, ExRenameReport *report);
+int ex_retarget_links(ExIndex *r, const ExNoteIO *io, const char *from, const char *into, ExRenameReport *report);
+
 #ifdef __cplusplus
 }
 #endif

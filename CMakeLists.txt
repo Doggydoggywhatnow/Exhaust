@@ -326,9 +326,9 @@ add_library(exhaust_canvas STATIC src/canvas/canvas.c)
 target_include_directories(exhaust_canvas PUBLIC include)
 target_link_libraries(exhaust_canvas PUBLIC yyjson_static)
 
-add_library(exhaust_index STATIC src/index/db.c src/index/extract.c src/index/props.c src/index/indexer.c src/index/store_extra.c src/index/store_v3.c src/index/links.c src/index/graph.c src/index/propquery.c src/index/propedit.c src/index/rename.c src/index/base_data.c src/index/base_expand.c src/index/embed_expand.c src/index/search.c src/index/query.c)
+add_library(exhaust_index STATIC src/index/db.c src/index/extract.c src/index/props.c src/index/indexer.c src/index/store_extra.c src/index/store_v3.c src/index/links.c src/index/graph.c src/index/propquery.c src/index/propedit.c src/index/rename.c src/index/base_data.c src/index/base_expand.c src/index/embed_expand.c src/index/search.c src/index/query.c src/index/compose.c)
 target_include_directories(exhaust_index PUBLIC include PRIVATE src/index)
-target_link_libraries(exhaust_index PUBLIC exhaust_notes exhaust_markdown exhaust_unicode exhaust_find exhaust_ini exhaust_canvas exhaust_base sqlite3_static yaml_static)
+target_link_libraries(exhaust_index PUBLIC exhaust_templates exhaust_notes exhaust_markdown exhaust_unicode exhaust_find exhaust_ini exhaust_canvas exhaust_base sqlite3_static yaml_static)
 
 # Finding your way: quick switcher, command palette, outline, bookmarks, random note, footnotes (sub-slices 4b-iii, 4b-iv).
 add_library(exhaust_nav STATIC src/nav/switcher.c src/nav/outline.c src/nav/footnotes.c src/nav/random.c src/nav/bookmarks.c)
@@ -1039,6 +1039,10 @@ target_link_libraries(test_mermaid PRIVATE exhaust_ui exhaust_render exhaust_dia
 target_include_directories(test_mermaid PRIVATE src/ui)
 add_test(NAME mermaid_basic COMMAND test_mermaid ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid)
 add_test(NAME mermaid_more COMMAND test_mermaid ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid --more)
+
+add_executable(test_compose tests/test_compose.c)
+target_link_libraries(test_compose PRIVATE exhaust_index exhaust_templates exhaust_platform)
+add_test(NAME compose COMMAND test_compose)
 
 add_executable(test_templates tests/test_templates.c)
 target_link_libraries(test_templates PRIVATE exhaust_templates exhaust_vault exhaust_platform)

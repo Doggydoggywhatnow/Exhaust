@@ -86,7 +86,8 @@ struct ExPanels {
     /* a rename in progress */
     char rename_from[512], rename_to[512];
     int rename_is_dir;
-    unsigned long req_plan, req_rewrite, req_propop;
+    unsigned long req_plan, req_rewrite, req_propop, req_merge;
+    char merge_from[512], merge_into[512];     /* the merge in flight (6e-ii) */
     ExMove *pending_moves; size_t npending;
     int link_mode;                   /* 0 ask, 1 automatic, 2 off, as read when the rename started */
     /* questions the application asks (7e) and the list of earlier versions of a note */

@@ -12,6 +12,7 @@
 #include "exhaust_commands.h"
 #include "exhaust_datefmt.h"
 #include "exhaust_templates.h"
+#include "exhaust_compose.h"
 #include "exhaust_canvasview.h"
 #include "exhaust_baseview.h"
 #include "exhaust_imageview.h"
@@ -80,6 +81,7 @@ typedef struct TabNote { ExId tab; ExNote *note; } TabNote;
 
 typedef struct App {
     char **tpl_abs; size_t tpl_n;      /* the templates offered by the last Insert template (6e-i) */
+    char ex_source[600], merge_from[600], merge_into[600]; char *ex_content; size_t ex_content_len, ex_start, ex_end; int ex_newline;   /* the extraction and the merge in flight (6e-ii) */
     ExRenderer *r;
     ExUi *ui;
     ExTheme theme;
@@ -1164,6 +1166,194 @@ static void cmd_tpl_insert(void *u) {
     free(abs);
 }
 
+/* ---- unique notes and the note composer (6e-ii) ---- */
+static int make_unique(App *a, char *rel, size_t cap) {
+    ExUniqueConfig c;
+    if (!a->vault) return -1;
+    c.prefix_format = ex_settings_get(a->settings, "unique_note", "prefix_format");
+    c.folder = ex_settings_get(a->settings, "unique_note", "folder");
+    c.template_path = ex_settings_get(a->settings, "unique_note", "template");
+    c.tz_min = ex_platform_tz_offset_minutes();
+    return ex_unique_create(a->vault, &c, (double)ex_platform_unix_time() * 1000.0, ex_settings_get(a->settings, "templates", "date_format"), ex_settings_get(a->settings, "templates", "time_format"), rel, cap);
+}
+static void cmd_unique_new(void *u) {
+    App *a = u;
+    char rel[700];
+    if (make_unique(a, rel, sizeof rel) < 0) { set_status(a, "The unique note could not be made: check the folder and the prefix format in the Unique note creator settings."); return; }
+    ex_panels_tree_changed(a->panels);
+    open_path(a, 0, rel);
+}
+/* unique-note-creator.add-unique-internal-link: makes the note and puts a link to it at the cursor; the note is not opened. */
+static void cmd_unique_link(void *u) {
+    App *a = u;
+    char rel[700], link[760];
+    const char *slash, *name;
+    size_t n;
+    if (make_unique(a, rel, sizeof rel) < 0) { set_status(a, "The unique note could not be made: check the folder and the prefix format in the Unique note creator settings."); return; }
+    slash = strrchr(rel, '/'); name = slash ? slash + 1 : rel; n = strlen(name);
+    if (n > 3 && !strcmp(name + n - 3, ".md")) n -= 3;
+    snprintf(link, sizeof link, "[[%.*s]]", (int)n, name);
+    insert_text_at_carets(a, link);
+    ex_panels_tree_changed(a->panels);
+}
+
+static ExComposeConfig composer_config(App *a, char **tpl) {
+    ExComposeConfig c;
+    const char *after = ex_settings_get(a->settings, "note_composer", "text_after_extract"), *tp = ex_settings_get(a->settings, "note_composer", "template");
+    memset(&c, 0, sizeof c);
+    c.after_extract = after && !strcmp(after, "embed") ? EX_AFTER_EMBED : (after && !strcmp(after, "none") ? EX_AFTER_NONE : EX_AFTER_LINK);
+    c.now_ms = (double)ex_platform_unix_time() * 1000.0; c.tz_min = ex_platform_tz_offset_minutes();
+    c.date_format = ex_settings_get(a->settings, "templates", "date_format"); c.time_format = ex_settings_get(a->settings, "templates", "time_format");
+    *tpl = NULL;
+    if (tp && *tp && a->vault) {
+        char rel[700], *abs;
+        size_t n = strlen(tp), tl = 0;
+        snprintf(rel, sizeof rel, "%.600s%s", tp, n >= 3 && !strcmp(tp + n - 3, ".md") ? "" : ".md");
+        abs = ex_vault_abs_path(a->vault, rel);
+        if (abs) { *tpl = ex_platform_read_file(abs, &tl); free(abs); }
+        if (*tpl) { c.template_text = *tpl; c.template_len = tl; }
+    }
+    return c;
+}
+
+static void extract_done(const char *name, void *arg) {
+    App *a = arg;
+    ExEditor *ed = a->editor ? a->editor->editor : NULL;
+    ExComposeConfig cfg;
+    char *tpl, *rel = NULL, *rep = NULL;
+    int rc;
+    if (!ed || !a->vault || !a->ex_content || !name) return;
+    cfg = composer_config(a, &tpl);
+    rc = ex_compose_extract(a->vault, a->ex_source, a->ex_content, a->ex_content_len, name, &cfg, &rel, &rep);
+    if (rc == 0) {
+        ExChange ch;
+        ExSel sel;
+        char *text = malloc(strlen(rep) + 2);
+        if (text) {
+            snprintf(text, strlen(rep) + 2, "%s%s", rep, a->ex_newline && rep[0] ? "\n" : "");
+            ch.offset = a->ex_start; ch.remove_len = a->ex_end - a->ex_start; ch.text = text; ch.text_len = strlen(text);
+            sel.anchor = sel.head = a->ex_start + ch.text_len;
+            ex_doc_apply(ex_editor_doc(ed), &ch, 1, 0, &sel, 1);
+            free(text);
+        }
+        ex_panels_tree_changed(a->panels);
+        { char msg[400]; snprintf(msg, sizeof msg, "Moved the text into \"%.150s\".", name); set_status(a, msg); }
+    } else if (rc == EX_VAULT_EXISTS) set_status(a, "A note with that name already exists: nothing was changed.");
+    else if (rc == EX_VAULT_INVALID) set_status(a, "That is not a name a note can have (no # ^ [ ] | : / \\ ).");
+    else set_status(a, "The new note could not be made.");
+    free(rel); free(rep); free(tpl);
+    free(a->ex_content); a->ex_content = NULL;
+}
+static void begin_extract(App *a, size_t start, size_t end, size_t content_start, int whole_section, const char *suggest_from, size_t suggest_len) {
+    ExEditor *ed = a->editor ? a->editor->editor : NULL;
+    ExDoc *doc;
+    size_t nl = 0;
+    char *text, name[100];
+    if (!ed || !a->note || !a->vault || end <= start) return;
+    doc = ex_editor_doc(ed);
+    text = ex_buffer_text(ex_doc_buffer(doc), &nl);
+    if (!text) return;
+    free(a->ex_content);
+    a->ex_content_len = end - content_start;
+    a->ex_content = malloc(a->ex_content_len + 1);
+    if (!a->ex_content) { free(text); return; }
+    memcpy(a->ex_content, text + content_start, a->ex_content_len); a->ex_content[a->ex_content_len] = 0;
+    a->ex_start = start; a->ex_end = end;
+    a->ex_newline = whole_section && end > start && text[end - 1] == '\n';
+    snprintf(a->ex_source, sizeof a->ex_source, "%s", ex_note_path(a->note));
+    ex_compose_suggest_name(suggest_from ? suggest_from : text + content_start, suggest_from ? suggest_len : a->ex_content_len, name, sizeof name);
+    free(text);
+    ex_panels_ask_text(a->panels, "Extract into a new note", "Name of the new note", name, extract_done, a);
+}
+static void cmd_extract_selection(void *u) {
+    App *a = u;
+    ExEditor *ed = a->editor ? a->editor->editor : NULL;
+    ExSel s;
+    size_t lo, hi;
+    if (!ed) return;
+    s = ex_doc_sel(ex_editor_doc(ed), ex_doc_primary(ex_editor_doc(ed)));
+    lo = s.anchor < s.head ? s.anchor : s.head; hi = s.anchor < s.head ? s.head : s.anchor;
+    if (hi == lo) { set_status(a, "Select the text to move into a new note first."); return; }
+    begin_extract(a, lo, hi, lo, 0, NULL, 0);
+}
+static void cmd_extract_heading(void *u) {
+    App *a = u;
+    ExEditor *ed = a->editor ? a->editor->editor : NULL;
+    ExDoc *doc;
+    size_t nl = 0, s0, e0, cursor, cs;
+    char *text, heading[200];
+    if (!ed) return;
+    doc = ex_editor_doc(ed);
+    text = ex_buffer_text(ex_doc_buffer(doc), &nl);
+    if (!text) return;
+    cursor = ex_doc_sel(doc, ex_doc_primary(doc)).head;
+    if (ex_compose_heading_span(text, nl, cursor, &s0, &e0, heading, sizeof heading) != 0) { free(text); set_status(a, "Put the cursor under a heading first."); return; }
+    cs = s0;
+    while (cs < e0 && text[cs] != '\n') cs++;
+    if (cs < e0) cs++;                      /* the section without its heading line is what moves */
+    free(text);
+    begin_extract(a, s0, e0, cs, 1, heading, strlen(heading));
+}
+
+static int strcasecmp_ci(const char *x, const char *y) { for (; *x && *y; x++, y++) { char a = *x, b = *y; if (a >= 'A' && a <= 'Z') a = (char)(a + 32); if (b >= 'A' && b <= 'Z') b = (char)(b + 32); if (a != b) return 1; } return *x || *y; }
+static int strncasecmp_ci(const char *x, const char *y, size_t n) { size_t i; for (i = 0; i < n; i++) { char a = x[i], b = y[i]; if (a >= 'A' && a <= 'Z') a = (char)(a + 32); if (b >= 'A' && b <= 'Z') b = (char)(b + 32); if (a != b) return 1; if (!a) break; } return 0; }
+static int tree_find(const ExNode *n, const char *want, int want_is_path, const char **found, int *count) {
+    size_t i;
+    for (i = 0; i < n->nkids; i++) {
+        const ExNode *k = n->kids[i];
+        if (k->is_dir) { tree_find(k, want, want_is_path, found, count); continue; }
+        if (k->kind != EX_KIND_MARKDOWN) continue;
+        {
+            size_t nl = strlen(k->name), rl = strlen(k->rel);
+            const char *base = k->name;
+            size_t bl = nl > 3 ? nl - 3 : nl;
+            int hit;
+            if (want_is_path) hit = (rl == strlen(want) && !strcasecmp_ci(k->rel, want)) || (rl > 3 && rl - 3 == strlen(want) && !strncasecmp_ci(k->rel, want, rl - 3));
+            else hit = bl == strlen(want) && !strncasecmp_ci(base, want, bl);
+            if (hit) { *found = k->rel; (*count)++; }
+        }
+    }
+    return 0;
+}
+static void merge_confirmed(int button, void *arg) {
+    App *a = arg;
+    char *tpl;
+    ExComposeConfig cfg;
+    if (button != 1) return;
+    cfg = composer_config(a, &tpl);
+    ex_panels_merge_notes(a->panels, a->merge_from, a->merge_into, cfg.template_text, cfg.template_len);
+    free(tpl);
+}
+static void merge_target_done(const char *text, void *arg) {
+    App *a = arg;
+    const char *found = NULL, *cur = a->note ? ex_note_path(a->note) : NULL;
+    int count = 0;
+    char want[600];
+    size_t n;
+    if (!text || !a->vault || !cur) return;
+    snprintf(want, sizeof want, "%s", text);
+    n = strlen(want);
+    while (n && want[n - 1] == ' ') want[--n] = 0;
+    if (n > 3 && !strcmp(want + n - 3, ".md")) want[n -= 3] = 0;
+    if (!n) return;
+    tree_find(ex_vault_root(a->vault), want, strchr(want, '/') != NULL, &found, &count);
+    if (count == 0) { set_status(a, "No note has that name."); return; }
+    if (count > 1) { set_status(a, "More than one note has that name: type its folder too (Folder/Name)."); return; }
+    if (!strcmp(found, cur)) { set_status(a, "A note cannot be merged into itself."); return; }
+    snprintf(a->merge_from, sizeof a->merge_from, "%s", cur);
+    snprintf(a->merge_into, sizeof a->merge_into, "%s", found);
+    if (ex_settings_get_bool(a->settings, "note_composer", "confirm_merge")) {
+        char msg[1500];
+        snprintf(msg, sizeof msg, "\"%.200s\" will be added to the end of \"%.200s\", every link to it will point there, and \"%.200s\" will be deleted (the trash setting of Files and links decides where it goes).", cur, found, cur);
+        ex_panels_ask_confirm(a->panels, "Merge notes", msg, "Merge", "Cancel", NULL, merge_confirmed, a);
+    } else merge_confirmed(1, a);
+}
+static void cmd_merge(void *u) {
+    App *a = u;
+    if (!a->note || !a->vault) return;
+    ex_panels_ask_text(a->panels, "Merge into another note", "Merge this note into (a note's name, or Folder/Name)", "", merge_target_done, a);
+}
+
 /* bases.create-new-base: a new base beside the open note or in the vault folder (the canvas setting), with one table view; written at once. */
 static void cmd_new_base(void *u) {
     App *a = u;
@@ -2237,6 +2427,11 @@ static void register_features_and_commands(App *a) {
     ex_commands_bind(a->commands, "templates.insert-current-date", cmd_tpl_date, has_editor, a);
     ex_commands_bind(a->commands, "templates.insert-current-time", cmd_tpl_time, has_editor, a);
     ex_commands_bind(a->commands, "templates.insert-template", cmd_tpl_insert, has_editor, a);
+    ex_commands_bind(a->commands, "unique-note-creator.create-new-unique-note", cmd_unique_new, has_notes, a);
+    ex_commands_bind(a->commands, "unique-note-creator.add-unique-internal-link", cmd_unique_link, has_editor, a);
+    ex_commands_bind(a->commands, "note-composer.extract-current-selection", cmd_extract_selection, has_editor, a);
+    ex_commands_bind(a->commands, "note-composer.extract-this-heading", cmd_extract_heading, has_editor, a);
+    ex_commands_bind(a->commands, "note-composer.merge-current-file-with-another-file", cmd_merge, has_editor, a);
     ex_commands_bind(a->commands, "app.open-settings", cmd_open_settings, NULL, a);
     ex_commands_bind(a->commands, "bases.create-new-base", cmd_new_base, has_notes, a);
     ex_commands_bind(a->commands, "bases.add-view", cmd_base_add_view, has_base, a);

@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "exhaust_base_index.h"
+#include "exhaust_compose.h"
 #include "exhaust_audio.h"
 #include "exhaust_embed.h"
 #include "exhaust_mpv.h"
@@ -55,7 +56,7 @@ static void qjob_free(void *p) {
     QJob *j = p;
     size_t i;
     if (!j) return;
-    free(j->a); free(j->b); free(j->c); free(j->text);
+    free(j->a); free(j->b); free(j->c); free(j->text); free(j->fmt1); free(j->fmt2);
     for (i = 0; i < j->nmoves; i++) { free((char *)j->moves[i].from); free((char *)j->moves[i].to); }
     free(j->moves);
     free(j);
@@ -372,6 +373,29 @@ static void do_rewrite(QService *s, QJob *j, QRes *res, int write) {
     snprintf(res->summary, sizeof res->summary, "%zu link%s in %zu note%s", res->report.total_links, res->report.total_links == 1 ? "" : "s", res->report.n, res->report.n == 1 ? "" : "s");
 }
 
+/* QJ_MERGE: the text of the merged note is added to the other (their properties merged), the index learns the new text, and the links to the merged note
+ * are made to point at the other. Nothing is deleted here: the caller deletes the merged note when this has gone well. */
+static void do_merge(QService *s, QJob *j, QRes *res) {
+    ExNoteIO io = ex_note_io_files(s->root);
+    size_t fl = 0, il = 0, ml = 0;
+    char *from = io.read(io.user, j->a, &fl), *into = io.read(io.user, j->b, &il), *merged = NULL, *ft = title_of(j->a), *it = title_of(j->b);
+    ExComposeConfig cfg;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.template_text = j->text; cfg.template_len = j->text ? j->len : 0;
+    cfg.now_ms = (double)ex_platform_unix_time() * 1000.0; cfg.tz_min = ex_platform_tz_offset_minutes();
+    cfg.date_format = j->fmt1; cfg.time_format = j->fmt2;
+    if (from && into) merged = ex_compose_merge_text(from, fl, ft ? ft : "", into, il, it ? it : "", &cfg, &ml);
+    if (merged && io.write(io.user, j->b, merged, ml) == 0) {
+        ex_index_update_text(s->r, j->b, merged, ml);
+        res->ok = ex_retarget_links(s->r, &io, j->a, j->b, &res->report) == 0;
+        res->total = res->report.total_links;
+        res->changed = res->report.n;
+        snprintf(res->summary, sizeof res->summary, "%zu link%s in %zu note%s updated", res->report.total_links, res->report.total_links == 1 ? "" : "s", res->report.n, res->report.n == 1 ? "" : "s");
+    } else snprintf(res->summary, sizeof res->summary, "The notes could not be merged: one could not be read or written.");
+    free(from); free(into); free(merged); free(ft); free(it);
+    ex_note_io_free(&io);
+}
+
 static void do_propop(QService *s, QJob *j, QRes *res) {
     ExNoteIO io = ex_note_io_files(s->root);
     size_t changed = 0;
@@ -638,6 +662,7 @@ static void service_job(ExWorker *self, const ExMessage *m, void *user) {
     case QJ_SNAPSHOT: res->snapshot = ex_switcher_load(s->r, j->include_attachments); res->ok = res->snapshot != NULL; break;
     case QJ_PLAN: do_rewrite(s, j, res, 0); break;
     case QJ_REWRITE: do_rewrite(s, j, res, 1); break;
+    case QJ_MERGE: do_merge(s, j, res); break;
     case QJ_PROPOP: do_propop(s, j, res); break;
     case QJ_LINKIT: do_linkit(s, j, res); break;
     case QJ_EXPAND: do_expand(s, j, res); break;

@@ -334,7 +334,8 @@ fail:
 }
 
 int ex_tpl_plan(const char *note, size_t nlen, const char *tpl, size_t tlen, const ExTplContext *c, size_t cursor, ExTplPlan *p) {
-    char *t = ex_tpl_expand(tpl, tlen, c, &tlen);
+    char *t = c && c->literal ? malloc(tlen + 1) : ex_tpl_expand(tpl, tlen, c, &tlen);
+    if (t && c && c->literal) { memcpy(t, tpl, tlen); t[tlen] = 0; }
     size_t ti0 = 0, ti1 = 0, tafter = 0, ni0 = 0, ni1 = 0, nafter = 0, bom = 0;
     int tf, nf;
     memset(p, 0, sizeof *p);
@@ -528,5 +529,63 @@ int ex_daily_ensure(ExVault *v, const ExDailyConfig *c, double ms, double now_ms
         if (rc) { free(text); free(made); return -1; }
     }
     free(text); free(made);
+    return 1;
+}
+
+/* ---- unique notes ---- */
+int ex_unique_name(const ExUniqueConfig *c, double ms, char *out, size_t cap) {
+    const char *fmt = c && c->prefix_format && *c->prefix_format ? c->prefix_format : "YYYYMMDDHHmm";
+    char name[300];
+    size_t i, n;
+    if (!out || cap < 2) return -1;
+    if (ex_date_format(name, sizeof name, ms, c ? c->tz_min : 0, fmt) >= sizeof name || !name[0]) return -1;
+    n = strlen(name);
+    for (i = 0; i < n; i++) if (name[i] == '/' || name[i] == '\\' || name[i] == ':' || name[i] == '#' || name[i] == '^' || name[i] == '[' || name[i] == ']' || name[i] == '|') return -1;
+    if (n + 1 > cap || n + 8 > 255) return -1;
+    memcpy(out, name, n + 1);
+    return 0;
+}
+
+int ex_unique_create(ExVault *v, const ExUniqueConfig *c, double now_ms, const char *date_format, const char *time_format, char *rel_out, size_t cap) {
+    char base[300], name[320], dir[700] = "", *made = NULL, *text = NULL, *tpl = NULL;
+    size_t tl = 0, xl = 0;
+    int attempt;
+    ExTplContext ctx;
+    ExVaultResult r = EX_VAULT_EXISTS;
+    if (!v || !c || ex_unique_name(c, now_ms, base, sizeof base)) return -1;
+    if (c->folder && *c->folder) {
+        size_t fl;
+        snprintf(dir, sizeof dir, "%s", c->folder);
+        fl = strlen(dir);
+        while (fl && dir[fl - 1] == '/') dir[--fl] = 0;
+        if (strstr(dir, "..") || (dir[0] && ensure_folders(v, dir))) return -1;
+    }
+    if (c->template_path && *c->template_path) {
+        char trel[700], *tabs;
+        size_t n = strlen(c->template_path);
+        snprintf(trel, sizeof trel, "%.600s%s", c->template_path, (n >= 3 && !strcmp(c->template_path + n - 3, ".md")) ? "" : ".md");
+        tabs = ex_vault_abs_path(v, trel);
+        if (tabs) { tpl = ex_platform_read_file(tabs, &tl); free(tabs); }
+    }
+    for (attempt = 1; attempt < 1000; attempt++) {
+        if (attempt == 1) snprintf(name, sizeof name, "%s", base); else snprintf(name, sizeof name, "%s-%d", base, attempt);
+        r = ex_vault_create_note(v, dir, name, &made);
+        if (r != EX_VAULT_EXISTS) break;
+        free(made); made = NULL;
+    }
+    if (r != EX_VAULT_OK || !made) { free(tpl); free(made); return -1; }
+    memset(&ctx, 0, sizeof ctx);
+    ctx.title = name; ctx.now_ms = now_ms; ctx.tz_min = c->tz_min; ctx.date_format = date_format; ctx.time_format = time_format;
+    text = tpl ? ex_tpl_expand(tpl, tl, &ctx, &xl) : NULL;
+    free(tpl);
+    if (text && xl) {
+        char *abs = ex_vault_abs_path(v, made);
+        int rc = abs ? ex_platform_write_file_atomic(abs, text, xl) : -1;
+        free(abs);
+        if (rc) { free(text); free(made); return -1; }
+    }
+    free(text);
+    if (rel_out && cap) snprintf(rel_out, cap, "%s", made);
+    free(made);
     return 1;
 }

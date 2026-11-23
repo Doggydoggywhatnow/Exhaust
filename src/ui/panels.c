@@ -412,6 +412,41 @@ static void handle_plan(ExPanels *p, QRes *r) {
     dialog_confirm(p, "Update links?", msg, "Update links", "Don't update", "Cancel", confirm_done, NULL);
 }
 
+/* ---- merging notes (6e-ii) ---- */
+
+void ex_panels_merge_notes(ExPanels *p, const char *from, const char *into, const char *tpl, size_t tpl_len) {
+    QJob *j;
+    const char *df, *tf;
+    if (!p || !from || !into || !strcmp(from, into)) return;
+    if (!p->index_ready) { if (p->in.host.message) p->in.host.message(p->in.host.user, "The index is not ready yet: try again in a moment."); return; }
+    if (p->in.host.flush_notes) p->in.host.flush_notes(p->in.host.user);
+    j = qjob_new(QJ_MERGE, p->req_merge = ++p->next_req);
+    if (!j) return;
+    df = ex_settings_get(p->in.settings, "templates", "date_format");
+    tf = ex_settings_get(p->in.settings, "templates", "time_format");
+    j->a = dup_s(from); j->b = dup_s(into);
+    j->fmt1 = dup_s(df ? df : ""); j->fmt2 = dup_s(tf ? tf : "");
+    if (tpl && tpl_len) { j->text = malloc(tpl_len + 1); if (j->text) { memcpy(j->text, tpl, tpl_len); j->text[tpl_len] = 0; j->len = tpl_len; } }
+    snprintf(p->merge_from, sizeof p->merge_from, "%s", from);
+    snprintf(p->merge_into, sizeof p->merge_into, "%s", into);
+    send_job(p, j);
+    if (p->in.host.message) p->in.host.message(p->in.host.user, "Merging...");
+}
+
+static void finish_merge(ExPanels *p, QRes *r) {
+    char msg[700];
+    size_t i;
+    if (!r->ok) { if (p->in.host.message) p->in.host.message(p->in.host.user, r->summary[0] ? r->summary : "The notes could not be merged."); return; }
+    for (i = 0; i < r->report.n; i++) ex_panels_file_changed(p, r->report.paths[i]);
+    ex_panels_file_changed(p, p->merge_into);
+    if (p->in.host.file_op) p->in.host.file_op(p->in.host.user, EX_FILEOP_DELETE, p->merge_from, NULL);       /* by files.trash_mode; its tabs close */
+    ex_panels_file_removed(p, p->merge_from);
+    if (p->in.host.open_note) p->in.host.open_note(p->in.host.user, p->merge_into, (size_t)-1, 0);
+    snprintf(msg, sizeof msg, "Merged \"%.100s\" into \"%.100s\". %s.", p->merge_from, p->merge_into, r->summary);
+    if (p->in.host.message) p->in.host.message(p->in.host.user, msg);
+    mark_index_views_stale(p);
+}
+
 /* ---- the frame loop ---- */
 
 void ex_panels_update(ExPanels *p) {
@@ -425,6 +460,7 @@ void ex_panels_update(ExPanels *p) {
             switch (r->kind) {
             case QJ_PLAN: handle_plan(p, r); break;
             case QJ_REWRITE: if (r->req == p->req_rewrite) finish_rename(p, r); break;
+            case QJ_MERGE: if (r->req == p->req_merge) finish_merge(p, r); break;
             case QJ_PREVIEW: preview_result(p, r); break;
             case QJ_GRAPH:
                 if (r->req == p->local_req && r->ok && r->graph && p->in.host.local_graph_data) { p->in.host.local_graph_data(p->in.host.user, r->graph); r->graph = NULL; }

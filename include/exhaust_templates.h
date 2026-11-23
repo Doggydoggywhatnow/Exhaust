@@ -19,6 +19,7 @@ typedef struct ExTplContext {
     double time_ms; int use_time_ms;         /* when set, {{time}} shows this moment instead (a daily note: {{date}} is its day, {{time}} the time it was made) */
     const char *date_format, *time_format;   /* {{date}} and {{time}} */
     const char *content, *from_title, *new_title;   /* the note composer's {{content}}, {{fromTitle}} and {{newTitle}} */
+    int literal;                             /* the template is used as it is, without filling in variables (a merge of one note's text into another) */
 } ExTplContext;
 
 /* Replaces {{title}} {{date}} {{time}} {{date:FORMAT}} {{time:FORMAT}} {{content}} {{fromTitle}} {{newTitle}} (spaces inside the braces are allowed; FORMAT is any
@@ -61,6 +62,19 @@ double ex_daily_shift(const ExDailyConfig *c, double ms, int days);
 /* Makes the note of the day if it is not there: the folders, then the file (never replacing one that exists) with the template's text with its variables
  * ({{title}} is the note's name) filled in. Returns 1 when it was made, 0 when it already existed, -1 on failure; rel_out gets its path. */
 int ex_daily_ensure(ExVault *v, const ExDailyConfig *c, double ms, double now_ms, const char *time_format, char *rel_out, size_t cap);
+
+/* ---- unique notes ---- */
+typedef struct ExUniqueConfig {
+    const char *prefix_format;   /* Moment tokens; default YYYYMMDDHHmm */
+    const char *folder;          /* a folder of the vault; empty for the top folder */
+    const char *template_path;   /* a note of the vault, or empty */
+    int tz_min;
+} ExUniqueConfig;
+/* The name (without .md) of a unique note made at `ms`: the prefix format filled in. 0, or -1 when it is not a name a note can have. */
+int ex_unique_name(const ExUniqueConfig *c, double ms, char *out, size_t cap);
+/* Makes the note: its name is the formatted moment; if a note of that name is there, "-2", "-3"... is added until one is free (a note is never replaced or
+ * touched). The folder is made when missing; the text is the template's with its variables ({{title}} is the name). Returns 1 and the path, or -1. */
+int ex_unique_create(ExVault *v, const ExUniqueConfig *c, double now_ms, const char *date_format, const char *time_format, char *rel_out, size_t cap);
 
 #ifdef __cplusplus
 }

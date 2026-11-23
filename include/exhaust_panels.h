@@ -126,6 +126,10 @@ void ex_panels_local_graph(ExPanels *p, int wanted, const char *center);
 void ex_panels_graph_options(ExPanels *p, const ExGraphOptions *o);
 void ex_panels_search_for(ExPanels *p, const char *query);          /* opens Search with this text and runs it */
 void ex_panels_rename_file(ExPanels *p, const char *path);
+/* Merges the note `from` into the note `into` (6e-ii): open notes are saved, then on the service thread the text of `from` is added to `into` (their properties merged,
+ * with the composer's template `tpl` of `tpl_len` bytes when not NULL) and every link to `from` is made to point at `into`; when that has gone well `from` is deleted
+ * (by files.trash_mode) and `into` is opened. The status bar says how it went. */
+void ex_panels_merge_notes(ExPanels *p, const char *from, const char *into, const char *tpl, size_t tpl_len);
 /* Renames a note to new_name (no folder, no extension) in its own folder, through the link-safe flow; the link question is asked as
  * for any rename. Returns 0 if it was started, -1 (with a message in the status line) if the name is not valid or is taken. */
 int ex_panels_rename_to(ExPanels *p, const char *path, const char *new_name);

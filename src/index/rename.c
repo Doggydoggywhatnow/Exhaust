@@ -296,7 +296,7 @@ static int canvas_pass(ExIndex *r, const ExNoteIO *io, const Moved *m, ExRenameR
     return rc;
 }
 
-static int rename_impl(ExIndex *r, const ExNoteIO *io, const ExMove *moves, size_t n, ExRenameReport *report, int write) {
+static int rename_impl(ExIndex *r, const ExNoteIO *io, const ExMove *moves, size_t n, ExRenameReport *report, int write, int retarget) {
     Moved m;
     sqlite3_stmt *st;
     char **sources = NULL, **source_old = NULL;
@@ -333,6 +333,7 @@ static int rename_impl(ExIndex *r, const ExNoteIO *io, const ExMove *moves, size
         Edits ed = {0};
         int mi = -1;
         for (k = 0; k < m.n; k++) if (!strcmp(m.from[k], s_old)) { mi = (int)k; break; }
+        if (retarget && mi >= 0) continue;      /* a merged note is not moved: its own text is not read and its relative links are not changed (it is deleted afterwards) */
         if (mi >= 0) s_new = m.to[mi];
         text = io->read(io->user, write ? s_new : s_old, &len);
         if (!text && !write) text = io->read(io->user, s_new, &len);
@@ -362,5 +363,7 @@ static int rename_impl(ExIndex *r, const ExNoteIO *io, const ExMove *moves, size
     return rc == 0 && report->failed == 0 ? 0 : -1;
 }
 
-int ex_rename_plan(ExIndex *r, const ExNoteIO *io, const ExMove *moves, size_t n, ExRenameReport *report) { return rename_impl(r, io, moves, n, report, 0); }
-int ex_rename_links(ExIndex *r, const ExNoteIO *io, const ExMove *moves, size_t n, ExRenameReport *report) { return rename_impl(r, io, moves, n, report, 1); }
+int ex_rename_plan(ExIndex *r, const ExNoteIO *io, const ExMove *moves, size_t n, ExRenameReport *report) { return rename_impl(r, io, moves, n, report, 0, 0); }
+int ex_rename_links(ExIndex *r, const ExNoteIO *io, const ExMove *moves, size_t n, ExRenameReport *report) { return rename_impl(r, io, moves, n, report, 1, 0); }
+int ex_retarget_plan(ExIndex *r, const ExNoteIO *io, const char *from, const char *into, ExRenameReport *report) { ExMove mv; mv.from = from; mv.to = into; return rename_impl(r, io, &mv, 1, report, 0, 1); }
+int ex_retarget_links(ExIndex *r, const ExNoteIO *io, const char *from, const char *into, ExRenameReport *report) { ExMove mv; mv.from = from; mv.to = into; return rename_impl(r, io, &mv, 1, report, 1, 1); }
