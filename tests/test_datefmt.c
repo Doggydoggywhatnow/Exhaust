@@ -114,7 +114,9 @@ int main(void) {
     CHECK(ex_date_parse("2024-02-29", 10, 0, &ms, &has) == 0 && ex_date_parse("2023-02-29", 10, 0, &ms, &has) == -1);
     /* formatted text back to a date */
     CHECK(ex_date_parse_format("2025-05-27", 10, "YYYY-MM-DD", 0, &ms) == 0 && ms == ex_date_make(2025, 5, 27, 0, 0, 0, 0, 0));
-    CHECK(ex_date_parse_format("Tuesday, May 27th 2025", 22, "dddd, MMMM Do YYYY", 0, &ms) == -1);     /* Do is not read back */
+    CHECK(ex_date_parse_format("Tuesday, May 27th 2025", 22, "dddd, MMMM Do YYYY", 0, &ms) == 0 && ms == ex_date_make(2025, 5, 27, 0, 0, 0, 0, 0));     /* Do is read back since 6e-i */
+    CHECK(ex_date_parse_format("1st", 3, "Do", 0, &ms) == 0 && ex_date_parse_format("23xx", 4, "Do", 0, &ms) == -1 && ex_date_parse_format("th", 2, "Do", 0, &ms) == -1);
+    CHECK(ex_date_parse_format("2024 60", 7, "YYYY DDD", 0, &ms) == 0 && ms == ex_date_make(2024, 2, 29, 0, 0, 0, 0, 0));
     CHECK(ex_date_parse_format("Tuesday, May 27 2025", 20, "dddd, MMMM D YYYY", 0, &ms) == 0 && ms == ex_date_make(2025, 5, 27, 0, 0, 0, 0, 0));
     CHECK(ex_date_parse_format("27 Mar 25 2:05 PM", 17, "D MMM YY h:mm A", 0, &ms) == 0 && ms == ex_date_make(2025, 3, 27, 14, 5, 0, 0, 0));
     CHECK(ex_date_parse_format("12:00 AM", 8, "hh:mm A", 0, &ms) == 0 && ex_date_parse_format("12:30 PM", 8, "hh:mm A", 0, &ms) == 0);

@@ -189,6 +189,10 @@ add_library(exhaust_buffer STATIC src/buffer/buffer.c src/buffer/doc.c src/buffe
 target_include_directories(exhaust_buffer PUBLIC include)
 target_link_libraries(exhaust_buffer PUBLIC SDL3::SDL3-static)
 
+add_library(exhaust_templates STATIC src/notes/templates.c)
+target_include_directories(exhaust_templates PUBLIC include)
+target_link_libraries(exhaust_templates PUBLIC exhaust_datefmt exhaust_vault exhaust_platform)
+
 add_library(exhaust_notes STATIC src/notes/note_codec.c src/notes/diff.c src/notes/watcher.c src/notes/journal_writer.c src/notes/history.c src/notes/notes.c)
 target_include_directories(exhaust_notes PUBLIC include)
 target_link_libraries(exhaust_notes PUBLIC exhaust_vault exhaust_buffer exhaust_platform)
@@ -510,7 +514,7 @@ if(NOT MSVC)
 endif()
 
 add_executable(exhaust src/main.c)
-target_link_libraries(exhaust PRIVATE exhaust_core exhaust_render exhaust_ui exhaust_notes exhaust_settings)
+target_link_libraries(exhaust PRIVATE exhaust_templates exhaust_core exhaust_render exhaust_ui exhaust_notes exhaust_settings)
 # Release builds are stripped of symbols (the size budget is for the installed program).
 if(NOT MSVC AND NOT APPLE)
   target_link_options(exhaust PRIVATE $<$<CONFIG:Release>:-s>)
@@ -1035,6 +1039,10 @@ target_link_libraries(test_mermaid PRIVATE exhaust_ui exhaust_render exhaust_dia
 target_include_directories(test_mermaid PRIVATE src/ui)
 add_test(NAME mermaid_basic COMMAND test_mermaid ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid)
 add_test(NAME mermaid_more COMMAND test_mermaid ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/mermaid --more)
+
+add_executable(test_templates tests/test_templates.c)
+target_link_libraries(test_templates PRIVATE exhaust_templates exhaust_vault exhaust_platform)
+add_test(NAME dates_templates COMMAND test_templates)
 
 add_executable(test_math tests/test_math.c)
 target_link_libraries(test_math PRIVATE exhaust_ui exhaust_render exhaust_text)

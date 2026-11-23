@@ -310,7 +310,14 @@ int ex_date_parse_format(const char *s, size_t n, const char *fmt, int tz_min, d
         else if (token_is(f, "MM")) { if (digits(s, n, &pos, 2, &mo)) return -1; f += 2; seen_date = 1; }
         else if (*f == 'M') { int c = 0; v = 0; while (pos < n && s[pos] >= '0' && s[pos] <= '9' && c < 2) { v = v * 10 + (s[pos] - '0'); pos++; c++; } if (!c) return -1; mo = v; f += 1; seen_date = 1; }
         else if (token_is(f, "DDDD")) { if (digits(s, n, &pos, 3, &yday)) return -1; f += 4; seen_date = 1; }
+        else if (token_is(f, "DDD")) { int c = 0; v = 0; while (pos < n && s[pos] >= '0' && s[pos] <= '9' && c < 3) { v = v * 10 + (s[pos] - '0'); pos++; c++; } if (!c) return -1; yday = v; f += 3; seen_date = 1; }
         else if (token_is(f, "DD")) { if (digits(s, n, &pos, 2, &d)) return -1; f += 2; seen_date = 1; }
+        else if (f[0] == 'D' && f[1] == 'o') {                                                      /* 1st, 2nd, 23rd, 30th */
+            int c = 0; v = 0;
+            while (pos < n && s[pos] >= '0' && s[pos] <= '9' && c < 2) { v = v * 10 + (s[pos] - '0'); pos++; c++; }
+            if (!c || pos + 2 > n || !(!strncmp(s + pos, "st", 2) || !strncmp(s + pos, "nd", 2) || !strncmp(s + pos, "rd", 2) || !strncmp(s + pos, "th", 2))) return -1;
+            pos += 2; d = v; f += 2; seen_date = 1;
+        }
         else if (*f == 'D') { int c = 0; v = 0; while (pos < n && s[pos] >= '0' && s[pos] <= '9' && c < 2) { v = v * 10 + (s[pos] - '0'); pos++; c++; } if (!c) return -1; d = v; f += 1; seen_date = 1; }
         else if (token_is(f, "dddd") || token_is(f, "ddd")) {                                     /* a weekday name: read and not used */
             int full = token_is(f, "dddd"), k, found = 0;

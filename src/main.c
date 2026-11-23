@@ -10,6 +10,8 @@
 
 #include "exhaust.h"
 #include "exhaust_commands.h"
+#include "exhaust_datefmt.h"
+#include "exhaust_templates.h"
 #include "exhaust_canvasview.h"
 #include "exhaust_baseview.h"
 #include "exhaust_imageview.h"
@@ -77,6 +79,7 @@ typedef enum Banner { BANNER_NONE, BANNER_RECOVERED, BANNER_CONFLICT, BANNER_ERR
 typedef struct TabNote { ExId tab; ExNote *note; } TabNote;
 
 typedef struct App {
+    char **tpl_abs; size_t tpl_n;      /* the templates offered by the last Insert template (6e-i) */
     ExRenderer *r;
     ExUi *ui;
     ExTheme theme;
@@ -1015,6 +1018,152 @@ static void cmd_base_add_view(void *u) { ExWidget *b = active_base(u); if (b) ex
 static void cmd_base_switch_view(void *u) { ExWidget *b = active_base(u); if (b) ex_baseview_view_menu(b); }
 static void cmd_base_copy(void *u) { ExWidget *b = active_base(u); if (b) ex_baseview_copy(b); }
 static void cmd_base_insert(void *u) { format_cmd(u, EX_FMT_BASE); }
+/* ---- daily notes and templates (6e-i) ---- */
+static void daily_config(App *a, ExDailyConfig *c) {
+    c->date_format = ex_settings_get(a->settings, "daily_notes", "date_format");
+    c->folder = ex_settings_get(a->settings, "daily_notes", "folder");
+    c->template_path = ex_settings_get(a->settings, "daily_notes", "template");
+    c->tz_min = ex_platform_tz_offset_minutes();
+}
+/* shift 0: today; 1 and -1: the day after and before the daily note that is open (or today, when it is not one). The note is made when it is not there:
+ * this is an action of the user, and the file is never replaced. */
+static void open_daily(App *a, int shift) {
+    ExDailyConfig c;
+    double now = (double)ex_platform_unix_time() * 1000.0, day = now;
+    char rel[700];
+    int rc;
+    if (!a->vault || !a->notes) return;
+    daily_config(a, &c);
+    if (shift) {
+        ExId t = ex_ws_group_active(a->ws, ex_ws_active_group(a->ws));
+        const ExTab *tab = t ? ex_ws_tab(a->ws, t) : NULL;
+        double cur;
+        if (tab && tab->path[0] && ex_daily_date_of(&c, tab->path, &cur) == 0) day = cur;
+        day = ex_daily_shift(&c, day, shift);
+    }
+    rc = ex_daily_ensure(a->vault, &c, day, now, ex_settings_get(a->settings, "templates", "time_format"), rel, sizeof rel);
+    if (rc < 0) { set_status(a, "The daily note could not be made: check the date format and the folder in the Daily notes settings."); return; }
+    ex_panels_tree_changed(a->panels);
+    open_path(a, 0, rel);
+}
+static void cmd_daily_today(void *u) { open_daily(u, 0); }
+static void cmd_daily_next(void *u) { open_daily(u, 1); }
+static void cmd_daily_prev(void *u) { open_daily(u, -1); }
+
+static ExTplContext template_context(App *a, char *title, size_t cap) {
+    ExTplContext c;
+    memset(&c, 0, sizeof c);
+    title[0] = 0;
+    if (a->note) {
+        const char *p = ex_note_path(a->note), *slash = p ? strrchr(p, '/') : NULL, *name = slash ? slash + 1 : (p ? p : "");
+        size_t n = strlen(name);
+        if (n > 3 && !strcmp(name + n - 3, ".md")) n -= 3;
+        snprintf(title, cap, "%.*s", (int)n, name);
+    }
+    c.title = title;
+    c.now_ms = (double)ex_platform_unix_time() * 1000.0;
+    c.tz_min = ex_platform_tz_offset_minutes();
+    c.date_format = ex_settings_get(a->settings, "templates", "date_format");
+    c.time_format = ex_settings_get(a->settings, "templates", "time_format");
+    return c;
+}
+static void insert_text_at_carets(App *a, const char *text) {
+    ExEditor *ed = a->editor ? a->editor->editor : NULL;
+    if (ed) ex_doc_replace_selections(ex_editor_doc(ed), text, strlen(text), 0);
+}
+static void cmd_tpl_date(void *u) {
+    App *a = u;
+    char title[300], out[300];
+    ExTplContext c = template_context(a, title, sizeof title);
+    ex_date_format(out, sizeof out, c.now_ms, c.tz_min, c.date_format && *c.date_format ? c.date_format : "YYYY-MM-DD");
+    insert_text_at_carets(a, out);
+}
+static void cmd_tpl_time(void *u) {
+    App *a = u;
+    char title[300], out[300];
+    ExTplContext c = template_context(a, title, sizeof title);
+    ex_date_format(out, sizeof out, c.now_ms, c.tz_min, c.time_format && *c.time_format ? c.time_format : "HH:mm");
+    insert_text_at_carets(a, out);
+}
+typedef struct TplList { char **abs; size_t n, cap; size_t root_len; } TplList;
+static int tpl_walk(const char *path, int is_dir, int64_t mtime, void *user) {
+    TplList *l = user;
+    size_t n = strlen(path);
+    (void)mtime;
+    if (is_dir || n < 4 || strcmp(path + n - 3, ".md")) return 0;
+    if (l->n == l->cap) { size_t nc = l->cap ? l->cap * 2 : 16; char **t = realloc(l->abs, nc * sizeof *t); if (!t) return 0; l->abs = t; l->cap = nc; }
+    l->abs[l->n] = malloc(n + 1);
+    if (l->abs[l->n]) { memcpy(l->abs[l->n], path, n + 1); l->n++; }
+    return 0;
+}
+static int tpl_cmp(const void *x, const void *y) { return strcmp(*(char *const *)x, *(char *const *)y); }
+static void tpl_choose(size_t index, void *arg) {
+    App *a = arg;
+    ExEditor *ed = a->editor ? a->editor->editor : NULL;
+    ExDoc *doc;
+    size_t tl = 0, nl = 0, cursor;
+    char *tpl, *note;
+    ExTplContext c;
+    ExTplPlan p;
+    char title[300];
+    ExChange ch[2];
+    size_t nch = 0, caret;
+    if (!ed || index >= a->tpl_n) return;
+    tpl = ex_platform_read_file(a->tpl_abs[index], &tl);
+    if (!tpl) { set_status(a, "The template could not be read."); return; }
+    doc = ex_editor_doc(ed);
+    note = ex_buffer_text(ex_doc_buffer(doc), &nl);
+    cursor = ex_doc_sel(doc, ex_doc_primary(doc)).head;
+    c = template_context(a, title, sizeof title);
+    if (note && ex_tpl_plan(note, nl, tpl, tl, &c, cursor, &p) == 0) {
+        size_t shift = 0;
+        if (p.has_front) { ch[nch].offset = p.front_off; ch[nch].remove_len = p.front_del; ch[nch].text = p.front_text; ch[nch].text_len = p.front_len; nch++; shift = p.front_len - p.front_del; }
+        ch[nch].offset = p.body_off; ch[nch].remove_len = 0; ch[nch].text = p.body_text; ch[nch].text_len = p.body_len; nch++;
+        caret = p.body_off + shift + p.body_len;
+        {
+            ExSel sel; sel.anchor = sel.head = caret;
+            ex_doc_apply(doc, ch, nch, 0, &sel, 1);     /* one undo step: the properties and the text */
+        }
+        ex_tpl_plan_free(&p);
+    }
+    free(note); free(tpl);
+}
+/* templates.insert-template: the notes of the template folder, to pick from. */
+static void cmd_tpl_insert(void *u) {
+    App *a = u;
+    const char *folder = ex_settings_get(a->settings, "templates", "folder");
+    char *abs;
+    TplList l;
+    char **labels;
+    size_t i;
+    if (!a->vault || !a->editor) return;
+    memset(&l, 0, sizeof l);
+    abs = ex_vault_abs_path(a->vault, folder ? folder : "");
+    if (!abs) return;
+    ex_platform_walk(abs, tpl_walk, &l);
+    if (l.n == 0) { set_status(a, folder && *folder ? "There are no templates in the template folder (Templates settings)." : "Choose a template folder in the Templates settings first."); free(abs); free(l.abs); return; }
+    qsort(l.abs, l.n, sizeof *l.abs, tpl_cmp);
+    for (i = 0; i < a->tpl_n; i++) free(a->tpl_abs[i]);
+    free(a->tpl_abs);
+    a->tpl_abs = l.abs; a->tpl_n = l.n;
+    labels = malloc(l.n * sizeof *labels);
+    if (labels) {
+        size_t base = strlen(abs);
+        for (i = 0; i < l.n; i++) {
+            const char *p = l.abs[i] + (strlen(l.abs[i]) > base ? base : 0);
+            size_t n;
+            while (*p == '/') p++;
+            n = strlen(p);
+            labels[i] = malloc(n + 1);
+            if (labels[i]) { memcpy(labels[i], p, n + 1); if (n > 3) labels[i][n - 3] = 0; }
+        }
+        ex_panels_ask_choice(a->panels, "Insert template", (const char *const *)labels, l.n, tpl_choose, a);
+        for (i = 0; i < l.n; i++) free(labels[i]);
+        free(labels);
+    }
+    free(abs);
+}
+
 /* bases.create-new-base: a new base beside the open note or in the vault folder (the canvas setting), with one table view; written at once. */
 static void cmd_new_base(void *u) {
     App *a = u;
@@ -2082,6 +2231,12 @@ static void register_features_and_commands(App *a) {
     ex_features_register(a->features, "file_recovery", "File recovery", on_recovery_feature, a);
     a->commands = ex_commands_create(a->features);
     ex_commands_bind(a->commands, "graph-view.open-graph-view", cmd_open_graph, NULL, a);
+    ex_commands_bind(a->commands, "daily-notes.open-today-s-daily-note", cmd_daily_today, has_notes, a);
+    ex_commands_bind(a->commands, "daily-notes.open-next-daily-note", cmd_daily_next, has_notes, a);
+    ex_commands_bind(a->commands, "daily-notes.open-previous-daily-note", cmd_daily_prev, has_notes, a);
+    ex_commands_bind(a->commands, "templates.insert-current-date", cmd_tpl_date, has_editor, a);
+    ex_commands_bind(a->commands, "templates.insert-current-time", cmd_tpl_time, has_editor, a);
+    ex_commands_bind(a->commands, "templates.insert-template", cmd_tpl_insert, has_editor, a);
     ex_commands_bind(a->commands, "app.open-settings", cmd_open_settings, NULL, a);
     ex_commands_bind(a->commands, "bases.create-new-base", cmd_new_base, has_notes, a);
     ex_commands_bind(a->commands, "bases.add-view", cmd_base_add_view, has_base, a);
