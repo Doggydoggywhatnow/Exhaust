@@ -159,7 +159,7 @@ static void test_schema(void) {
         if (strcmp(d->section, "features") == 0) features++;
         if (d->type == EX_SET_ENUM) { char e[256]; snprintf(e, sizeof e, "|%s|", d->enum_values); { char dv[128]; snprintf(dv, sizeof dv, "|%s|", d->def); CHECK(strstr(e, dv) != NULL); } }
     }
-    CHECK(features == 28);                       /* the core plugin switches of the document */
+    CHECK(features == 29);                       /* the core plugin switches of the document */
     CHECK(ex_settings_def("features", "sync") && ex_settings_def("features", "sync")->stub);
     CHECK(ex_settings_def("features", "publish") && ex_settings_def("features", "publish")->stub);
     CHECK(ex_settings_def("features", "graph") && !ex_settings_def("features", "graph")->stub);

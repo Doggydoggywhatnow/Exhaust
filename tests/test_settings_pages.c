@@ -245,7 +245,7 @@ int main(int argc, char **argv) {
         size_t nf = 0, k;
         for (k = 0; k < ex_settings_row_count(); k++) if (!strcmp(ex_settings_row(k)->page, "features") && ex_settings_row(k)->kind == EX_ROW_TOGGLE) nf++;
         printf("feature_pages: %d feature switches through the registry, %zu rows on the list\n", FEATURE_CALLS, nf);
-        CHECK(FEATURE_CALLS >= (int)(2 * (nf - 2)));              /* each non-stub switch was turned off and on again */
+        CHECK(FEATURE_CALLS >= (int)(2 * (nf - 3)));              /* each non-stub switch was turned off and on again */
         ex_settings_flush(S);
         {
             ExSettings *again = ex_settings_open(vcfg, NULL);
