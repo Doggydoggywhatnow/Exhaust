@@ -274,8 +274,8 @@ move 1083 86
 down 1083 86
 up 1083 86
 wait 800
-move 955 256
-down 955 256
+move 955 286
+down 955 286
 up 955 256
 wait 1500
 quit' > "$work/sidebar_back.script"
