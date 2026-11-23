@@ -158,10 +158,11 @@ set(FONT_FILES
   ex_font_mono_regular        ${FONT_DIR}/atkinson-hyperlegible-mono/AtkinsonHyperlegibleMono-Regular.ttf
   ex_font_mono_bold           ${FONT_DIR}/atkinson-hyperlegible-mono/AtkinsonHyperlegibleMono-Bold.ttf
   ex_font_mono_italic         ${FONT_DIR}/atkinson-hyperlegible-mono/AtkinsonHyperlegibleMono-Italic.ttf
-  ex_font_mono_bold_italic    ${FONT_DIR}/atkinson-hyperlegible-mono/AtkinsonHyperlegibleMono-BoldItalic.ttf)
+  ex_font_mono_bold_italic    ${FONT_DIR}/atkinson-hyperlegible-mono/AtkinsonHyperlegibleMono-BoldItalic.ttf
+  ex_font_math                ${FONT_DIR}/stix-two-math/STIXTwoMath-Regular.otf)
 set(FONT_DEPS "")
 foreach(item IN LISTS FONT_FILES)
-  if(item MATCHES "\\.ttf$")
+  if(item MATCHES "\\.(ttf|otf)$")
     list(APPEND FONT_DEPS ${item})
   endif()
 endforeach()
@@ -331,7 +332,7 @@ target_include_directories(exhaust_nav PUBLIC include PRIVATE src/index)
 target_link_libraries(exhaust_nav PUBLIC exhaust_index exhaust_settings exhaust_vault exhaust_ini exhaust_markdown)
 
 add_library(exhaust_text STATIC src/text/font.c
-  src/text/fontdb.c src/text/shape.c src/text/fonts_table.c ${FONTS_C})
+  src/text/fontdb.c src/text/shape.c src/text/fonts_table.c src/text/math.c ${FONTS_C})
 target_include_directories(exhaust_text PUBLIC include PRIVATE src/text)
 target_link_libraries(exhaust_text PUBLIC exhaust_unicode freetype harfbuzz sheenbidi exhaust_platform)
 
@@ -342,7 +343,7 @@ if(NOT MSVC)
   target_link_libraries(exhaust_layout PUBLIC m)
 endif()
 
-add_library(exhaust_render STATIC src/render/render.c src/render/atlas.c)
+add_library(exhaust_render STATIC src/render/render.c src/render/atlas.c src/render/mathdraw.c)
 target_include_directories(exhaust_render PUBLIC include)
 target_link_libraries(exhaust_render PUBLIC exhaust_text SDL3::SDL3-static)
 if(NOT MSVC)
@@ -544,6 +545,8 @@ install(FILES third_party/fonts/atkinson-hyperlegible/OFL.txt
   DESTINATION share/exhaust/licenses RENAME AtkinsonHyperlegible-OFL.txt)
 install(FILES third_party/fonts/atkinson-hyperlegible-mono/OFL.txt
   DESTINATION share/exhaust/licenses RENAME AtkinsonHyperlegibleMono-OFL.txt)
+install(FILES third_party/fonts/stix-two-math/OFL.txt
+  DESTINATION share/exhaust/licenses RENAME STIXTwoMath-OFL.txt)
 
 # ---- Tests ----
 enable_testing()
@@ -626,6 +629,10 @@ if(EXHAUST_FUZZ)
   target_compile_options(fuzz_audio PRIVATE -fsanitize=fuzzer,address,undefined)
   target_link_options(fuzz_audio PRIVATE -fsanitize=fuzzer,address,undefined)
   target_link_libraries(fuzz_audio PRIVATE exhaust_audio)
+  add_executable(fuzz_math tests/fuzz/fuzz_math.c)
+  target_compile_options(fuzz_math PRIVATE -fsanitize=fuzzer,address,undefined)
+  target_link_options(fuzz_math PRIVATE -fsanitize=fuzzer,address,undefined)
+  target_link_libraries(fuzz_math PRIVATE exhaust_text)
   add_executable(fuzz_canvas tests/fuzz/fuzz_canvas.c)
   target_compile_options(fuzz_canvas PRIVATE -fsanitize=fuzzer,address,undefined)
   target_link_options(fuzz_canvas PRIVATE -fsanitize=fuzzer,address,undefined)
@@ -846,6 +853,9 @@ add_test(NAME audio COMMAND test_audio ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/au
 add_executable(test_audio_random tests/fuzz/fuzz_audio.c tests/fuzz/mutate_driver.c)
 target_link_libraries(test_audio_random PRIVATE exhaust_audio)
 add_test(NAME audio_random COMMAND test_audio_random 800 ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/audio/tone16.wav ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/audio/tone.flac ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/audio/tone.mp3 ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/audio/tone.ogg ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/audio/tone_alaw.wav ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/audio/tone_ima.wav ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/audio/tone24.wav)
+add_executable(test_math_random tests/fuzz/fuzz_math.c tests/fuzz/mutate_driver.c)
+target_link_libraries(test_math_random PRIVATE exhaust_text)
+add_test(NAME math_random COMMAND test_math_random 3000 ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/math/seed0.tex ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/math/seed1.tex ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/math/seed2.tex ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/math/seed3.tex ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/math/seed4.tex ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/math/seed5.tex ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/math/seed6.tex)
 add_executable(test_audio_view tests/test_audio_view.c)
 target_link_libraries(test_audio_view PRIVATE exhaust_ui exhaust_platform)
 add_test(NAME audio_view COMMAND test_audio_view ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/audio)
@@ -1005,6 +1015,11 @@ add_executable(test_shaping tests/test_shaping.c)
 target_link_libraries(test_shaping PRIVATE exhaust_text)
 add_test(NAME shaping COMMAND test_shaping ${CMAKE_CURRENT_SOURCE_DIR}/third_party/unicode
   ${CMAKE_CURRENT_SOURCE_DIR}/tests/fonts)
+
+add_executable(test_math tests/test_math.c)
+target_link_libraries(test_math PRIVATE exhaust_ui exhaust_render exhaust_text)
+target_include_directories(test_math PRIVATE src/ui)
+add_test(NAME math COMMAND test_math)
 
 add_executable(test_font_cache tests/test_font_cache.c)
 target_link_libraries(test_font_cache PRIVATE exhaust_text)

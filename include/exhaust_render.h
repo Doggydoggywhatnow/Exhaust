@@ -136,6 +136,12 @@ float ex_text_measure(ExRenderer *r, ExFont *font, float size, const char *utf8,
  * not even the ellipsis fits). Used wherever a name may be longer than the room it has (rows of lists, the tree, popups). */
 size_t ex_text_fit(ExRenderer *r, ExFont *font, float size, const char *utf8, size_t len, float max_w, char *out, size_t cap);
 int ex_text_metrics(ExRenderer *r, ExFont *font, float size, ExFontMetrics *out);
+/* Glyphs by index (math, 6d-i): `n` glyphs of one font, each with its own size at 100% zoom and its pen position in pixels (x, and y of the baseline). */
+struct ExMath;
+/* Draws a math layout (exhaust_math.h): size is the font size at 100% zoom, (x, y) the left end of the baseline in pixels. */
+void ex_math_draw(ExRenderer *r, const struct ExMath *m, float size, float x, float y, ExColor color);
+typedef struct ExGlyphPlace { uint32_t glyph; float x, y, size; } ExGlyphPlace;
+void ex_glyphs_draw(ExRenderer *r, ExFont *font, const ExGlyphPlace *g, size_t n, ExColor color);
 
 void ex_atlas_stats(const ExRenderer *r, ExAtlasStats *out);
 

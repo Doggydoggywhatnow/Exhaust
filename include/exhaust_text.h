@@ -52,6 +52,7 @@ typedef enum ExBuiltinFont {
     EX_FONT_MONO_BOLD,
     EX_FONT_MONO_ITALIC,
     EX_FONT_MONO_BOLD_ITALIC,
+    EX_FONT_MATH,        /* STIX Two Math (6d-i) */
     EX_FONT_BUILTIN_COUNT
 } ExBuiltinFont;
 

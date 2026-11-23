@@ -635,6 +635,28 @@ float ex_text_measure(ExRenderer *r, ExFont *font, float size, const char *utf8,
     return layout(r, font, size, 0, 0, utf8, len, unused, 0);
 }
 
+void ex_glyphs_draw(ExRenderer *r, ExFont *font, const ExGlyphPlace *g, size_t n, ExColor color) {
+    Batch *b;
+    SDL_FColor col;
+    size_t i;
+    if (!font || !g || n == 0) return;
+    b = malloc(sizeof *b);
+    if (!b) return;
+    b->glyphs = 0;
+    b->page = -1;
+    col.r = color.r / 255.0f; col.g = color.g / 255.0f; col.b = color.b / 255.0f; col.a = color.a / 255.0f;
+    for (i = 0; i < n; i++) {
+        int px = ex_px(r, g[i].size);
+        const ExAtlasGlyph *pg = px > 0 ? ex_atlas_glyph(r->atlas, font, g[i].glyph, px) : NULL;
+        if (pg) {
+            ExAtlasGlyph a = *pg; /* copy: the table may move on the next lookup */
+            emit(r, b, &a, floorf(g[i].x + 0.5f) + (float)a.left, floorf(g[i].y + 0.5f) - (float)a.top, col);
+        }
+    }
+    flush(r, b);
+    free(b);
+}
+
 size_t ex_text_fit(ExRenderer *r, ExFont *font, float size, const char *utf8, size_t len, float max_w, char *out, size_t cap) {
     static const char ell[] = "\xE2\x80\xA6";
     size_t starts[1025], n = 0, pos = 0, lo, hi, best = 0;

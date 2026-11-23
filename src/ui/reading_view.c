@@ -7,8 +7,9 @@
 #include <string.h>
 
 #include "reading_view.h"
+#include "exhaust_math.h"
 
-typedef enum OpKind { OP_TEXT, OP_RECT, OP_BOX, OP_CHEVRON, OP_RULE, OP_IMAGE, OP_CARD } OpKind;
+typedef enum OpKind { OP_TEXT, OP_RECT, OP_BOX, OP_CHEVRON, OP_RULE, OP_IMAGE, OP_CARD, OP_MATH } OpKind;
 
 typedef struct Op {
     OpKind kind;
@@ -25,6 +26,8 @@ typedef struct Op {
     const char *path;         /* IMAGE and CARD: the file's path in the vault (owned by the view) */
     int media;                /* CARD: 2 audio, 3 video, 4 PDF, 5 canvas, 6 an address that is not loaded */
     int svg_w;                /* IMAGE: the width an SVG is drawn at */
+    const ExMath *math;       /* MATH: the layout (owned by the view's cache until the next layout); size is the font size, base_y the baseline below the top */
+    float base_y;
 } Op;
 
 typedef struct Link { ExRSpanKind kind; const char *target; } Link;
@@ -48,6 +51,8 @@ struct ExReadingView {
     float base_size;
     ExReadingMedia media;
     unsigned long img_version;
+    ExMathCache *math;                 /* layouts of equations, kept between layouts (6d-i) */
+    int math_budget, math_pending;     /* equations made in this layout, at most 24 a pass: the rest stay source until the next frame */
 };
 
 /* ---- storage helpers ---- */
@@ -95,6 +100,7 @@ ExReadingView *ex_readingview_create(const char *text, size_t len) {
     if (!v) return NULL;
     v->press_link = v->press_toggle = -1;
     v->base_size = 16.0f;
+    v->math = ex_mathcache_create();
     ex_readingview_set_text(v, text, len);
     return v;
 }
@@ -113,6 +119,7 @@ void ex_readingview_free(ExReadingView *v) {
     ex_reading_free(v->model);
     { size_t i; for (i = 0; i < v->nowned; i++) free(v->owned[i]); free(v->owned); }
     free(v->plain); free(v->ops); free(v->back); free(v->links); free(v->closed);
+    ex_mathcache_free(v->math);
     free(v);
 }
 
@@ -120,6 +127,7 @@ void ex_readingview_set_link_handler(ExReadingView *v, ExReadingLinkFn fn, void 
 void ex_readingview_set_viewport(ExReadingView *v, float x, float y, float w, float h) { v->vx = x; v->vy = y; v->vw = w; v->vh = h; }
 float ex_readingview_scroll_y(const ExReadingView *v) { return v->scroll; }
 float ex_readingview_content_height(const ExReadingView *v) { return v->content_h; }
+int ex_readingview_math_pending(const ExReadingView *v) { return v ? v->math_pending : 0; }
 char *ex_readingview_plain_text(const ExReadingView *v) { char *p = malloc((v->plain ? strlen(v->plain) : 0) + 1); if (p) strcpy(p, v->plain ? v->plain : ""); return p; }
 
 static void clamp_scroll(ExReadingView *v) {
@@ -157,6 +165,18 @@ typedef struct Lay {
     float line_h;
     int line_started;
 } Lay;
+
+/* An equation's layout from the cache, making at most 24 new ones in a pass (the rest of a note full of equations shows as source and is made in the
+ * next frames: the cost of a frame does not grow with the number of equations). */
+static const ExMath *math_for(ExReadingView *v, ExFont *mf, const char *s, size_t n, int display) {
+    const ExMath *m;
+    if (!v->math || !mf) return NULL;
+    m = ex_mathcache_lookup(v->math, mf, s, n, display);
+    if (m) return m;
+    if (v->math_budget <= 0) { v->math_pending = 1; return NULL; }
+    v->math_budget--;
+    return ex_mathcache_get(v->math, mf, s, n, display);
+}
 
 static ExFont *font_for(Lay *L, unsigned st) {
     int mono = (st & EX_RS_CODE) != 0, bold = (st & EX_RS_BOLD) != 0, italic = (st & EX_RS_ITALIC) != 0;
@@ -199,7 +219,24 @@ static void flow(Lay *L, const ExRSpan *sp, size_t n, unsigned base_style, float
         else if (s->kind == EX_RSK_FOOTNOTE_REF) { fg = EX_COLOR_LINK; sz = size * 0.75f; yoff = -size * 0.3f * ex_renderer_scale(L->r); link = add_link(L->v, s->kind, s->target); }
         else if (s->kind == EX_RSK_IMAGE) { snprintf(buf, sizeof buf, "[image: %s]", t); t = buf; tl = strlen(buf); fg = EX_COLOR_TEXT_MUTED; bg = EX_COLOR_CODE_BACKGROUND; }
         else if (s->kind == EX_RSK_EMBED) { snprintf(buf, sizeof buf, "[embedded: %s]", t); t = buf; tl = strlen(buf); fg = EX_COLOR_TEXT_MUTED; bg = EX_COLOR_CODE_BACKGROUND; }
-        else if (s->kind == EX_RSK_MATH) { fg = EX_COLOR_CODE_TEXT; bg = EX_COLOR_CODE_BACKGROUND; st |= EX_RS_CODE; }
+        else if (s->kind == EX_RSK_MATH) {
+            ExFont *mf = L->v->math ? ex_font_builtin(ex_renderer_fonts(L->r), EX_FONT_MATH) : NULL;
+            const ExMath *m = mf ? math_for(L->v, mf, t, tl, 0) : NULL;
+            if (m && !ex_math_error(m)) {   /* an equation in the line: one object, wrapped as a word, on the text's baseline */
+                float mscale = ex_renderer_scale(L->r), mw = ex_math_width(m) * sz * mscale;
+                ExFontMetrics fm;
+                Op op;
+                if (L->x + mw > L->x_right && L->x > L->x_left) { L->y += lh; L->x = L->x_left; }
+                memset(&op, 0, sizeof op);
+                op.kind = OP_MATH; op.x = L->x; op.y = L->y; op.w = mw; op.h = lh; op.math = m; op.size = sz; op.fg = EX_COLOR_TEXT; op.bg = -1; op.link = -1; op.toggle = -1;
+                op.font = font_for(L, 0);
+                op.base_y = ex_text_metrics(L->r, op.font, sz, &fm) == 0 ? (lh - (float)fm.line_height) / 2.0f + (float)fm.ascent : lh * 0.75f;
+                push_op(&L->v->ops, &L->v->nops, &L->v->capops, &op);
+                L->x += mw;
+                continue;
+            }
+            fg = m ? EX_COLOR_ERROR : EX_COLOR_CODE_TEXT; bg = EX_COLOR_CODE_BACKGROUND; st |= EX_RS_CODE;   /* what cannot be laid out stays as its source */
+        }
         if (st & EX_RS_CODE && s->kind == EX_RSK_TEXT) { fg = EX_COLOR_CODE_TEXT; bg = EX_COLOR_CODE_BACKGROUND; }
         if (st & EX_RS_SUB) { sz = size * 0.75f; yoff = size * 0.2f * ex_renderer_scale(L->r); }
         if (st & EX_RS_SUP && s->kind != EX_RSK_FOOTNOTE_REF) { sz = size * 0.75f; yoff = -size * 0.3f * ex_renderer_scale(L->r); }
@@ -393,6 +430,8 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
     for (i = 0; i < v->nowned; i++) free(v->owned[i]);
     v->nowned = 0;
     v->nlinks = 0;
+    ex_mathcache_begin(v->math);   /* equations asked for in this layout stay; the others go */
+    v->math_budget = 24; v->math_pending = 0;
     memset(&L, 0, sizeof L);
     L.v = v; L.r = r; L.base = v->base_size; L.lh_mul = 1.35f;
     em = L.base * scale;
@@ -451,6 +490,24 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
         }
         case EX_RBK_CODE: case EX_RBK_MATH: {
             const char *c = b->code ? b->code : "", *p = c;
+            int math_err = 0;
+            if (b->kind == EX_RBK_MATH && v->math) {   /* display math: centered, in the text color; a formula that cannot be laid out stays as source in the error color */
+                ExFont *mf = ex_font_builtin(ex_renderer_fonts(r), EX_FONT_MATH);
+                const ExMath *m = mf ? math_for(v, mf, c, strlen(c), 1) : NULL;
+                if (m && !ex_math_error(m)) {
+                    float msize = L.base * 1.1f, mem = msize * scale, mw = ex_math_width(m) * mem, mh = (ex_math_ascent(m) + ex_math_descent(m)) * mem, mpad = 0.5f * em;
+                    float avail = x0 + col_w - L.x_left;
+                    Op op;
+                    memset(&op, 0, sizeof op);
+                    op.kind = OP_MATH; op.x = L.x_left + (mw < avail ? (avail - mw) / 2.0f : 0.0f); op.y = L.y + mpad; op.w = mw; op.h = mh; op.math = m; op.size = msize;
+                    op.base_y = ex_math_ascent(m) * mem; op.fg = EX_COLOR_TEXT; op.bg = -1; op.link = -1; op.toggle = -1; op.flags = mw > avail ? 0x1000u : 0u;
+                    if (mw > avail) { op.x = L.x_left; op.w = avail; }
+                    push_op(&v->ops, &v->nops, &v->capops, &op);
+                    L.y += mh + 2.0f * mpad;
+                    break;
+                }
+                math_err = m != NULL;
+            }
             float size = L.base * 0.95f, lh = line_height(&L, size), padc = 0.5f * em, y = L.y + padc;
             ExFont *font = ex_font_builtin(ex_renderer_fonts(r), EX_FONT_MONO_REGULAR);
             Op bg;
@@ -466,7 +523,7 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
                 Op op;
                 memset(&op, 0, sizeof op);
                 op.kind = OP_TEXT; op.x = L.x_left + padc; op.y = y; op.w = x0 + col_w - L.x_left - 2 * padc; op.h = lh; op.text = p; op.len = n; op.font = font; op.size = size;
-                op.fg = EX_COLOR_CODE_TEXT; op.link = -1; op.toggle = -1; op.flags = EX_RS_CODE | 0x1000;      /* 0x1000: clip to its width, never wrap */
+                op.fg = math_err ? EX_COLOR_ERROR : EX_COLOR_CODE_TEXT; op.link = -1; op.toggle = -1; op.flags = EX_RS_CODE | 0x1000;      /* 0x1000: clip to its width, never wrap */
                 push_op(&v->ops, &v->nops, &v->capops, &op);
                 y += lh;
                 if (!e) break;
@@ -576,7 +633,7 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
     v->content_h = L.y + pad;
     v->laid_w = avail_w;
     v->laid_scale = scale;
-    v->dirty = 0;
+    v->dirty = v->math_pending;     /* equations left for the next frame: lay out again then */
     clamp_scroll(v);
 }
 
@@ -616,6 +673,14 @@ void ex_readingview_draw(ExReadingView *v, ExRenderer *r, const ExTheme *t, floa
             if (clipped) ex_set_clip(r, (int)v->vx, (int)v->vy, (int)v->vw, (int)v->vh);
             if (o->flags & EX_RS_UNDERLINE) ex_fill_rect(r, x, y + o->h * 0.88f, o->w, (float)ex_px(r, 1), col);
             if (o->flags & EX_RS_STRIKE) ex_fill_rect(r, x, y + o->h * 0.5f, o->w, (float)ex_px(r, 1), col);
+            break;
+        }
+        case OP_MATH: {
+            ExColor col = ex_theme_color(t, (ExColorToken)o->fg);
+            int clipped = (o->flags & 0x1000) != 0;
+            if (clipped) ex_set_clip(r, (int)x, (int)v->vy, (int)(o->w + 1), (int)v->vh);
+            ex_math_draw(r, o->math, o->size, x, y + o->base_y, col);
+            if (clipped) ex_set_clip(r, (int)v->vx, (int)v->vy, (int)v->vw, (int)v->vh);
             break;
         }
         case OP_RULE: ex_fill_rect(r, x, y, o->w, o->h, ex_theme_color(t, (ExColorToken)o->fg)); break;

@@ -102,7 +102,7 @@ jobs:
       - run: >
           cmake -S . -B build-fuzz -DCMAKE_BUILD_TYPE=RelWithDebInfo -DEXHAUST_FUZZ=ON -DEXHAUST_A11Y=OFF
           -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-      - run: cmake --build build-fuzz --target fuzz_utf8 fuzz_markdown fuzz_html fuzz_frontmatter fuzz_canvas fuzz_base_expr fuzz_base fuzz_image fuzz_audio --parallel
+      - run: cmake --build build-fuzz --target fuzz_utf8 fuzz_markdown fuzz_html fuzz_frontmatter fuzz_canvas fuzz_base_expr fuzz_base fuzz_image fuzz_audio fuzz_math --parallel
       - name: UTF-8 and grapheme segmenter, 10 seconds
         run: mkdir -p corpus/utf8 && ./build-fuzz/fuzz_utf8 -max_total_time=10 corpus/utf8
       - name: Markdown tokenizer (with the incremental update), 60 seconds
@@ -119,5 +119,7 @@ jobs:
         run: mkdir -p corpus/image && cp tests/data/images/* corpus/image/ && ./build-fuzz/fuzz_image -max_total_time=60 -max_len=2048 corpus/image
       - name: Audio (WAV, FLAC, MP3, Ogg Vorbis), 60 seconds
         run: mkdir -p corpus/audio && cp tests/data/audio/tone16.wav tests/data/audio/tone.flac tests/data/audio/tone.mp3 tests/data/audio/tone.ogg tests/data/audio/tone_alaw.wav tests/data/audio/tone_ima.wav corpus/audio/ && ./build-fuzz/fuzz_audio -max_total_time=60 -max_len=65536 corpus/audio
+      - name: Math (LaTeX subset), 60 seconds
+        run: mkdir -p corpus/math && cp tests/data/math/seed*.tex corpus/math/ && ./build-fuzz/fuzz_math -max_total_time=60 -max_len=512 corpus/math
       - name: Bases files, 60 seconds
         run: mkdir -p corpus/base && cp tests/data/base/*.base corpus/base/ && ./build-fuzz/fuzz_base -max_total_time=60 -max_len=4096 corpus/base
