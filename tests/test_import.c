@@ -200,7 +200,7 @@ int main(void) {
         write_str(S "/md", "sub/Two.md", "---\ntags: [a]\n---\nTwo\r\n");
         write_str(S "/md", "sub/deep/pic.png", "PNG");
         write_str(S "/md", ".obsidian/app.json", "{}");
-        write_str(S "/md", "Bad:Name#1.md", "bad name");
+        write_str(S "/md", "Bad#Name[1].md", "bad name");
         CHECK(ex_import_run(EX_IMPORT_MARKDOWN, S "/md", V, &o, &rep, NULL) == 0);
         CHECK(rep.notes == 3 && rep.files == 1 && rep.renamed == 0 && rep.skipped == 0 && !rep.first_problem[0]);
         t = read_rel(V, "Imported/One.md"); CHECK(t && !strcmp(t, "# One\n\nBody [[Two]]\n")); free(t);

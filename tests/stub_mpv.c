@@ -102,6 +102,7 @@ MPV_EXPORT int mpv_command(mpv_handle *h, const char **args) {
         rc = 0;
     } else if (!strcmp(args[0], "seek") && args[1]) {
         c->pos = atof(args[1]); if (c->pos < 0) c->pos = 0; if (c->pos > c->duration) c->pos = c->duration; c->ended = c->pos >= c->duration;
+        if (!c->ended) c->eof_sent = 0;                       /* a file that plays to its end again sends its end-of-file event again (a slow runner reaches the end before the test's first pause: macOS CI) */
         rc = 0;
     }
     UNLOCK(c);
