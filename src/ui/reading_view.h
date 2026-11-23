@@ -39,5 +39,7 @@ char *ex_readingview_plain_text(const ExReadingView *v);
 float ex_readingview_content_height(const ExReadingView *v);
 /* 1 while equations are still to be laid out (a layout makes at most 24 new ones, so a frame's cost does not grow with the number of equations); for tests. */
 int ex_readingview_math_pending(const ExReadingView *v);
+/* 1 while Mermaid diagrams are still to be laid out (a layout makes at most 3 new ones); for tests. */
+int ex_readingview_diagram_pending(const ExReadingView *v);
 
 #endif

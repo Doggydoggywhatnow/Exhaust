@@ -1,0 +1,29 @@
+diagram 1 44.81 15.45
+line fg=8 dash=0 hs=0 he=1: 35.93,2.67 34.98,2.71 33.06,2.78
+line fg=8 dash=0 hs=0 he=1: 28.64,3.38 26.72,3.83 25.77,4.05
+line fg=8 dash=0 hs=1 he=1: 19.63,4.79 18.68,4.79 17.73,4.79
+line fg=8 dash=0 hs=0 he=3: 13.78,4.79 12.83,4.79 11.88,4.79
+line fg=8 dash=0 hs=0 he=1: 36.97,6.94 34.98,6.87 34.03,6.83
+line fg=8 dash=1 hs=0 he=0: 27.67,5.97 26.72,5.75 25.77,5.52
+line fg=8 dash=0 hs=0 he=1: 43.01,1.68 44.01,1.68 44.01,3.43 43.01,3.43
+line fg=8 dash=0 hs=4 he=4: 37.59,12.20 34.98,12.20 33.30,12.20
+rect 35.93 0.80 7.08 3.50 fill=3 stroke=4
+text 39.47 1.93 al=0 sz=1.00 fg=1 b=0 "Quoted text \n second line"
+round 28.64 1.74 4.42 2.25 fill=3 stroke=4
+text 30.85 2.86 al=0 sz=1.00 fg=1 b=0 "Round"
+stadium 19.63 3.66 6.14 2.25 fill=3 stroke=4
+text 22.70 4.79 al=0 sz=1.00 fg=1 b=0 "Stadium"
+cylinder 13.78 3.16 3.95 3.25 fill=3 stroke=4
+text 15.76 5.09 al=0 sz=1.00 fg=1 b=0 "Store"
+parallelogram 6.89 3.66 4.99 2.25 fill=3 stroke=4
+text 9.39 4.79 al=0 sz=1.00 fg=1 b=0 "Para"
+parallelogram_alt 0.80 3.66 4.19 2.25 fill=3 stroke=4
+text 2.89 4.79 al=0 sz=1.00 fg=1 b=0 "Alt"
+trapezoid 36.97 5.90 4.99 2.25 fill=3 stroke=4
+text 39.47 7.03 al=0 sz=1.00 fg=1 b=0 "Trap"
+trapezoid_alt 27.67 5.59 6.36 2.25 fill=3 stroke=4
+text 30.85 6.71 al=0 sz=1.00 fg=1 b=0 "Trap alt"
+ellipse 37.59 10.32 3.75 3.75 fill=3 stroke=4
+text 39.47 12.20 al=0 sz=1.00 fg=1 b=0 "Circle"
+double_circle 28.40 9.75 4.90 4.90 fill=3 stroke=4
+text 30.85 12.20 al=0 sz=1.00 fg=1 b=0 "Double"

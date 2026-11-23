@@ -1,0 +1,10 @@
+graph LR
+    subgraph one [Front end]
+      UI(Browser) --> API[[Gateway]]
+    end
+    API -.-> DB[(Database)]
+    API ==> Q>Queue]
+    Q --- W{{Worker}}
+    W --o UI
+    A & B --> C
+    C -- text on a line --> D

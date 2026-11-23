@@ -1,0 +1,20 @@
+diagram 1 13.21 19.93
+line fg=8 dash=0 hs=0 he=1: 6.72,3.05 6.72,4.00 6.72,4.95
+line fg=8 dash=0 hs=0 he=1: 5.76,7.88 4.35,9.81 3.44,11.47
+line fg=8 dash=0 hs=0 he=1: 6.92,8.10 7.13,9.81 8.05,11.47
+line fg=8 dash=0 hs=0 he=1: 8.68,11.47 8.69,9.81 7.55,7.92
+line fg=8 dash=0 hs=0 he=1: 2.82,13.72 2.82,14.67 2.82,15.62
+rect 4.87 0.80 3.71 2.25 fill=3 stroke=4
+text 6.72 1.92 al=0 sz=1.00 fg=1 b=0 "Start"
+diamond 1.03 4.95 11.38 3.20 fill=3 stroke=4
+text 6.72 6.55 al=0 sz=1.00 fg=1 b=0 "Is it working?"
+rect 0.80 11.47 4.04 2.25 fill=3 stroke=4
+text 2.82 12.60 al=0 sz=1.00 fg=1 b=0 "Great"
+rect 6.44 11.47 4.47 2.25 fill=3 stroke=4
+text 8.68 12.60 al=0 sz=1.00 fg=1 b=0 "Debug"
+ellipse 1.06 15.62 3.51 3.51 fill=3 stroke=4
+text 2.82 17.38 al=0 sz=1.00 fg=1 b=0 "Done"
+rect 3.43 9.15 1.84 1.33 fill=9 stroke=0
+text 4.35 9.81 al=0 sz=0.90 fg=2 b=0 "Yes"
+rect 6.37 9.15 1.52 1.33 fill=9 stroke=0
+text 7.13 9.81 al=0 sz=0.90 fg=2 b=0 "No"

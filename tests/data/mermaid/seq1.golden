@@ -1,0 +1,36 @@
+diagram 2 21.34 31.12
+rect 0.80 11.51 16.99 3.99 fill=0 stroke=4
+rect 0.80 11.51 3.01 1.30 fill=7 stroke=4
+text 1.40 12.16 al=1 sz=0.95 fg=1 b=1 "loop"
+text 4.41 12.16 al=1 sz=0.95 fg=2 b=0 "[Every minute]"
+rect 0.80 16.40 16.99 7.69 fill=0 stroke=4
+rect 0.80 16.40 2.23 1.30 fill=7 stroke=4
+text 1.40 17.05 al=1 sz=0.95 fg=1 b=1 "alt"
+text 3.63 17.05 al=1 sz=0.95 fg=2 b=0 "[ok]"
+line fg=4 dash=1 hs=0 he=0: 0.80,20.40 17.79,20.40
+text 1.40 21.10 al=1 sz=0.95 fg=2 b=0 "[fail]"
+line fg=4 dash=1 hs=0 he=0: 3.09,3.05 3.09,28.07
+line fg=4 dash=1 hs=0 he=0: 15.72,3.05 15.72,28.07
+rect 15.47 5.59 0.50 2.39 fill=6 stroke=4
+line fg=8 dash=0 hs=0 he=1: 3.09,5.59 15.47,5.59
+text 9.41 4.69 al=0 sz=0.95 fg=1 b=0 "1. Hello Bob, how are you?"
+line fg=8 dash=1 hs=0 he=1: 15.47,7.97 3.09,7.97
+text 9.41 7.08 al=0 sz=0.95 fg=1 b=0 "2. Great!"
+rect 2.49 8.82 13.83 1.99 fill=10 stroke=4
+text 9.41 9.82 al=0 sz=0.95 fg=1 b=0 "A typical interaction"
+line fg=8 dash=0 hs=0 he=2: 3.09,14.65 15.72,14.65
+text 9.41 13.76 al=0 sz=0.95 fg=1 b=0 "3. ping"
+line fg=8 dash=0 hs=0 he=1: 15.72,18.40 17.12,18.40 17.12,19.40 15.72,19.40
+text 17.42 18.90 al=1 sz=0.95 fg=1 b=0 "4. think"
+line fg=8 dash=1 hs=0 he=3: 15.72,23.24 3.09,23.24
+text 9.41 22.34 al=0 sz=0.95 fg=1 b=0 "5. error"
+rect 16.22 24.99 3.49 1.99 fill=10 stroke=4
+text 17.97 25.98 al=0 sz=0.95 fg=1 b=0 "done"
+rect 1.20 0.80 3.78 2.25 fill=3 stroke=4
+text 3.09 1.92 al=0 sz=1.00 fg=1 b=0 "Alice"
+rect 1.20 28.07 3.78 2.25 fill=3 stroke=4
+text 3.09 29.20 al=0 sz=1.00 fg=1 b=0 "Alice"
+stadium 14.05 0.80 3.34 2.25 fill=3 stroke=4
+text 15.72 1.92 al=0 sz=1.00 fg=1 b=0 "Bob"
+stadium 14.05 28.07 3.34 2.25 fill=3 stroke=4
+text 15.72 29.20 al=0 sz=1.00 fg=1 b=0 "Bob"

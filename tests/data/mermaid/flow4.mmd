@@ -1,0 +1,10 @@
+graph BT
+    subgraph outer [Outer group]
+        direction TB
+        subgraph inner [Inner]
+            X --> Y
+        end
+        Y --> Z
+    end
+    Z --> W
+    W --> X

@@ -7,9 +7,11 @@
 #include <string.h>
 
 #include "reading_view.h"
+#include "exhaust_diagram.h"
+#include "exhaust_diagramdraw.h"
 #include "exhaust_math.h"
 
-typedef enum OpKind { OP_TEXT, OP_RECT, OP_BOX, OP_CHEVRON, OP_RULE, OP_IMAGE, OP_CARD, OP_MATH } OpKind;
+typedef enum OpKind { OP_TEXT, OP_RECT, OP_BOX, OP_CHEVRON, OP_RULE, OP_IMAGE, OP_CARD, OP_MATH, OP_DIAGRAM } OpKind;
 
 typedef struct Op {
     OpKind kind;
@@ -26,6 +28,7 @@ typedef struct Op {
     const char *path;         /* IMAGE and CARD: the file's path in the vault (owned by the view) */
     int media;                /* CARD: 2 audio, 3 video, 4 PDF, 5 canvas, 6 an address that is not loaded */
     int svg_w;                /* IMAGE: the width an SVG is drawn at */
+    const ExDiagram *diag;    /* DIAGRAM: the layout (owned by the view's cache until the next layout); size is the font size of one em */
     const ExMath *math;       /* MATH: the layout (owned by the view's cache until the next layout); size is the font size, base_y the baseline below the top */
     float base_y;
 } Op;
@@ -52,6 +55,8 @@ struct ExReadingView {
     ExReadingMedia media;
     unsigned long img_version;
     ExMathCache *math;                 /* layouts of equations, kept between layouts (6d-i) */
+    ExDiagramCache *dgc;               /* layouts of Mermaid diagrams (6d-ii), the same way */
+    int dg_budget, dg_pending;         /* at most 3 new diagrams a pass */
     int math_budget, math_pending;     /* equations made in this layout, at most 24 a pass: the rest stay source until the next frame */
 };
 
@@ -101,6 +106,7 @@ ExReadingView *ex_readingview_create(const char *text, size_t len) {
     v->press_link = v->press_toggle = -1;
     v->base_size = 16.0f;
     v->math = ex_mathcache_create();
+    v->dgc = ex_diagcache_create();
     ex_readingview_set_text(v, text, len);
     return v;
 }
@@ -120,6 +126,7 @@ void ex_readingview_free(ExReadingView *v) {
     { size_t i; for (i = 0; i < v->nowned; i++) free(v->owned[i]); free(v->owned); }
     free(v->plain); free(v->ops); free(v->back); free(v->links); free(v->closed);
     ex_mathcache_free(v->math);
+    ex_diagcache_free(v->dgc);
     free(v);
 }
 
@@ -128,6 +135,7 @@ void ex_readingview_set_viewport(ExReadingView *v, float x, float y, float w, fl
 float ex_readingview_scroll_y(const ExReadingView *v) { return v->scroll; }
 float ex_readingview_content_height(const ExReadingView *v) { return v->content_h; }
 int ex_readingview_math_pending(const ExReadingView *v) { return v ? v->math_pending : 0; }
+int ex_readingview_diagram_pending(const ExReadingView *v) { return v ? v->dg_pending : 0; }
 char *ex_readingview_plain_text(const ExReadingView *v) { char *p = malloc((v->plain ? strlen(v->plain) : 0) + 1); if (p) strcpy(p, v->plain ? v->plain : ""); return p; }
 
 static void clamp_scroll(ExReadingView *v) {
@@ -176,6 +184,22 @@ static const ExMath *math_for(ExReadingView *v, ExFont *mf, const char *s, size_
     if (v->math_budget <= 0) { v->math_pending = 1; return NULL; }
     v->math_budget--;
     return ex_mathcache_get(v->math, mf, s, n, display);
+}
+
+/* A diagram's layout from the cache, at most 3 new ones in a pass. */
+static const ExDiagram *diagram_for(ExReadingView *v, ExFont *f, const char *s, size_t n) {
+    const ExDiagram *d;
+    if (!v->dgc || !f) return NULL;
+    d = ex_diagcache_lookup(v->dgc, f, s, n);
+    if (d) return d;
+    if (v->dg_budget <= 0) { v->dg_pending = 1; return NULL; }
+    v->dg_budget--;
+    return ex_diagcache_get(v->dgc, f, s, n);
+}
+
+static int strcasecmp_ascii(const char *a, const char *b) {
+    for (; *a && *b; a++, b++) { char x = *a, y = *b; if (x >= 'A' && x <= 'Z') x = (char)(x + 32); if (y >= 'A' && y <= 'Z') y = (char)(y + 32); if (x != y) return 1; }
+    return *a || *b;
 }
 
 static ExFont *font_for(Lay *L, unsigned st) {
@@ -432,6 +456,8 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
     v->nlinks = 0;
     ex_mathcache_begin(v->math);   /* equations asked for in this layout stay; the others go */
     v->math_budget = 24; v->math_pending = 0;
+    ex_diagcache_begin(v->dgc);
+    v->dg_budget = 3; v->dg_pending = 0;
     memset(&L, 0, sizeof L);
     L.v = v; L.r = r; L.base = v->base_size; L.lh_mul = 1.35f;
     em = L.base * scale;
@@ -491,6 +517,22 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
         case EX_RBK_CODE: case EX_RBK_MATH: {
             const char *c = b->code ? b->code : "", *p = c;
             int math_err = 0;
+            const char *dg_msg = NULL;
+            if (b->kind == EX_RBK_CODE && b->lang && v->dgc && !strcasecmp_ascii(b->lang, "mermaid")) {   /* a Mermaid diagram: drawn, centered, shrunk to the column */
+                ExFont *uf = ex_font_builtin(ex_renderer_fonts(r), EX_FONT_UI_REGULAR);
+                const ExDiagram *dg = uf ? diagram_for(v, uf, c, strlen(c)) : NULL;
+                if (dg && !ex_diagram_error(dg)) {
+                    float demi = L.base * scale, dw = ex_diagram_width(dg) * demi, dh = ex_diagram_height(dg) * demi, avail = x0 + col_w - L.x_left, fit = dw > avail ? avail / dw : 1.0f, dpad = 0.4f * em;
+                    Op op;
+                    memset(&op, 0, sizeof op);
+                    op.kind = OP_DIAGRAM; op.diag = dg; op.size = L.base * fit; op.w = dw * fit; op.h = dh * fit; op.x = L.x_left + (avail - op.w) / 2.0f; op.y = L.y + dpad;
+                    op.fg = EX_COLOR_TEXT; op.bg = -1; op.link = -1; op.toggle = -1;
+                    push_op(&v->ops, &v->nops, &v->capops, &op);
+                    L.y += op.h + 2.0f * dpad;
+                    break;
+                }
+                if (dg) dg_msg = ex_diagram_error(dg);
+            }
             if (b->kind == EX_RBK_MATH && v->math) {   /* display math: centered, in the text color; a formula that cannot be laid out stays as source in the error color */
                 ExFont *mf = ex_font_builtin(ex_renderer_fonts(r), EX_FONT_MATH);
                 const ExMath *m = mf ? math_for(v, mf, c, strlen(c), 1) : NULL;
@@ -523,13 +565,22 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
                 Op op;
                 memset(&op, 0, sizeof op);
                 op.kind = OP_TEXT; op.x = L.x_left + padc; op.y = y; op.w = x0 + col_w - L.x_left - 2 * padc; op.h = lh; op.text = p; op.len = n; op.font = font; op.size = size;
-                op.fg = math_err ? EX_COLOR_ERROR : EX_COLOR_CODE_TEXT; op.link = -1; op.toggle = -1; op.flags = EX_RS_CODE | 0x1000;      /* 0x1000: clip to its width, never wrap */
+                op.fg = math_err || dg_msg ? EX_COLOR_ERROR : EX_COLOR_CODE_TEXT; op.link = -1; op.toggle = -1; op.flags = EX_RS_CODE | 0x1000;      /* 0x1000: clip to its width, never wrap */
                 push_op(&v->ops, &v->nops, &v->capops, &op);
                 y += lh;
                 if (!e) break;
                 p = e + 1;
             }
             L.y += (float)lines * lh + 2 * padc;
+            if (dg_msg) {   /* why the diagram is shown as its source */
+                char msg[200];
+                Op mo;
+                snprintf(msg, sizeof msg, "Mermaid: %s", dg_msg);
+                memset(&mo, 0, sizeof mo);
+                mo.kind = OP_TEXT; mo.x = L.x_left; mo.y = L.y; mo.w = x0 + col_w - L.x_left; mo.h = lh; mo.text = own(v, msg); mo.len = strlen(msg); mo.font = font_for(&L, 0); mo.size = L.base * 0.9f;
+                mo.fg = EX_COLOR_TEXT_MUTED; mo.bg = -1; mo.link = -1; mo.toggle = -1; mo.flags = 0x1000;
+                if (mo.text) { push_op(&v->ops, &v->nops, &v->capops, &mo); L.y += lh; }
+            }
             break;
         }
         case EX_RBK_HR: {
@@ -633,7 +684,7 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
     v->content_h = L.y + pad;
     v->laid_w = avail_w;
     v->laid_scale = scale;
-    v->dirty = v->math_pending;     /* equations left for the next frame: lay out again then */
+    v->dirty = v->math_pending || v->dg_pending;     /* equations and diagrams left for the next frame: lay out again then */
     clamp_scroll(v);
 }
 
@@ -675,6 +726,7 @@ void ex_readingview_draw(ExReadingView *v, ExRenderer *r, const ExTheme *t, floa
             if (o->flags & EX_RS_STRIKE) ex_fill_rect(r, x, y + o->h * 0.5f, o->w, (float)ex_px(r, 1), col);
             break;
         }
+        case OP_DIAGRAM: ex_diagram_draw(r, t, o->diag, o->size, x, y); break;
         case OP_MATH: {
             ExColor col = ex_theme_color(t, (ExColorToken)o->fg);
             int clipped = (o->flags & 0x1000) != 0;

@@ -1,0 +1,53 @@
+diagram 2 39.53 44.68
+rect 3.89 18.97 34.84 7.88 fill=0 stroke=4
+rect 3.89 18.97 2.56 1.30 fill=7 stroke=4
+text 4.49 19.62 al=1 sz=0.95 fg=1 b=1 "par"
+text 7.05 19.62 al=1 sz=0.95 fg=2 b=0 "[Branch one]"
+rect 3.89 27.75 34.84 7.69 fill=0 stroke=4
+rect 3.89 27.75 4.04 1.30 fill=7 stroke=4
+text 4.49 28.40 al=1 sz=0.95 fg=1 b=1 "critical"
+text 8.53 28.40 al=1 sz=0.95 fg=2 b=0 "[Establish]"
+rect 3.89 36.34 34.84 3.99 fill=0 stroke=4
+line fg=4 dash=1 hs=0 he=0: 3.89,23.16 38.73,23.16
+text 4.49 23.86 al=1 sz=0.95 fg=2 b=0 "[Branch two]"
+line fg=4 dash=1 hs=0 he=0: 3.89,31.94 38.73,31.94
+text 4.49 32.64 al=1 sz=0.95 fg=2 b=0 "[Network timeout]"
+line fg=4 dash=1 hs=0 he=0: 6.17,3.05 6.17,41.63
+line fg=4 dash=1 hs=0 he=0: 29.18,3.05 29.18,41.63
+line fg=4 dash=1 hs=0 he=0: 35.45,3.05 35.45,41.63
+rect 35.20 8.82 0.50 2.39 fill=6 stroke=4
+rect 28.93 6.44 0.50 7.16 fill=6 stroke=4
+line fg=8 dash=0 hs=0 he=1: 6.17,5.59 29.18,5.59
+text 17.68 4.69 al=0 sz=0.95 fg=1 b=0 "Request with a long message text that needs room"
+line fg=8 dash=0 hs=0 he=1: 29.43,7.97 35.45,7.97
+text 32.32 7.08 al=0 sz=0.95 fg=1 b=0 "query"
+line fg=8 dash=1 hs=0 he=1: 35.20,10.36 29.43,10.36
+text 32.32 9.47 al=0 sz=0.95 fg=1 b=0 "rows"
+line fg=8 dash=1 hs=0 he=1: 28.93,12.75 6.17,12.75
+text 17.68 11.86 al=0 sz=0.95 fg=1 b=0 "Response"
+rect 0.80 13.60 4.87 1.99 fill=10 stroke=4
+text 3.24 14.59 al=0 sz=0.95 fg=1 b=0 "left note"
+rect 26.68 16.29 5.00 1.99 fill=10 stroke=4
+text 29.18 17.28 al=0 sz=0.95 fg=1 b=0 "over one"
+line fg=8 dash=0 hs=0 he=1: 6.17,22.11 29.18,22.11
+text 17.68 21.22 al=0 sz=0.95 fg=1 b=0 "one"
+line fg=8 dash=0 hs=0 he=1: 6.17,26.00 35.45,26.00
+text 20.81 25.11 al=0 sz=0.95 fg=1 b=0 "two"
+line fg=8 dash=0 hs=0 he=1: 29.18,30.89 35.45,30.89
+text 32.32 29.99 al=0 sz=0.95 fg=1 b=0 "connect"
+line fg=8 dash=0 hs=0 he=1: 29.18,33.64 30.58,33.64 30.58,34.64 29.18,34.64
+text 30.88 34.14 al=1 sz=0.95 fg=1 b=0 "retry"
+line fg=8 dash=0 hs=0 he=3: 6.17,39.47 29.18,39.47
+text 17.68 38.58 al=0 sz=0.95 fg=1 b=0 "cut"
+rect 4.29 0.80 3.75 2.25 fill=3 stroke=4
+text 6.17 1.92 al=0 sz=1.00 fg=1 b=0 "John"
+rect 4.29 41.63 3.75 2.25 fill=3 stroke=4
+text 6.17 42.75 al=0 sz=1.00 fg=1 b=0 "John"
+rect 26.98 0.80 4.39 2.25 fill=3 stroke=4
+text 29.18 1.92 al=0 sz=1.00 fg=1 b=0 "Server"
+rect 26.98 41.63 4.39 2.25 fill=3 stroke=4
+text 29.18 42.75 al=0 sz=1.00 fg=1 b=0 "Server"
+rect 32.58 0.80 5.75 2.25 fill=3 stroke=4
+text 35.45 1.92 al=0 sz=1.00 fg=1 b=0 "Database"
+rect 32.58 41.63 5.75 2.25 fill=3 stroke=4
+text 35.45 42.75 al=0 sz=1.00 fg=1 b=0 "Database"

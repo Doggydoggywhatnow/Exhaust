@@ -1,0 +1,28 @@
+sequenceDiagram
+    title Sample
+    participant J as John
+    participant S as Server
+    participant D as Database
+    J->>S: Request with a long message text that needs room
+    activate S
+    S->>D: query
+    activate D
+    D-->>S: rows
+    deactivate D
+    S-->>J: Response
+    deactivate S
+    Note left of J: left note
+    Note over S: over one
+    par Branch one
+        J->>S: one
+    and Branch two
+        J->>D: two
+    end
+    critical Establish
+        S->>D: connect
+    option Network timeout
+        S->>S: retry
+    end
+    rect rgb(240, 240, 255)
+        J-xS: cut
+    end

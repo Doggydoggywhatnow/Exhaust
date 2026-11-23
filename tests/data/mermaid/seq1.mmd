@@ -1,0 +1,16 @@
+sequenceDiagram
+    autonumber
+    participant A as Alice
+    actor B as Bob
+    A->>+B: Hello Bob, how are you?
+    B-->>-A: Great!
+    Note over A,B: A typical interaction
+    loop Every minute
+        A-)B: ping
+    end
+    alt ok
+        B->>B: think
+    else fail
+        B--xA: error
+    end
+    Note right of B: done

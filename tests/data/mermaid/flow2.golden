@@ -1,0 +1,31 @@
+diagram 1 37.12 15.68
+round 0.80 1.55 15.12 6.63 fill=7 stroke=4
+text 1.60 2.55 al=1 sz=1.00 fg=1 b=1 "Front end"
+line fg=8 dash=0 hs=0 he=1: 6.91,5.45 7.86,5.22 8.81,5.09
+line fg=8 dash=1 hs=0 he=1: 14.92,4.13 18.74,3.44 22.57,2.86
+line fg=8 dash=0 hs=0 he=1: 14.92,5.09 18.74,5.62 22.69,6.30
+line fg=8 dash=0 hs=0 he=0: 28.19,6.99 29.27,7.08 30.22,7.17
+line fg=8 dash=0 hs=0 he=4: 30.22,7.79 29.27,7.89 25.44,8.40 18.74,7.93 11.87,7.66 7.86,7.12 6.91,6.83
+line fg=8 dash=0 hs=0 he=1: 5.66,10.24 7.86,10.80 10.57,11.44
+line fg=8 dash=0 hs=0 he=1: 5.66,13.37 7.86,12.73 10.57,12.07
+line fg=8 dash=0 hs=0 he=1: 13.17,11.74 18.74,11.73 24.14,11.73
+round 1.80 4.93 5.11 2.25 fill=3 stroke=4
+text 4.36 6.05 al=0 sz=1.00 fg=1 b=0 "Browser"
+subroutine 8.81 3.55 6.11 2.25 fill=3 stroke=4
+text 11.87 4.67 al=0 sz=1.00 fg=1 b=0 "Gateway"
+cylinder 22.57 0.80 5.75 3.25 fill=3 stroke=4
+text 25.44 2.73 al=0 sz=1.00 fg=1 b=0 "Database"
+flag 22.69 5.65 5.50 2.25 fill=3 stroke=4
+text 25.44 6.78 al=0 sz=1.00 fg=1 b=0 "Queue"
+hexagon 30.22 6.36 6.10 2.25 fill=3 stroke=4
+text 33.27 7.48 al=0 sz=1.00 fg=1 b=0 "Worker"
+rect 3.06 8.78 2.60 2.25 fill=3 stroke=4
+text 4.36 9.90 al=0 sz=1.00 fg=1 b=0 "A"
+rect 3.06 12.63 2.60 2.25 fill=3 stroke=4
+text 4.36 13.75 al=0 sz=1.00 fg=1 b=0 "B"
+rect 10.57 10.62 2.60 2.25 fill=3 stroke=4
+text 11.87 11.75 al=0 sz=1.00 fg=1 b=0 "C"
+rect 24.14 10.60 2.60 2.25 fill=3 stroke=4
+text 25.44 11.73 al=0 sz=1.00 fg=1 b=0 "D"
+rect 15.97 11.06 5.54 1.33 fill=9 stroke=0
+text 18.74 11.73 al=0 sz=0.90 fg=2 b=0 "text on a line"

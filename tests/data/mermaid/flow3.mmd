@@ -1,0 +1,10 @@
+%% directions, many shapes, chains, a link to itself and an invisible link
+flowchart RL
+    A["Quoted text <br/> second line"] --> B(Round) --> C([Stadium])
+    C <--> D[(Store)]
+    D --x E[/Para/]
+    E ~~~ F[\Alt\]
+    G[/Trap\] --> H[\Trap alt/]
+    H -.- C
+    A --> A
+    I((Circle)) o--o J(((Double)))
