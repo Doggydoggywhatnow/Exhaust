@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "exhaust_base_index.h"
 #include "exhaust_history.h"
+#include "exhaust_platform.h"
 #include "exhaust_notes.h"
 #include "service.h"
 
@@ -375,6 +377,11 @@ static void do_expand(QService *s, QJob *j, QRes *res) {
     ExResultView view;
     memset(&so, 0, sizeof so); memset(&view, 0, sizeof view);
     res->text = ex_query_expand(s->r, s->root, j->text, j->len, &so, &view);
+    if (res->text) {                                                                     /* the bases a note holds (6b-ii) */
+        size_t bl = 0;
+        char *with_bases = ex_base_expand(s->r, s->root, j->a ? j->a : "", res->text, strlen(res->text), ex_platform_tz_offset_minutes(), (double)ex_platform_unix_time() * 1000.0, &bl);
+        if (with_bases) { free(res->text); res->text = with_bases; }
+    }
     snprintf(res->summary, sizeof res->summary, "%s", j->a ? j->a : "");
     res->ok = res->text != NULL;
 }

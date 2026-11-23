@@ -447,6 +447,27 @@ char *ex_platform_local_data_dir(void) {
 uint64_t ex_platform_now_ms(void) { return SDL_GetTicks(); }
 int64_t ex_platform_unix_time(void) { return (int64_t)time(NULL); }
 
+/* Minutes east of UTC at this moment, from the C library's local and UTC time of the same instant. */
+int ex_platform_tz_offset_minutes(void) {
+    time_t t = time(NULL);
+    struct tm lt, ut;
+    long long dl, du;
+#if defined(_WIN32)
+    localtime_s(&lt, &t); gmtime_s(&ut, &t);
+#else
+    localtime_r(&t, &lt); gmtime_r(&t, &ut);
+#endif
+    {   /* seconds from a calendar time, without mktime (it would apply the zone again) */
+        long long y = lt.tm_year + 1900LL, m = lt.tm_mon + 1, d = lt.tm_mday, yy = m <= 2 ? y - 1 : y, era = (yy >= 0 ? yy : yy - 399) / 400, yoe = yy - era * 400;
+        long long doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1, doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        dl = (era * 146097 + doe - 719468) * 86400 + lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec;
+        y = ut.tm_year + 1900LL; m = ut.tm_mon + 1; d = ut.tm_mday; yy = m <= 2 ? y - 1 : y; era = (yy >= 0 ? yy : yy - 399) / 400; yoe = yy - era * 400;
+        doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1; doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        du = (era * 146097 + doe - 719468) * 86400 + ut.tm_hour * 3600 + ut.tm_min * 60 + ut.tm_sec;
+    }
+    return (int)((dl - du) / 60);
+}
+
 /* ---- saving ---- */
 
 static char g_fault_message[160];

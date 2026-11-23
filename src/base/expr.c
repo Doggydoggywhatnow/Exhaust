@@ -18,7 +18,7 @@
 
 /* ---- the syntax tree ---- */
 
-typedef enum NType { N_NUM, N_STR, N_BOOL, N_NULL, N_REGEX, N_LIST, N_IDENT, N_MEMBER, N_INDEX, N_CALL, N_UNARY, N_BINARY } NType;
+typedef enum NType { N_NUM, N_STR, N_BOOL, N_NULL, N_REGEX, N_LIST, N_IDENT, N_MEMBER, N_INDEX, N_CALL, N_UNARY, N_BINARY, N_ERROR } NType;
 enum { OP_ADD = 1, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_EQ, OP_NE, OP_LT, OP_GT, OP_LE, OP_GE, OP_AND, OP_OR, OP_NOT, OP_NEG };
 
 typedef struct Node {
@@ -1485,6 +1485,7 @@ static ExValue eval(Ev *ev, const Node *n) {
     case N_STR: a = str_v(ev, n->s); break;
     case N_BOOL: a = ex_v_bool(n->num != 0); break;
     case N_NULL: a = ex_v_null(); break;
+    case N_ERROR: a = err(ev, "%s", n->s); break;
     case N_REGEX: a = ex_v_null(); a.t = EXV_REGEXP; a.u.re.pattern = ex_arena_strdup(ev->a, n->s); a.u.re.flags = ex_arena_strdup(ev->a, n->flags ? n->flags : ""); break;
     case N_LIST: {
         size_t i;
@@ -1528,6 +1529,19 @@ static ExValue eval(Ev *ev, const Node *n) {
     }
     ev->depth--;
     return a;
+}
+
+ExExpr *ex_expr_failed(const char *message) {
+    ExExpr *e = calloc(1, sizeof *e);
+    Node *n;
+    if (!e) return NULL;
+    n = node_new(e, N_ERROR);
+    if (!n) { free(e); return NULL; }
+    n->s = malloc(strlen(message) + 1);
+    if (!n->s) { ex_expr_free(e); return NULL; }
+    strcpy(n->s, message);
+    e->root = n;
+    return e;
 }
 
 ExValue ex_expr_eval(const ExExpr *e, ExArena *a, const ExExprHost *host, const ExValue *values) {

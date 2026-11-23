@@ -96,7 +96,7 @@ jobs:
       - run: >
           cmake -S . -B build-fuzz -DCMAKE_BUILD_TYPE=RelWithDebInfo -DEXHAUST_FUZZ=ON -DEXHAUST_A11Y=OFF
           -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-      - run: cmake --build build-fuzz --target fuzz_utf8 fuzz_markdown fuzz_html fuzz_frontmatter fuzz_canvas fuzz_base_expr --parallel
+      - run: cmake --build build-fuzz --target fuzz_utf8 fuzz_markdown fuzz_html fuzz_frontmatter fuzz_canvas fuzz_base_expr fuzz_base --parallel
       - name: UTF-8 and grapheme segmenter, 10 seconds
         run: mkdir -p corpus/utf8 && ./build-fuzz/fuzz_utf8 -max_total_time=10 corpus/utf8
       - name: Markdown tokenizer (with the incremental update), 60 seconds
@@ -109,3 +109,5 @@ jobs:
         run: mkdir -p corpus/canvas && cp tests/data/canvas/sample.canvas corpus/canvas/ && ./build-fuzz/fuzz_canvas -max_total_time=60 -max_len=8192 corpus/canvas
       - name: Bases expressions, 60 seconds
         run: mkdir -p corpus/base_expr && cp tests/data/base/seed*.expr corpus/base_expr/ && ./build-fuzz/fuzz_base_expr -max_total_time=60 -max_len=2048 corpus/base_expr
+      - name: Bases files, 60 seconds
+        run: mkdir -p corpus/base && cp tests/data/base/*.base corpus/base/ && ./build-fuzz/fuzz_base -max_total_time=60 -max_len=4096 corpus/base

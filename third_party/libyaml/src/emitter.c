@@ -885,9 +885,15 @@ yaml_emitter_emit_block_sequence_item(yaml_emitter_t *emitter,
 {
     if (first)
     {
+#ifdef EXHAUST_INDENT_SEQUENCES
+        /* Exhaust: a list inside a mapping is indented under its key, as the Bases help writes it, not flush with the key */
+        if (!yaml_emitter_increase_indent(emitter, 0, 0))
+            return 0;
+#else
         if (!yaml_emitter_increase_indent(emitter, 0,
                     (emitter->mapping_context && !emitter->indention)))
             return 0;
+#endif
     }
 
     if (event->type == YAML_SEQUENCE_END_EVENT)

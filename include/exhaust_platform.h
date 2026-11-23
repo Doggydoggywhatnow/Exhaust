@@ -115,6 +115,7 @@ void ex_append_close(ExAppendFile *f);
 uint64_t ex_platform_now_ms(void);
 /* Seconds since the Unix epoch. */
 int64_t ex_platform_unix_time(void);
+int ex_platform_tz_offset_minutes(void);                  /* minutes east of UTC now (for the dates Bases show) */
 
 /* Clipboard, UTF-8 text. get returns NULL when empty or not text. */
 char *ex_clipboard_get_text(void);

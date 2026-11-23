@@ -1,0 +1,21 @@
+views:
+  - type: kanban
+    name: Projects
+    groupBy:
+      property: note.status
+      direction: ASC
+    groupOrder:
+      - Planned
+      - In progress
+      - null
+    sort:
+      - property: file.mtime
+        direction: DESC
+    order: [file.name, status, price]
+    summaries:
+      price: Sum
+      status: Unique
+  - type: list
+    name: Flow
+    filters: 'file.ext == "md" && price > 2'
+    custom: {a: 1, b: [x, y]}

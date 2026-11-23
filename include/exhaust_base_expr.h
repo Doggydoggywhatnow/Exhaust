@@ -86,6 +86,8 @@ typedef struct ExExprHost {
 /* Parsing. On failure returns NULL, writes the reason to err and the byte it is about to *err_pos (if given). */
 ExExpr *ex_expr_parse(const char *text, char *err, size_t errcap, int *err_pos);
 void ex_expr_free(ExExpr *e);
+/* An expression that always evaluates to this error (for a formula that does not parse: its cells show why). */
+ExExpr *ex_expr_failed(const char *message);
 /* Evaluates. `values` is the list a custom summary sees as `values` (NULL: the name is a property like any other). An error is returned as EXV_ERROR. */
 ExValue ex_expr_eval(const ExExpr *e, ExArena *a, const ExExprHost *host, const ExValue *values);
 /* Parses and evaluates in one call (for tests and one-off filters). A parse error is an EXV_ERROR. */
