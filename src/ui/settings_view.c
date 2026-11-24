@@ -1009,7 +1009,7 @@ static void rebuild(ExSettingsView *sv) {
     size_t i, nrows = ex_settings_row_count();
     const char *group = NULL, *page = NULL;
     ExWidget *cd = NULL;
-    int first_in_card = 1;
+    int first_in_card = 1, plugins_done = 0;
     clear_content(sv);
     if (!sv->query[0] && !strcmp(sv->page, "hotkeys")) { build_hotkeys_page(sv); sv->scroll->scroll_y = 0; select_nav(sv); return; }
     if (!sv->query[0] && !strcmp(sv->page, "theme")) { build_theme_page(sv); sv->scroll->scroll_y = 0; select_nav(sv); return; }
@@ -1021,6 +1021,7 @@ static void rebuild(ExSettingsView *sv) {
         if (!group || strcmp(group, r->group) || (sv->query[0] && (!page || strcmp(page, r->page)))) {      /* a new card under a heading */
             ExWidget *h;
             char title[120];
+            if (!sv->query[0] && !plugins_done && group && !strcmp(sv->page, "plugins")) { build_plugins_cards(sv); plugins_done = 1; }   /* the installed plugins come right after the master switch, above the stubs */
             if (sv->query[0]) snprintf(title, sizeof title, "%s: %s", page_name_of(r->page), r->group); else snprintf(title, sizeof title, "%s", r->group);
             h = label(sv, title, EX_COLOR_TEXT, 1.15f, 1);
             if (h) { h->pad_y = 0.0f; ex_widget_add(sv->col, h); }
@@ -1034,7 +1035,7 @@ static void rebuild(ExSettingsView *sv) {
         if (row) ex_widget_add(cd, row);
         first_in_card = 0;
     }
-    if (!sv->query[0] && !strcmp(sv->page, "plugins")) build_plugins_cards(sv);
+    if (!sv->query[0] && !plugins_done && !strcmp(sv->page, "plugins")) build_plugins_cards(sv);
     if (sv->query[0] && sv->shown == 0) {
         ExWidget *l = label(sv, "No setting matches.", EX_COLOR_TEXT_MUTED, 1.0f, 0);
         if (l) ex_widget_add(sv->col, l);
