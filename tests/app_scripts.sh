@@ -596,4 +596,32 @@ done
 if cmp -s "$vault/a.flac" "$work/a.flac.orig"; then echo "ok: playing an audio file does not change it"; else echo "FAILED: an audio file was changed"; fail=1; fi
 reset_state
 
+# dropping a file into a note (formats.md, "Dropping files into a note"): the file from outside is copied into the vault, never replacing one, and a link is
+# written in the note where it was dropped; with the attachment folder set the copy goes there; the dropped file is only read
+reset_state
+mkdir -p "$work/dropsrc"
+printf 'PNGDATA-1234567890' > "$work/dropsrc/pic.png"; printf 'plain' > "$work/dropsrc/readme.txt"
+run drop_attach "wait 1000
+drop $work/dropsrc/pic.png 500 300
+wait 1500
+drop $work/dropsrc/pic.png 500 300
+wait 1500
+drop $work/dropsrc/readme.txt 500 300
+wait 3000
+quit" Home.md
+if cmp -s "$work/dropsrc/pic.png" "$work/drop_attach/pic.png" && cmp -s "$work/dropsrc/pic.png" "$work/drop_attach/pic 2.png" && [ -e "$work/drop_attach/readme.txt" ]; then echo "ok: dropped files are copied into the vault and never replace each other"; else echo "FAILED: the dropped files were not copied (see $work/drop_attach.log)"; fail=1; fi
+if grep -q '!\[\[pic.png\]\]' "$work/drop_attach/Home.md" && grep -q '!\[\[pic 2.png\]\]' "$work/drop_attach/Home.md" && grep -q '\[\[readme.txt\]\]' "$work/drop_attach/Home.md" && grep -q '^# Welcome' "$work/drop_attach/Home.md" && grep -q 'Hello\.' "$work/drop_attach/Home.md"; then echo "ok: the links are in the note and the rest of the note is as it was"; else echo "FAILED: the links are not in the note: $(cat "$work/drop_attach/Home.md")"; fail=1; fi
+if [ "$(cat "$work/dropsrc/pic.png")" = "PNGDATA-1234567890" ]; then echo "ok: the dropped file itself is untouched"; else echo "FAILED: the dropped file was changed"; fail=1; fi
+reset_state
+run drop_folder "wait 100
+quit" Home.md
+vault="$work/drop_folder"
+mkdir -p "$vault/.exhaust"
+printf '[files]\nattachment_location = folder\nattachment_folder = Files/Pics\n' > "$vault/.exhaust/settings.ini"
+printf 'wait 1000\ndrop %s/dropsrc/pic.png 500 300\nwait 3500\nquit\n' "$work" > "$work/drop_folder2.script"
+rm -f "$vault/pic.png"
+EXHAUST_OPEN=Home.md EXHAUST_SCRIPT="$work/drop_folder2.script" $lim "$exe" "$vault" >"$work/drop_folder2.log" 2>&1
+if cmp -s "$work/dropsrc/pic.png" "$vault/Files/Pics/pic.png" && grep -q '!\[\[Files/Pics/pic.png\]\]' "$vault/Home.md"; then echo "ok: with an attachment folder the copy goes there and the link says where"; else echo "FAILED: the attachment folder was not used: $(cat "$vault/Home.md")"; fail=1; fi
+reset_state
+
 exit $fail

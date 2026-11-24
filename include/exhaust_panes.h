@@ -30,6 +30,9 @@ typedef struct ExPanesHooks {
     void (*new_tab)(ExPanes *p, ExId group, void *user);
     /* A file was dropped on a pane; return 1 if it was used. */
     int (*drop_file)(ExPanes *p, ExId group, const char *path, void *user);
+    /* A file was dropped on the text of a note open for editing (the editor widget, at a window position): the application copies it into the
+     * vault and writes a link (docs/formats.md, "Dropping files into a note"). Return 1 if it was used; 0 passes the drop on to drop_file. May be NULL. */
+    int (*drop_attach)(ExPanes *p, ExId group, const char *path, ExWidget *editor, float x, float y, void *user);
     /* A tab was dragged out of the window. May be NULL (the tab then stays where it was). */
     void (*popout)(ExPanes *p, ExId tab, void *user);
     /* The pane header (5d). Back (dir -1) and forward (dir +1) in the history of a pane; the reading switch of a pane's active tab; the

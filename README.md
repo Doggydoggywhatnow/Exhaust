@@ -174,7 +174,7 @@ PDFs open in a tab and embed in notes (needs the optional PDF library).
 - **Views in the right sidebar** *(5e)*: pin a note, which you can edit there, or the graph to the right sidebar, and widen it across the window (`screenshots/graph-view.webp`, `wide-right-sidebar.webp`).
 - **Status bar** *(7f)*: a message on the left; on the right the editing mode of the note (when the setting is on), whether it is saved, a notice when files are checked by polling, and the word count.
 - **Workspaces**: save and restore whole layouts for journaling, reading or writing.
-- **Drag and drop** files and text.
+- **Drag and drop** files and text. *Build status (found missing in the 8c AppImage, built after it):* a file dropped from the desktop onto the text of a note open for editing is copied into the vault (where *Settings, Files and links, Where attachments go* says; never replacing a file: `name 2.ext`) and a link is written where it was dropped (`![[name.png]]` for a picture, audio, video or PDF, `[[name.ext]]` for any other file), on a thread of its own. See `docs/formats.md` (*Dropping files into a note*). Not built: pasting a picture from the clipboard, dropping onto reading mode, a canvas or a graph, the *Insert attachment* command.
 - **Session state**: saved as it changes, not only on exit, and restored on launch: open tabs, splits, pop-out windows, pinned and stacked tabs, sidebar sizes and open panels, cursor and scroll positions, the open graph and its settings, the active search text, and every settings change.
 - **Hotkeys**: every command is bindable, with conflicts shown.
 

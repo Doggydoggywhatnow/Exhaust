@@ -324,7 +324,16 @@ static int group_drop(ExWidget *w, int is_file, const char *data, float x, float
     ExPanes *p = user;
     ExId g = w->tag;
     GroupWidgets *gw = group_widgets(p, g);
-    if (is_file) return p->hooks.drop_file ? p->hooks.drop_file(p, g, data, p->user) : 0;
+    if (is_file) {
+        if (p->hooks.drop_attach && gw && gw->content && gw->content->first_child) {
+            ExWidget *c = gw->content->first_child;
+            if (c->type == EX_WIDGET_EDITOR && c->editor && !ex_editor_readonly(c->editor) && within(c, x, y) && p->hooks.drop_attach(p, g, data, c, x, y, p->user)) {
+                ex_ws_set_active_group(p->ws, g);
+                return 1;
+            }
+        }
+        return p->hooks.drop_file ? p->hooks.drop_file(p, g, data, p->user) : 0;
+    }
     if (gw && gw->content && gw->content->first_child) {
         ExWidget *c = gw->content->first_child;
         if (c->type == EX_WIDGET_EDITOR && c->editor && !ex_editor_readonly(c->editor) && within(c, x, y)) {

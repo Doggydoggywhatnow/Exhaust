@@ -1451,6 +1451,17 @@ Editing is text surgery: changing, adding, removing, renaming or retyping a prop
 
 **Shortcuts of the dialogs.** Up and Down move in the list of a dialog, Enter accepts, Escape closes; in the quick switcher Shift+Enter always creates the note named by the text; in the command palette Ctrl+Space pins or unpins the selected command. In a list: Up, Down, Home, End, Page Up, Page Down, Enter or Space activate, Left and Right close and open a row with an arrow.
 
+## Dropping files into a note (attachments)
+
+*Since 0.1.0.* `include/exhaust_attach.h`, `src/import/attach.c`, the pane hook `drop_attach` and the message `MSG_ATTACH` in `src/main.c`. A file dragged from the desktop and dropped on the text of a note that is open for editing (live preview or source) is **copied** into the vault and a link to the copy is written where it was dropped. Nothing is moved, and the dropped file is only read.
+
+- **Where the copy goes** (`[files] attachment_location`): `vault` the top folder of the vault; `folder` the folder `attachment_folder` (a path inside the vault; made when missing); `same_folder` the folder of the open note; `subfolder` the folder `attachment_subfolder` inside the folder of the open note. A folder setting that is empty, absolute, holds `..` or a backslash, or names `.exhaust` or `.trash` is not used: the copy goes to the top folder of the vault.
+- **The name** is the dropped file's name; a name a note could not have (`# ^ [ ] |` or `:`, a reserved Windows name, more than 120 bytes) has those characters replaced by `_` and is cut. A file of that name already there is **never replaced**: the copy is `name 2.ext`, `name 3.ext` and so on (also when the system folds the case of a name).
+- **The copy** is written under a temporary name in the same folder and moved into place without replacing (so a crash leaves no half file under the real name), in blocks, on a thread of its own: the interface never waits for the disk. A dropped folder or a file that cannot be read is refused with a line in the status bar and nothing is written. There is no size limit but the disk.
+- **The link** is `![[name.ext]]` for a picture, an audio file, a video file or a PDF (they show in reading mode, see *Embeds*) and `[[name.ext]]` for any other file; when the copy is not in the top folder of the vault the path from the vault is written (`![[Attachments/name.png]]`), so the link cannot match another file of the same name. It is inserted at the place of the drop (the caret goes there first) as one edit, followed by nothing: the user's text is never replaced. If the note was closed while the copy ran, the file stays and the status bar says where it is.
+- **Several files** dropped together make one copy and one link each, one per line when more than one.
+- **Not done in 0.1.0:** pasting a picture from the clipboard, dropping onto reading mode, a canvas or a graph (the status bar says a drop needs a note open for editing), the command `editor.insert-attachment` (a file dialog), renaming links when an attachment is renamed later (that is the link-safe rename).
+
 ## Vault folders that Exhaust owns
 
 Inside a vault, `.exhaust` holds Exhaust's own plain-text files (settings, themes, snippets, hotkeys, workspaces, plugins) and `.trash` holds notes deleted with `trash_mode = vault_trash` (the deleted file keeps its path relative to the vault). Both are hidden from the file explorer, search, links and the graph. Other names that start with a dot are hidden from the explorer and never indexed.

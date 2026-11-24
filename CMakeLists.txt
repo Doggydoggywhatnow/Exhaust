@@ -1103,6 +1103,9 @@ set_tests_properties(plugins_page PROPERTIES TIMEOUT 120)
 add_executable(test_stubs tests/test_stubs.c)
 target_link_libraries(test_stubs PRIVATE exhaust_ui exhaust_settings exhaust_platform)
 add_test(NAME stubs_disabled COMMAND test_stubs ${CMAKE_CURRENT_SOURCE_DIR})
+add_executable(test_attach tests/test_attach.c)
+target_link_libraries(test_attach PRIVATE exhaust_import exhaust_platform)
+add_test(NAME attach COMMAND test_attach)
 set_tests_properties(plugins PROPERTIES TIMEOUT 120)
 
 add_executable(test_font_cache tests/test_font_cache.c)
@@ -1132,9 +1135,9 @@ set_tests_properties(text_fit PROPERTIES
 set_tests_properties(search_perf ui_not_blocked index_cold frame_budget graph_frame graph_perf graph_data PROPERTIES RUN_SERIAL TRUE)
 
 # Importers (6e-v): Markdown, text, HTML, CSV and Textbundle sources into notes.
-add_library(exhaust_import STATIC src/import/import.c src/import/csv.c src/import/zip.c src/import/html2md.c src/import/importjob.c)
+add_library(exhaust_import STATIC src/import/attach.c src/import/import.c src/import/csv.c src/import/zip.c src/import/html2md.c src/import/importjob.c)
 target_include_directories(exhaust_import PUBLIC include)
-target_link_libraries(exhaust_import PUBLIC exhaust_templates exhaust_vault exhaust_buffer exhaust_platform zlib_static)
+target_link_libraries(exhaust_import PUBLIC exhaust_templates exhaust_vault exhaust_buffer exhaust_platform zlib_static SDL3::SDL3-static)
 
 # Plugins (8b): Lua 5.4 (the core and the base, table, string, math, utf8 and coroutine libraries: no io, os, package or debug) in a sandbox.
 add_library(lua_static STATIC

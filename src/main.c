@@ -57,10 +57,11 @@
 #include "exhaust_props.h"
 #include "exhaust_workspace.h"
 #include "exhaust_plugins.h"
+#include "exhaust_attach.h"
 
 /* The system font scan runs on a worker thread and hands its result to the UI
  * thread as a message; the queue wakes the UI loop with an SDL event. */
-enum { MSG_FONTS_READY = 1, MSG_EXPORT_PATH = 2, MSG_IMPORT_PATH = 3 };
+enum { MSG_FONTS_READY = 1, MSG_EXPORT_PATH = 2, MSG_IMPORT_PATH = 3, MSG_ATTACH = 4 };
 static Uint32 g_wake_event;
 static volatile sig_atomic_t g_signal; /* SIGTERM or SIGHUP arrived: flush and leave */
 
@@ -87,6 +88,7 @@ typedef struct TabNote { ExId tab; ExNote *note; } TabNote;
 typedef struct PlugPane { char title[120]; char *markdown; } PlugPane;
 typedef struct App {
     ExPlugins *plugins;                /* the Lua plugins (8b); NULL without a vault */
+    int attach_pending;                /* copies of dropped files that are still running (docs/formats.md, "Dropping files into a note") */
     int plugins_allowed;               /* [plugins] allow as the runtime last heard it */
     PlugPane plug_panes[16]; size_t nplug_panes;   /* the text of the tabs plugins opened (view "plugin") */
     char plug_path[512]; unsigned long plug_ver;   /* the note and text version last seen, for the editor-change event */
@@ -340,6 +342,16 @@ static void script_step(App *a) {
             !strcmp(name, "comma") ? SDLK_COMMA : !strcmp(name, "period") ? SDLK_PERIOD : (strlen(name) == 1 ? (SDL_Keycode)name[0] : SDLK_UNKNOWN);
         e.type = SDL_EVENT_KEY_DOWN; e.key.key = k; e.key.mod = mod; e.key.down = true;
         script_push(a, &e);
+    } else if (!strncmp(line, "drop ", 5)) {                                         /* drop PATH X Y: a file from the desktop dropped at a window position (docs/formats.md, "Dropping files into a note") */
+        char drop_path[1500];
+        char *sp = strrchr(line + 5, ' '), *sp2 = sp ? sp - 1 : NULL;
+        while (sp2 && sp2 > line + 5 && *sp2 != ' ') sp2--;
+        if (sp && sp2 && sscanf(sp2, "%f %f", &x, &y) == 2) {
+            size_t n = (size_t)(sp2 - (line + 5));
+            snprintf(drop_path, sizeof drop_path, "%.*s", (int)n, line + 5);
+            e.type = SDL_EVENT_DROP_FILE; e.drop.data = SDL_strdup(drop_path);                 /* SDL frees the data of a drop event once it has been handled */ e.drop.x = x; e.drop.y = y; e.drop.windowID = script_window_id(a);
+            SDL_PushEvent(&e);
+        }
     } else if (!strncmp(line, "window ", 7)) {                                   /* window N: the next events and shots are for the main window (0) or the N-th pop-out (7g) */
         g_script.window = atoi(line + 7);
     } else if (!strncmp(line, "closewindow ", 12)) {                             /* closewindow N: the close button of the N-th pop-out */
@@ -1861,6 +1873,81 @@ static void open_path_do(App *a, ExId group, const char *rel) {
     a->focus_tab = t;
 }
 
+/* ---- dropping a file into a note: the copy runs on a thread, the link is written when it is done ---- */
+
+typedef struct AttachJob {
+    ExQueue *results;
+    char vault_root[1400], note[700], source[1500], folder[700], subfolder[300];
+    ExAttachLocation location;
+} AttachJob;
+typedef struct AttachMsg { int ok; char note[700]; ExAttachResult r; } AttachMsg;
+
+static int SDLCALL attach_thread(void *arg) {
+    AttachJob *j = arg;
+    ExAttachConfig c;
+    AttachMsg *m = calloc(1, sizeof *m);
+    ExMessage msg;
+    memset(&c, 0, sizeof c);
+    c.vault_root = j->vault_root; c.note_rel = j->note; c.location = j->location; c.folder = j->folder; c.subfolder = j->subfolder;
+    if (m) {
+        snprintf(m->note, sizeof m->note, "%s", j->note);
+        m->ok = ex_attach_copy(&c, j->source, &m->r) == 0;
+        memset(&msg, 0, sizeof msg);
+        msg.type = MSG_ATTACH; msg.payload = m; msg.free_payload = free;
+        if (ex_queue_push(j->results, &msg) != 0) free(m);                     /* 0 is success: the receiver then owns it */
+    }
+    free(j);
+    return 0;
+}
+
+static ExNote *open_note_object(App *a, const char *path);
+static int drop_attach(ExPanes *p, ExId group, const char *path, ExWidget *ed, float x, float y, void *u) {
+    App *a = u;
+    ExId tab = ex_ws_group_active(a->ws, group);
+    ExNote *n = tab ? note_for_tab(a, tab) : NULL;
+    AttachJob *j;
+    SDL_Thread *t;
+    const char *loc;
+    (void)p;
+    if (!a->vault || !n || !ed || !ed->editor || !a->results) return 0;
+    j = calloc(1, sizeof *j);
+    if (!j) return 0;
+    j->results = a->results;
+    snprintf(j->vault_root, sizeof j->vault_root, "%s", ex_vault_path(a->vault));
+    snprintf(j->note, sizeof j->note, "%s", ex_note_path(n));
+    snprintf(j->source, sizeof j->source, "%s", path);
+    snprintf(j->folder, sizeof j->folder, "%s", ex_settings_get(a->settings, "files", "attachment_folder"));
+    snprintf(j->subfolder, sizeof j->subfolder, "%s", ex_settings_get(a->settings, "files", "attachment_subfolder"));
+    loc = ex_settings_get(a->settings, "files", "attachment_location");
+    j->location = !strcmp(loc, "folder") ? EX_ATTACH_FOLDER : !strcmp(loc, "same_folder") ? EX_ATTACH_SAME_FOLDER : !strcmp(loc, "subfolder") ? EX_ATTACH_SUBFOLDER : EX_ATTACH_VAULT;
+    ex_editor_mouse(ed->editor, ex_ui_renderer(a->ui), EX_MOUSE_DOWN, x, y, 0, 1);        /* the caret goes where the file was dropped; the link is written at the caret when the copy is done */
+    ex_editor_mouse(ed->editor, ex_ui_renderer(a->ui), EX_MOUSE_UP, x, y, 0, 1);
+    t = SDL_CreateThread(attach_thread, "exhaust-attach", j);
+    if (!t) { free(j); return 0; }
+    SDL_DetachThread(t);
+    a->attach_pending++;
+    set_status(a, "Copying the dropped file into the vault...");
+    return 1;
+}
+
+static void attach_message(App *a, AttachMsg *m) {
+    char text[2400], status[500];
+    ExNote *n = open_note_object(a, m->note);
+    if (a->attach_pending > 0) a->attach_pending--;
+    if (!m->ok) { snprintf(status, sizeof status, "The dropped file was not copied. %s", m->r.error); set_status(a, status); return; }
+    snprintf(text, sizeof text, "%s%s", m->r.link, a->attach_pending > 0 ? "\n" : "");          /* several files: one link a line */
+    if (n) {
+        ExDoc *d = ex_note_doc(n);
+        ExSel sel = ex_doc_sel(d, ex_doc_primary(d));
+        ExChange c;
+        c.offset = sel.head; c.remove_len = 0; c.text = text; c.text_len = strlen(text);          /* inserted, never replacing text the user has */
+        ex_doc_seal(d);
+        ex_doc_apply(d, &c, 1, 0, NULL, 0);
+        snprintf(status, sizeof status, "Copied the dropped file to %s", m->r.rel);
+    } else snprintf(status, sizeof status, "The dropped file was copied to %s (the note is closed: no link was written)", m->r.rel);
+    set_status(a, status);
+}
+
 static int drop_file(ExPanes *p, ExId group, const char *path, void *user) {
     App *a = user;
     const char *root = a->vault ? ex_vault_path(a->vault) : NULL;
@@ -1874,7 +1961,7 @@ static int drop_file(ExPanes *p, ExId group, const char *path, void *user) {
         if (ex_file_kind(rel) == EX_KIND_MARKDOWN) { open_path(a, group, rel); free(rel); return 1; }
         free(rel);
     }
-    set_status(a, "Dropped files from outside the vault are imported by the importers (a later sub-slice); nothing was copied.");
+    set_status(a, "Drop a file onto the text of a note that is open for editing to copy it into the vault and link it; nothing was copied.");
     return 0;
 }
 
@@ -3207,6 +3294,7 @@ static void fill_pane_hooks(App *a, ExPanesHooks *h, int popout) {
     h->tab_shown = tab_shown;
     h->new_tab = a->vault ? new_empty_tab : NULL;
     h->drop_file = drop_file;
+    h->drop_attach = drop_attach;
     h->popout = pane_popout;
     h->navigate = pane_navigate; h->toggle_reading = pane_toggle_reading;
     h->pane_menu = popout ? NULL : pane_menu;
@@ -4210,6 +4298,7 @@ int main(int argc, char **argv) {
             while (ex_queue_pop(results, &m))
                 if (m.type == EX_MSG_IMPORT && m.payload) { import_message(&app, m.payload); if (m.free_payload) m.free_payload(m.payload); }
                 else if (m.type == MSG_IMPORT_PATH && m.payload) { import_start(&app, m.payload); if (m.free_payload) m.free_payload(m.payload); }
+                else if (m.type == MSG_ATTACH && m.payload) { attach_message(&app, m.payload); if (m.free_payload) m.free_payload(m.payload); }
                 else if (m.type == EX_MSG_EXPORT && m.payload) { export_message(&app, m.payload); if (m.free_payload) m.free_payload(m.payload); }
                 else if (m.type == MSG_EXPORT_PATH && m.payload) { export_path_chosen(&app, m.payload); if (m.free_payload) m.free_payload(m.payload); }
                 else if (m.type == MSG_FONTS_READY) {
