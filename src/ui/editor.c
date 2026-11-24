@@ -28,6 +28,8 @@ typedef struct CachedLine {
 } CachedLine;
 
 struct ExEditor {
+    int (*paste_hook)(void *user);          /* paste with no text on the clipboard: the application may take a picture (returns 1) */
+    void *paste_user;
     ExDoc *doc;
     ExFont *font;
     float size;
@@ -149,6 +151,7 @@ void ex_editor_set_doc(ExEditor *e, ExDoc *doc) {
     e->ngoal = 0;
 }
 void ex_editor_set_clipboard(ExEditor *e, const ExClipboard *cb) { e->clip = *cb; }
+void ex_editor_set_paste_hook(ExEditor *e, int (*fn)(void *user), void *user) { e->paste_hook = fn; e->paste_user = user; }
 
 void ex_editor_set_font(ExEditor *e, ExFont *font, float size, int line_height_pct) {
     if (e->font != font || e->size != size) clear_cache(e);
@@ -1218,7 +1221,7 @@ static void paste(ExEditor *e) {
     if (e->readonly) return;
     text = e->clip.get ? e->clip.get(e->clip.user) : NULL;
     size_t n = ex_doc_sel_count(e->doc), lines = 1, i, len;
-    if (!text) return;
+    if (!text) { if (e->paste_hook) e->paste_hook(e->paste_user); return; }
     len = strlen(text);
     for (i = 0; i < len; i++) if (text[i] == '\n') lines++;
     if (lines == n && n > 1 && text[len - 1] != '\n') { /* one line for each cursor */

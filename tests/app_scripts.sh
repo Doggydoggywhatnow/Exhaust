@@ -624,4 +624,37 @@ EXHAUST_OPEN=Home.md EXHAUST_SCRIPT="$work/drop_folder2.script" $lim "$exe" "$va
 if cmp -s "$work/dropsrc/pic.png" "$vault/Files/Pics/pic.png" && grep -q '!\[\[Files/Pics/pic.png\]\]' "$vault/Home.md"; then echo "ok: with an attachment folder the copy goes there and the link says where"; else echo "FAILED: the attachment folder was not used: $(cat "$vault/Home.md")"; fail=1; fi
 reset_state
 
+# pasting a picture (formats.md, "Dropping files into a note"): with no text on the clipboard and a picture there, Ctrl+V saves it as "Pasted image ...png"
+# in the attachment place and writes the link at the caret; the bytes are the ones on the clipboard; with text on the clipboard the text is pasted
+reset_state
+printf '\211PNG\r\n\032\npicture-bytes-0123456789' > "$work/clip.png"
+run paste_picture "wait 1000
+move 500 300
+down 500 300
+up 500 300
+wait 200
+clipimage $work/clip.png
+wait 200
+key mod+v
+wait 3000
+quit" Home.md
+pasted=$(ls "$work/paste_picture" | grep '^Pasted image [0-9]*\.png$' | head -1)
+if [ -n "$pasted" ] && cmp -s "$work/clip.png" "$work/paste_picture/$pasted"; then echo "ok: a pasted picture is saved as an attachment, byte for byte"; else echo "FAILED: the pasted picture was not saved (see $work/paste_picture.log)"; fail=1; fi
+if [ -n "$pasted" ] && grep -qF "![[$pasted]]" "$work/paste_picture/Home.md" && grep -q 'Hello\.' "$work/paste_picture/Home.md"; then echo "ok: the link to the pasted picture is in the note"; else echo "FAILED: no link to the pasted picture: $(cat "$work/paste_picture/Home.md")"; fail=1; fi
+reset_state
+# text on the clipboard still pastes as text
+run paste_text "wait 1000
+move 500 300
+down 500 300
+up 500 300
+wait 200
+key mod+a
+key mod+c
+key right
+key mod+v
+wait 2500
+quit" Home.md
+if [ "$(grep -c 'Hello\.' "$work/paste_text/Home.md")" = "2" ] && ! ls "$work/paste_text" | grep -q Pasted; then echo "ok: text still pastes as text"; else echo "FAILED: pasting text changed: $(cat "$work/paste_text/Home.md")"; fail=1; fi
+reset_state
+
 exit $fail

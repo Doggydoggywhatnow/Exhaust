@@ -121,6 +121,9 @@ int ex_platform_tz_offset_minutes(void);                  /* minutes east of UTC
 char *ex_clipboard_get_text(void);
 int ex_clipboard_set_text(const char *utf8);
 int ex_clipboard_has_text(void);
+/* A picture on the clipboard, as the system offers it: image/png, then image/jpeg, image/webp and image/bmp. Returns malloc'ed bytes and the file
+ * extension (".png"); NULL if there is none. Interface thread. */
+unsigned char *ex_clipboard_get_image(size_t *len, char ext[8]);
 
 /* Does the operating system ask for high contrast? 1 yes, 0 no or not known. Windows: the High Contrast setting (SPI_GETHIGHCONTRAST). Linux: GNOME's
  * org.gnome.desktop.a11y.interface high-contrast, read with gsettings (blocks for a few milliseconds; call it at start and when the user chooses it).

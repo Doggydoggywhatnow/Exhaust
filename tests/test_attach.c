@@ -27,7 +27,7 @@ static int same(const char *a, const char *b) {
 static int exists(const char *p) { ExPathInfo i; return ex_platform_path_info(p, &i) == 0; }
 
 int main(void) {
-    char root[600], abs[2400];
+    char root[600], abs[3000];
     ExAttachConfig c;
     ExAttachResult r;
     char folder[300];
@@ -109,6 +109,16 @@ int main(void) {
         snprintf(abs, sizeof abs, "%s/%s", root, r.rel);
         CHECK(same(SRC "/big.bin", abs));
     }
+
+    /* bytes (a picture from the clipboard) take the same place, the same rules and the name that was asked for */
+    c.location = EX_ATTACH_FOLDER; c.folder = "Pasted";
+    CHECK(ex_attach_save_bytes(&c, "Pasted image 20260101000000", ".png", "\x89PNGxyz", 7, &r) == 0 && !strcmp(r.rel, "Pasted/Pasted image 20260101000000.png") && !strcmp(r.link, "![[Pasted/Pasted image 20260101000000.png]]"));
+    snprintf(abs, sizeof abs, "%s/%s", root, r.rel);
+    { size_t n = 0; char *t = ex_platform_read_file(abs, &n); CHECK(t && n == 7 && !memcmp(t, "\x89PNGxyz", 7)); free(t); }
+    CHECK(ex_attach_save_bytes(&c, "Pasted image 20260101000000", ".png", "other!!", 7, &r) == 0 && !strcmp(r.rel, "Pasted/Pasted image 20260101000000 2.png"));      /* the same second: never replaced */
+    CHECK(ex_attach_save_bytes(&c, "x", ".png", "", 0, &r) == -1 && r.error[0]);
+    CHECK(ex_attach_save_bytes(&c, "x", ".png", NULL, 5, &r) == -1);
+    c.location = EX_ATTACH_VAULT;
 
     /* refusals write nothing */
     CHECK(ex_attach_copy(&c, SRC "/missing.png", &r) == -1 && r.error[0]);

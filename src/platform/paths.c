@@ -219,3 +219,20 @@ char *ex_clipboard_get_text(void) {
 
 int ex_clipboard_set_text(const char *utf8) { return SDL_SetClipboardText(utf8) ? 0 : -1; }
 int ex_clipboard_has_text(void) { return SDL_HasClipboardText() ? 1 : 0; }
+
+unsigned char *ex_clipboard_get_image(size_t *len, char ext[8]) {
+    static const struct { const char *mime, *ext; } types[] = { { "image/png", ".png" }, { "image/jpeg", ".jpg" }, { "image/webp", ".webp" }, { "image/bmp", ".bmp" } };
+    size_t i;
+    for (i = 0; i < sizeof types / sizeof *types; i++) {
+        size_t n = 0;
+        void *d;
+        if (!SDL_HasClipboardData(types[i].mime)) continue;
+        d = SDL_GetClipboardData(types[i].mime, &n);
+        if (d && n > 0) {
+            unsigned char *out = malloc(n);
+            if (out) { memcpy(out, d, n); SDL_free(d); if (len) *len = n; snprintf(ext, 8, "%s", types[i].ext); return out; }
+        }
+        SDL_free(d);
+    }
+    return NULL;
+}

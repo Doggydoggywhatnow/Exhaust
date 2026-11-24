@@ -286,12 +286,17 @@ static void script_push(App *a, SDL_Event *e) {
     SDL_PushEvent(e);
 }
 
+static void *g_clip_image; static size_t g_clip_image_len;
+static const void *clip_image_cb(void *u, const char *mime, size_t *size) { (void)u; if (strcmp(mime, "image/png") != 0) { *size = 0; return NULL; } *size = g_clip_image_len; return g_clip_image; }
+static void clip_image_free(void *u) { (void)u; SDL_free(g_clip_image); g_clip_image = NULL; g_clip_image_len = 0; }
+
 static void script_step(App *a) {
     char *line, *end;
     SDL_Event e;
     float x = 0, y = 0;
     if (!g_script.active || SDL_GetTicks() < g_script.until) return;
     if (!g_script.next || !*g_script.next) { g_script.active = 0; return; }
+    SDL_SetModState(0);
     line = g_script.next;
     end = strchr(line, '\n');
     if (end) { *end = 0; g_script.next = end + 1; } else g_script.next = line + strlen(line);
@@ -341,7 +346,13 @@ static void script_step(App *a) {
             !strcmp(name, "left") ? SDLK_LEFT : !strcmp(name, "right") ? SDLK_RIGHT : !strcmp(name, "tab") ? SDLK_TAB : !strcmp(name, "space") ? SDLK_SPACE :
             !strcmp(name, "comma") ? SDLK_COMMA : !strcmp(name, "period") ? SDLK_PERIOD : (strlen(name) == 1 ? (SDL_Keycode)name[0] : SDLK_UNKNOWN);
         e.type = SDL_EVENT_KEY_DOWN; e.key.key = k; e.key.mod = mod; e.key.down = true;
+        SDL_SetModState(mod);                                                          /* the editor reads the modifiers from the keyboard state, not from the event: a scripted Ctrl+V needs both */
+        g_script.until = SDL_GetTicks() + 60;                                          /* the state stays until the next step, which clears it */
         script_push(a, &e);
+    } else if (!strncmp(line, "clipimage ", 10)) {                                   /* clipimage PATH: the file's bytes become a picture (image/png) on the clipboard, as a program that copied one would leave it */
+        size_t n = 0;
+        char *data = ex_platform_read_file(line + 10, &n);
+        if (data) { char *copy = SDL_malloc(n); if (copy) { memcpy(copy, data, n); g_clip_image = copy; g_clip_image_len = n; SDL_SetClipboardData(clip_image_cb, clip_image_free, NULL, (const char *[]){ "image/png" }, 1); } free(data); }
     } else if (!strncmp(line, "drop ", 5)) {                                         /* drop PATH X Y: a file from the desktop dropped at a window position (docs/formats.md, "Dropping files into a note") */
         char drop_path[1500];
         char *sp = strrchr(line + 5, ' '), *sp2 = sp ? sp - 1 : NULL;
@@ -1879,6 +1890,7 @@ typedef struct AttachJob {
     ExQueue *results;
     char vault_root[1400], note[700], source[1500], folder[700], subfolder[300];
     ExAttachLocation location;
+    unsigned char *bytes; size_t nbytes; char stem[80], ext[8];       /* a picture from the clipboard: saved as stem+ext (source is empty) */
 } AttachJob;
 typedef struct AttachMsg { int ok; char note[700]; ExAttachResult r; } AttachMsg;
 
@@ -1891,41 +1903,78 @@ static int SDLCALL attach_thread(void *arg) {
     c.vault_root = j->vault_root; c.note_rel = j->note; c.location = j->location; c.folder = j->folder; c.subfolder = j->subfolder;
     if (m) {
         snprintf(m->note, sizeof m->note, "%s", j->note);
-        m->ok = ex_attach_copy(&c, j->source, &m->r) == 0;
+        m->ok = (j->bytes ? ex_attach_save_bytes(&c, j->stem, j->ext, j->bytes, j->nbytes, &m->r) : ex_attach_copy(&c, j->source, &m->r)) == 0;
         memset(&msg, 0, sizeof msg);
         msg.type = MSG_ATTACH; msg.payload = m; msg.free_payload = free;
         if (ex_queue_push(j->results, &msg) != 0) free(m);                     /* 0 is success: the receiver then owns it */
     }
+    free(j->bytes);
     free(j);
     return 0;
 }
 
 static ExNote *open_note_object(App *a, const char *path);
+/* The settings for a copy in the place of the open note. */
+static void attach_fill(App *a, AttachJob *j, const char *note) {
+    const char *loc;
+    j->results = a->results;
+    snprintf(j->vault_root, sizeof j->vault_root, "%s", ex_vault_path(a->vault));
+    snprintf(j->note, sizeof j->note, "%s", note);
+    snprintf(j->folder, sizeof j->folder, "%s", ex_settings_get(a->settings, "files", "attachment_folder"));
+    snprintf(j->subfolder, sizeof j->subfolder, "%s", ex_settings_get(a->settings, "files", "attachment_subfolder"));
+    loc = ex_settings_get(a->settings, "files", "attachment_location");
+    j->location = !strcmp(loc, "folder") ? EX_ATTACH_FOLDER : !strcmp(loc, "same_folder") ? EX_ATTACH_SAME_FOLDER : !strcmp(loc, "subfolder") ? EX_ATTACH_SUBFOLDER : EX_ATTACH_VAULT;
+}
+static int attach_start(App *a, AttachJob *j) {
+    SDL_Thread *t = SDL_CreateThread(attach_thread, "exhaust-attach", j);
+    if (!t) { free(j->bytes); free(j); return 0; }
+    SDL_DetachThread(t);
+    a->attach_pending++;
+    return 1;
+}
+/* Paste with no text on the clipboard: a picture there is saved as an attachment and linked at the caret. */
+static int paste_picture(void *u) {
+    App *a = u;
+    ExId tab = a->ws ? ex_ws_group_active(a->ws, ex_ws_active_group(a->ws)) : 0;
+    ExNote *n = tab ? note_for_tab(a, tab) : NULL;
+    AttachJob *j;
+    time_t now = time(NULL);
+    struct tm tmv;
+    char ext[8];
+    size_t len = 0;
+    unsigned char *img;
+    if (!a->vault || !n || !a->results) return 0;
+    img = ex_clipboard_get_image(&len, ext);                                         /* ui-ok: the paste the user just asked for, as the text is read */
+    if (!img) { set_status(a, "There is no picture on the clipboard to paste."); return 0; }
+    j = calloc(1, sizeof *j);
+    if (!j) { free(img); return 0; }
+    attach_fill(a, j, ex_note_path(n));
+    j->bytes = img; j->nbytes = len;
+    snprintf(j->ext, sizeof j->ext, "%s", ext);
+#ifdef _WIN32
+    localtime_s(&tmv, &now);
+#else
+    localtime_r(&now, &tmv);
+#endif
+    snprintf(j->stem, sizeof j->stem, "Pasted image %04d%02d%02d%02d%02d%02d", tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday, tmv.tm_hour, tmv.tm_min, tmv.tm_sec);
+    if (!attach_start(a, j)) return 0;
+    set_status(a, "Saving the pasted picture into the vault...");
+    return 1;
+}
 static int drop_attach(ExPanes *p, ExId group, const char *path, ExWidget *ed, float x, float y, void *u) {
     App *a = u;
     ExId tab = ex_ws_group_active(a->ws, group);
     ExNote *n = tab ? note_for_tab(a, tab) : NULL;
     AttachJob *j;
-    SDL_Thread *t;
-    const char *loc;
     (void)p;
     if (!a->vault || !n || !ed || !ed->editor || !a->results) return 0;
     j = calloc(1, sizeof *j);
     if (!j) return 0;
-    j->results = a->results;
-    snprintf(j->vault_root, sizeof j->vault_root, "%s", ex_vault_path(a->vault));
-    snprintf(j->note, sizeof j->note, "%s", ex_note_path(n));
+    attach_fill(a, j, ex_note_path(n));
     snprintf(j->source, sizeof j->source, "%s", path);
-    snprintf(j->folder, sizeof j->folder, "%s", ex_settings_get(a->settings, "files", "attachment_folder"));
-    snprintf(j->subfolder, sizeof j->subfolder, "%s", ex_settings_get(a->settings, "files", "attachment_subfolder"));
-    loc = ex_settings_get(a->settings, "files", "attachment_location");
-    j->location = !strcmp(loc, "folder") ? EX_ATTACH_FOLDER : !strcmp(loc, "same_folder") ? EX_ATTACH_SAME_FOLDER : !strcmp(loc, "subfolder") ? EX_ATTACH_SUBFOLDER : EX_ATTACH_VAULT;
     ex_editor_mouse(ed->editor, ex_ui_renderer(a->ui), EX_MOUSE_DOWN, x, y, 0, 1);        /* the caret goes where the file was dropped; the link is written at the caret when the copy is done */
     ex_editor_mouse(ed->editor, ex_ui_renderer(a->ui), EX_MOUSE_UP, x, y, 0, 1);
-    t = SDL_CreateThread(attach_thread, "exhaust-attach", j);
-    if (!t) { free(j); return 0; }
-    SDL_DetachThread(t);
-    a->attach_pending++;
+    if (!attach_start(a, j)) return 0;
     set_status(a, "Copying the dropped file into the vault...");
     return 1;
 }
@@ -1934,7 +1983,7 @@ static void attach_message(App *a, AttachMsg *m) {
     char text[2400], status[500];
     ExNote *n = open_note_object(a, m->note);
     if (a->attach_pending > 0) a->attach_pending--;
-    if (!m->ok) { snprintf(status, sizeof status, "The dropped file was not copied. %s", m->r.error); set_status(a, status); return; }
+    if (!m->ok) { snprintf(status, sizeof status, "The file was not saved. %s", m->r.error); set_status(a, status); return; }
     snprintf(text, sizeof text, "%s%s", m->r.link, a->attach_pending > 0 ? "\n" : "");          /* several files: one link a line */
     if (n) {
         ExDoc *d = ex_note_doc(n);
@@ -3231,7 +3280,7 @@ static void sync_ui(App *a) {
         size_t i;
         for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
             ExWidget *w = ex_panes_content(a->panes, ex_ws_tab_at(a->ws, i));
-            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); ex_editor_set_spell(w->editor, spell_on ? a->spell : NULL); if (a->panels) ex_editor_set_link_suggest(w->editor, ex_panels_suggest_links, a->panels); ex_editor_set_link_click(w->editor, on_editor_link_click, a); }
+            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); ex_editor_set_spell(w->editor, spell_on ? a->spell : NULL); if (a->panels) ex_editor_set_link_suggest(w->editor, ex_panels_suggest_links, a->panels); ex_editor_set_link_click(w->editor, on_editor_link_click, a); ex_editor_set_paste_hook(w->editor, paste_picture, a); }
         }
     }
     a->note = t ? note_for_tab(a, t) : NULL;

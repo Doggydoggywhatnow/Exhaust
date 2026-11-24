@@ -30,6 +30,8 @@ typedef struct ExAttachResult {
 void ex_attach_folder(const ExAttachConfig *c, char *out, size_t cap);
 /* Copies `source` (an absolute path to a file) and fills `out`. Returns 0, or -1 with out->error. */
 int ex_attach_copy(const ExAttachConfig *c, const char *source, ExAttachResult *out);
+/* Saves bytes (a picture from the clipboard) as a new file called stem+ext in the same place, with the same rules. */
+int ex_attach_save_bytes(const ExAttachConfig *c, const char *stem, const char *ext, const void *data, size_t len, ExAttachResult *out);
 /* The link text for a vault path, as ex_attach_copy writes it. */
 void ex_attach_link(const char *rel, char *out, size_t cap);
 

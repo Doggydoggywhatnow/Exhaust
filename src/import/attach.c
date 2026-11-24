@@ -91,26 +91,13 @@ static void clean_name(const char *name, char *stem, size_t scap, char *ext, siz
     }
 }
 
-int ex_attach_copy(const ExAttachConfig *c, const char *source, ExAttachResult *out) {
-    char folder[1600], dirabs[3300], stem[400], ext[40];
-    const char *slash;
-    ExPathInfo si;
-    SDL_IOStream *in;
+/* The copy itself: `in` is read from its start, the result is a new file stem+ext in the chosen folder, never replacing one. */
+static int attach_stream(const ExAttachConfig *c, SDL_IOStream *in, const char *stem, const char *ext, ExAttachResult *out) {
+    char folder[1600], dirabs[3300];
     int k;
-    memset(out, 0, sizeof *out);
-    if (!c || !c->vault_root || !source || !source[0]) { fail(out, "Nothing to copy", ""); return -1; }
-    if (ex_platform_path_info(source, &si) != 0) { fail(out, "The file cannot be read", source); return -1; }
-    if (si.is_dir || !si.is_file) { fail(out, "A folder cannot be dropped into a note", source); return -1; }
-    slash = strrchr(source, '/');
-#ifdef _WIN32
-    { const char *bs = strrchr(source, '\\'); if (bs && (!slash || bs > slash)) slash = bs; }
-#endif
-    clean_name(slash ? slash + 1 : source, stem, sizeof stem, ext, sizeof ext);
     ex_attach_folder(c, folder, sizeof folder);
     snprintf(dirabs, sizeof dirabs, "%s%s%s", c->vault_root, folder[0] ? "/" : "", folder);
     if (ex_platform_make_dirs(dirabs) != 0) { fail(out, "The folder could not be made", dirabs); return -1; }
-    in = SDL_IOFromFile(source, "rb");
-    if (!in) { fail(out, "The file cannot be read", source); return -1; }
     for (k = 1; k < 10000; k++) {
         char rel[2200], abs[3800], tmp[3900];
         ExPathInfo ti;
@@ -123,9 +110,9 @@ int ex_attach_copy(const ExAttachConfig *c, const char *source, ExAttachResult *
         if (ex_platform_path_info(abs, &ti) == 0) continue;                                  /* taken */
         snprintf(tmp, sizeof tmp, "%s.attach~", abs);
         o = SDL_IOFromFile(tmp, "wb");
-        if (!o) { fail(out, "The copy could not be written", abs); SDL_CloseIO(in); return -1; }
+        if (!o) { fail(out, "The copy could not be written", abs); return -1; }
         buf = malloc(1 << 16);
-        if (!buf) { SDL_CloseIO(o); SDL_CloseIO(in); ex_platform_remove_tree(tmp); fail(out, "Out of memory", ""); return -1; }
+        if (!buf) { SDL_CloseIO(o); ex_platform_remove_tree(tmp); fail(out, "Out of memory", ""); return -1; }
         SDL_SeekIO(in, 0, SDL_IO_SEEK_SET);
         for (;;) {
             size_t n = SDL_ReadIO(in, buf, 1 << 16);
@@ -134,14 +121,49 @@ int ex_attach_copy(const ExAttachConfig *c, const char *source, ExAttachResult *
         }
         free(buf);
         if (!SDL_CloseIO(o)) ok = 0;
-        if (!ok) { ex_platform_remove_tree(tmp); SDL_CloseIO(in); fail(out, "The copy could not be written", abs); return -1; }
+        if (!ok) { ex_platform_remove_tree(tmp); fail(out, "The copy could not be written", abs); return -1; }
         if (ex_platform_rename_noreplace(tmp, abs) != 0) { ex_platform_remove_tree(tmp); continue; }     /* it appeared meanwhile: the next number */
-        SDL_CloseIO(in);
         snprintf(out->rel, sizeof out->rel, "%s", rel);
         ex_attach_link(rel, out->link, sizeof out->link);
         return 0;
     }
-    SDL_CloseIO(in);
     fail(out, "No free name for the copy", stem);
     return -1;
+}
+
+int ex_attach_copy(const ExAttachConfig *c, const char *source, ExAttachResult *out) {
+    char stem[400], ext[40];
+    const char *slash;
+    ExPathInfo si;
+    SDL_IOStream *in;
+    int rc;
+    memset(out, 0, sizeof *out);
+    if (!c || !c->vault_root || !source || !source[0]) { fail(out, "Nothing to copy", ""); return -1; }
+    if (ex_platform_path_info(source, &si) != 0) { fail(out, "The file cannot be read", source); return -1; }
+    if (si.is_dir || !si.is_file) { fail(out, "A folder cannot be dropped into a note", source); return -1; }
+    slash = strrchr(source, '/');
+#ifdef _WIN32
+    { const char *bs = strrchr(source, '\\'); if (bs && (!slash || bs > slash)) slash = bs; }
+#endif
+    clean_name(slash ? slash + 1 : source, stem, sizeof stem, ext, sizeof ext);
+    in = SDL_IOFromFile(source, "rb");
+    if (!in) { fail(out, "The file cannot be read", source); return -1; }
+    rc = attach_stream(c, in, stem, ext, out);
+    SDL_CloseIO(in);
+    return rc;
+}
+
+int ex_attach_save_bytes(const ExAttachConfig *c, const char *stem, const char *ext, const void *data, size_t len, ExAttachResult *out) {
+    SDL_IOStream *in;
+    char st[400], ex[40];
+    int rc;
+    memset(out, 0, sizeof *out);
+    if (!c || !c->vault_root || !data || len == 0) { fail(out, "Nothing to save", ""); return -1; }
+    snprintf(st, sizeof st, "%s", stem && stem[0] ? stem : "Attachment");
+    snprintf(ex, sizeof ex, "%s", ext ? ext : "");
+    in = SDL_IOFromConstMem(data, len);
+    if (!in) { fail(out, "Out of memory", ""); return -1; }
+    rc = attach_stream(c, in, st, ex, out);
+    SDL_CloseIO(in);
+    return rc;
 }

@@ -79,6 +79,8 @@ int ex_editor_readonly(const ExEditor *e);
 
 /* Defaults to the operating system clipboard. */
 void ex_editor_set_clipboard(ExEditor *e, const ExClipboard *cb);
+/* Called when paste finds no text on the clipboard (docs/formats.md, "Dropping files into a note": pasting a picture). May be NULL. */
+void ex_editor_set_paste_hook(ExEditor *e, int (*fn)(void *user), void *user);
 
 /* Font and metrics. size is at 100% zoom, line_height_pct is the theme's
  * line_height token. The renderer supplies the scale. */
