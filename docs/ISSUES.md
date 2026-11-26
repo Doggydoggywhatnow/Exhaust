@@ -6,7 +6,7 @@ Status: `open`, `diagnosed` (cause found, not fixed), `fixed`.
 
 ## Open
 
-Found by hand-testing the AppImage built from `dev` after sub-slice 4d (2026-11-14), and by agent v.04 while fixing them (25 to 30, 2026-11-15), and by agent v.05 while building 5a (31 to 33), and by agent v.06 while building 5b (34 to 38). Rows marked "to confirm by hand" are fixed in code and CI is green; the user has not tried them yet.
+Found by hand-testing the AppImage built from `dev` after sub-slice 4d (2026-11-14), and by agent v.04 while fixing them (25 to 30, 2026-11-15), and by agent v.05 while building 5a (31 to 33), and by agent v.06 while building 5b (34 to 38). Entries 39 to 75 were added while slices 5b to 6e were built. **Found in the 8b to drop-and-paste stretch (2026-11-23 to 26, agent v.06): 76 to 84** (a macOS `media_view` flake, the frontmatter fuzzer's byte order mark, the sanitizers job out of disk, two things the user found with the 8c AppImage: no drop and no paste of pictures, and a `localtime_r` build break). Status of the whole list on 2026-11-26: 84 entries, 43 open or diagnosed. Rows marked "to confirm by hand" are fixed in code and CI is green; the user has not tried them yet.
 
 | # | Status | Observed | Cause, or what to check |
 | --- | --- | --- | --- |

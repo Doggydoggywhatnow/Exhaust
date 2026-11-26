@@ -320,6 +320,8 @@ Each sub-slice is finished, tested and committed before the next. The detailed s
 8. **8b** Lua runtime and plugin permissions; **8c** labeled stubs (Vim mode is one of them; it is for a later release).
 9. **9a** Windows zip; **9b** Linux AppImage; **9c** macOS dmg; **9d** add-on package and final checks.
 
+**Status (2026-11-26):** sub-slices through 8c are built and tested (62 of 67 rows); what is left is slice 9 (Windows zip, Linux AppImage, macOS dmg, the optional add-on package with PDFium and libmpv, and the final checks). Vim mode is not in 0.1.0 (a disabled, labelled stub). The *Build status* notes in the sections above say what each feature does now and what it does not; [`docs/PROGRESS.md`](docs/PROGRESS.md) has the rest.
+
 Exhaust must run on Windows, Linux (Wayland and X11) and macOS, with no display-server-specific code.
 
 ## Non-goals
