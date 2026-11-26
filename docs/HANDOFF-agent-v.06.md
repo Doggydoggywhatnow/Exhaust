@@ -8,7 +8,7 @@ Read, in this order: `AGENTS.md` (updated for you), [`PROGRESS.md`](PROGRESS.md)
 
 ## 1. The state I am leaving, in one paragraph
 
-**62 of 67 rows are done.** Slice 6 (6a to 6e-v) was confirmed by CI run 45192235958 before I began this stretch; I then built **8b** (the Lua runtime, plugin permissions and the Plugins settings page) and **8c** (labelled stubs, Vim mode as a stub key, the size check), and after the user hand-tested an AppImage I built **dropping a file into a note** and **pasting a picture from the clipboard**, and fixed what CI found on the way. What is left is **slice 9** (9a Windows zip, 9b Linux AppImage, 9c macOS dmg, 9d the add-on package and the final checks) and the maintainer checklist; 8a (Vim mode) is out of 0.1.0. The newest commit is `2beaee2` plus the documentation commit this file arrives in. **CI is not all green:** see section 5. Nothing from 5b to 8c has been hand-tested by the user except what they found with one AppImage.
+**62 of 67 rows are done.** Slice 6 (6a to 6e-v) was confirmed by CI run 45192235958 before I began this stretch; I then built **8b** (the Lua runtime, plugin permissions and the Plugins settings page) and **8c** (labelled stubs, Vim mode as a stub key, the size check), and after the user hand-tested an AppImage I built **dropping a file into a note** and **pasting a picture from the clipboard**, and fixed what CI found on the way. What is left is **slice 9** (9a Windows zip, 9b Linux AppImage, 9c macOS dmg, 9d the add-on package and the final checks) and the maintainer checklist; 8a (Vim mode) is out of 0.1.0. The newest commit is `2beaee2` plus the documentation commit this file arrives in. **CI is green for `2beaee2` and the documentation commit after it; the Linux timing flake is not fixed:** see section 5. Nothing from 5b to 8c has been hand-tested by the user except what they found with one AppImage.
 
 ## 2. How the work went
 
@@ -65,7 +65,7 @@ Rows of kind information (a disabled button) for Language and Community themes (
 
 ## 5. What could still be red, and what to do first
 
-- **Read the newest CI run first.** After `2beaee2` I had not seen its result. Expected: Linux, Windows and macOS build and test green except possibly `graph_frame` and `frame_budget`. The `sanitizers` job was **killed with status 143 once** (run 45463377237, while linking): unknown; the new `df` lines in its log should say whether the disk ran out.
+- **Read the newest CI run first.** **Runs 45884498299 (`2beaee2`) and 45884886040 (`4e6fcef`) are green on all ten jobs** (read 2026-11-26 20:20 UTC); `graph_frame` and `frame_budget` passed in them, which proves nothing about the flake. The `sanitizers` job was **killed with status 143 once** (run 45463377237, while linking): unknown; the new `df` lines in its log should say whether the disk ran out.
 - **ISSUES 55** (`graph_frame` and `frame_budget`, a fourth time): wall-clock measurement on a slow Linux runner; `AGENTS.md` says to measure CPU time. I did not do it because it changes the tests and the views' `own_ms`, and I wanted the owner's go. If the user says go: `CLOCK_THREAD_CPUTIME_ID` (and `GetThreadTimes`, `thread_info`) in the draw of the graph and canvas views, and in the tests where they take their own time; keep the limits.
 - **ISSUES 39** (`ui_not_blocked` on Windows and macOS) and **75** (`a11y_atspi`) are older flakes.
 - **The user's open question:** pictures in the editor's live preview (ISSUES 83). Reading mode draws embeds; the editor shows the link text.
