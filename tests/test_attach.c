@@ -88,8 +88,12 @@ int main(void) {
 
     /* names a note could not have */
     c.location = EX_ATTACH_VAULT;
-    put(SRC "/we#ird [name]^x|y:z.png", "x", 1);
-    CHECK(ex_attach_copy(&c, SRC "/we#ird [name]^x|y:z.png", &r) == 0 && !strcmp(r.rel, "we_ird _name__x_y_z.png"));
+    put(SRC "/we#ird [name]^x.png", "x", 1);
+    CHECK(ex_attach_copy(&c, SRC "/we#ird [name]^x.png", &r) == 0 && !strcmp(r.rel, "we_ird _name__x.png"));
+#ifndef _WIN32
+    put(SRC "/a|b:c.png", "x", 1);                                                  /* a file name Windows cannot have (CI found the test failing there: ISSUES 84) */
+    CHECK(ex_attach_copy(&c, SRC "/a|b:c.png", &r) == 0 && !strcmp(r.rel, "a_b_c.png"));
+#endif
     put(SRC "/CON.png", "x", 1);
     CHECK(ex_attach_copy(&c, SRC "/CON.png", &r) == 0 && !strcmp(r.rel, "CON_.png"));
     put(SRC "/noext", "x", 1);

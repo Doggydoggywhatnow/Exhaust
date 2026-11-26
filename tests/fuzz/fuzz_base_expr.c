@@ -45,7 +45,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         (void)t;
         w = ex_expr_eval(e, a, &h, NULL);
         r2 = ex_value_repr(a, w);
-        if (strcmp(r1, r2)) abort();                                  /* the same expression gives the same value */
+        if (!strstr(text, "random") && strcmp(r1, r2)) abort();        /* the same expression gives the same value (random() is meant to give another: CI found "random()" in 60 seconds, ISSUES 84) */
         ex_value_compare(v, w);
         ex_value_truthy(v);
         ex_expr_free(e);

@@ -1938,8 +1938,8 @@ static int paste_picture(void *u) {
     ExId tab = a->ws ? ex_ws_group_active(a->ws, ex_ws_active_group(a->ws)) : 0;
     ExNote *n = tab ? note_for_tab(a, tab) : NULL;
     AttachJob *j;
-    time_t now = time(NULL);
-    struct tm tmv;
+    SDL_Time now = 0;
+    SDL_DateTime dt;
     char ext[8];
     size_t len = 0;
     unsigned char *img;
@@ -1951,12 +1951,9 @@ static int paste_picture(void *u) {
     attach_fill(a, j, ex_note_path(n));
     j->bytes = img; j->nbytes = len;
     snprintf(j->ext, sizeof j->ext, "%s", ext);
-#ifdef _WIN32
-    localtime_s(&tmv, &now);
-#else
-    localtime_r(&now, &tmv);
-#endif
-    snprintf(j->stem, sizeof j->stem, "Pasted image %04d%02d%02d%02d%02d%02d", tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday, tmv.tm_hour, tmv.tm_min, tmv.tm_sec);
+    memset(&dt, 0, sizeof dt);
+    if (!SDL_GetCurrentTime(&now) || !SDL_TimeToDateTime(now, &dt, true)) { dt.year = 1970; dt.month = 1; dt.day = 1; }                  /* the local time (SDL: portable; localtime_r is not in strict C11, which CI uses) */
+    snprintf(j->stem, sizeof j->stem, "Pasted image %04d%02d%02d%02d%02d%02d", dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
     if (!attach_start(a, j)) return 0;
     set_status(a, "Saving the pasted picture into the vault...");
     return 1;
