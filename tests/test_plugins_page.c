@@ -82,6 +82,12 @@ static int until(int (*ok)(void)) {
         if (!ex_plugins_busy(P) && ok()) return 1;
         SDL_Delay(5);                                       /* a test may wait: tools/check_ui_blocking.sh looks at src/ui only */
     }
+    {   /* it never came: say where things stood (a failure seen only on a sanitizer runner must explain itself) */
+        ExPluginInfo all[16];
+        size_t n = ex_plugins_snapshot(P, all, 16), i;
+        fprintf(stderr, "until: gave up after 30 s; busy=%d, %zu plugins\n", ex_plugins_busy(P), n);
+        for (i = 0; i < n; i++) fprintf(stderr, "  %s: enabled=%d approved=%d running=%d status=[%s]\n", all[i].id, all[i].enabled, all[i].approved, all[i].running, all[i].status);
+    }
     return 0;
 }
 static int status_is(const char *id, const char *prefix) {
