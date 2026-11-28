@@ -19,7 +19,9 @@ struct ExSession {
     unsigned long pending_revision;  /* a change not yet queued */
     int pending;
     int64_t changed_at;
-    SDL_AtomicInt writes;
+    SDL_AtomicInt writes;            /* files written */
+    SDL_AtomicInt attempts;          /* writes tried, whether they worked or not */
+    unsigned queued;                 /* writes queued (the interface thread only) */
 };
 
 static char *dup_str(const char *s) { size_t n = strlen(s); char *p = malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
@@ -30,6 +32,7 @@ static void worker_fn(ExWorker *self, const ExMessage *job, void *user) {
     if (job->type == JOB_WRITE && job->payload) {
         if (ex_platform_write_file_atomic(s->path, job->payload, job->size) == 0) SDL_AddAtomicInt(&s->writes, 1);
         else fprintf(stderr, "exhaust: could not write %s\n", s->path);   /* the worker releases the payload */
+        SDL_AddAtomicInt(&s->attempts, 1);
     }
 }
 
@@ -91,7 +94,7 @@ static void queue_write(ExSession *s, ExWorkspace *ws) {
     m.payload = text;
     m.size = len;
     m.free_payload = free;
-    if (ex_worker_post(s->worker, &m) != 0) free(text);
+    if (ex_worker_post(s->worker, &m) != 0) free(text); else s->queued++;
     s->seen_revision = ex_ws_revision(ws);
     s->pending = 0;
 }
@@ -105,11 +108,11 @@ void ex_session_tick(ExSession *s, ExWorkspace *ws, int64_t now_ms) {
 }
 
 int ex_session_flush(ExSession *s, ExWorkspace *ws) {
-    int before;
+    uint64_t deadline = SDL_GetTicks() + 10000;
     if (ex_ws_revision(ws) != s->seen_revision || s->pending) queue_write(s, ws);
-    before = ex_session_writes(s);
-    (void)before;
-    return 0;
+    /* "writes at once and waits" (exhaust_session.h): the caller may leave right after, and a write still queued then is state lost */
+    while ((unsigned)SDL_GetAtomicInt(&s->attempts) < s->queued && SDL_GetTicks() < deadline) SDL_Delay(1);   /* ui-ok: flush is for leaving the program (it waits by its own contract); the interface thread has nothing left to draw */
+    return (unsigned)SDL_GetAtomicInt(&s->attempts) >= s->queued ? 0 : -1;
 }
 
 void ex_session_destroy(ExSession *s, ExWorkspace *ws) {

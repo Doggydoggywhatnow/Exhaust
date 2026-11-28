@@ -94,27 +94,49 @@ static int valid_rel(const char *rel) {
     return 1;
 }
 
-/* *, **, ? and literal characters; ignores case. */
+/* *, **, ? and literal characters; ignores case. `*` and `?` stop at a "/", `**` does not; `?` is one character (a UTF-8 sequence is one).
+ * Every (place in the pattern, place in the text) is looked at once: a pattern such as "a**a**a**a**a**b" took time that grew with the power of the number of
+ * stars when it was tried the plain way (a pattern in `[files] excluded` comes from a file a person edits). */
+typedef struct Glob { const char *p, *t; size_t pl, tl; unsigned char *memo; } Glob;
+
+static int glob_at(Glob *g, size_t pi, size_t ti) {
+    unsigned char *m = &g->memo[pi * (g->tl + 1) + ti];
+    int r = 0;
+    if (*m) return *m == 1;
+    if (pi == g->pl) r = ti == g->tl;
+    else if (g->p[pi] == '*' && pi + 1 < g->pl && g->p[pi + 1] == '*') {
+        size_t q = pi, k;
+        while (q < g->pl && g->p[q] == '*') q++;
+        if (q == g->pl) r = 1;
+        else for (k = ti; k <= g->tl && !r; k++) r = glob_at(g, q, k);
+    } else if (g->p[pi] == '*') {
+        size_t k;
+        if (pi + 1 == g->pl) { r = 1; for (k = ti; k < g->tl; k++) if (g->t[k] == '/') { r = 0; break; } }
+        else for (k = ti; !r; k++) { if (glob_at(g, pi + 1, k)) r = 1; if (k >= g->tl || g->t[k] == '/') break; }
+    } else if (ti == g->tl) r = 0;
+    else if (g->p[pi] == '?') {
+        if (g->t[ti] != '/') {
+            size_t k = ti + 1;
+            while (k < g->tl && ((unsigned char)g->t[k] & 0xC0) == 0x80) k++;          /* the rest of a UTF-8 character */
+            r = glob_at(g, pi + 1, k);
+        }
+    } else if (tolower((unsigned char)g->p[pi]) == tolower((unsigned char)g->t[ti])) r = glob_at(g, pi + 1, ti + 1);
+    *m = r ? 1 : 2;
+    return r;
+}
+
 static int glob_rec(const char *p, const char *t) {
-    while (*p) {
-        if (p[0] == '*' && p[1] == '*') {
-            while (*p == '*') p++;
-            if (!*p) return 1;
-            for (; *t || 1; t++) { if (glob_rec(p, t)) return 1; if (!*t) break; }
-            return 0;
-        }
-        if (*p == '*') {
-            p++;
-            if (!*p) return strchr(t, '/') == NULL;
-            for (; ; t++) { if (glob_rec(p, t)) return 1; if (!*t || *t == '/') break; }
-            return 0;
-        }
-        if (!*t) return 0;
-        if (*p == '?') { if (*t == '/') return 0; }
-        else if (tolower((unsigned char)*p) != tolower((unsigned char)*t)) return 0;
-        p++; t++;
-    }
-    return *t == 0;
+    Glob g;
+    size_t cells;
+    int r;
+    g.p = p; g.t = t; g.pl = strlen(p); g.tl = strlen(t);
+    cells = (g.pl + 1) * (g.tl + 1);
+    if (g.pl > 4096 || g.tl > 8192 || cells > 16u * 1024 * 1024) return 0;       /* far longer than any path or pattern: no match, not a long wait */
+    g.memo = calloc(cells, 1);
+    if (!g.memo) return 0;
+    r = glob_at(&g, 0, 0);
+    free(g.memo);
+    return r;
 }
 
 int ex_glob_match(const char *pattern, const char *text) { return glob_rec(pattern, text); }
@@ -127,9 +149,19 @@ static int matches_pattern(const char *pat, const char *rel) {
     if (pl == 0) return 0;
     copy = dup_str(pat);
     if (!copy) return 0;
+    int anchored;
     if (dir_only) copy[pl - 1] = 0;
-    if (copy[0] == '/') memmove(copy, copy + 1, strlen(copy)); /* anchored to the vault */
-    if (strchr(copy, '/') != NULL) {
+    anchored = copy[0] == '/';
+    if (anchored) memmove(copy, copy + 1, strlen(copy)); /* anchored to the vault */
+    if (anchored && strchr(copy, '/') == NULL) {
+        /* "/top.md": the name of something at the top of the vault (and what is inside it, if it is a folder), not any file of that name below */
+        char *first = dup_str(rel), *slash;
+        if (!first) { free(copy); return 0; }
+        slash = strchr(first, '/');
+        if (slash) *slash = 0;
+        ok = glob_rec(copy, first);
+        free(first);
+    } else if (strchr(copy, '/') != NULL) {
         /* a pattern with a slash matches the whole path, or the start of it (a folder and what is in it) */
         char *prefix = dup_str(rel);
         char *slash;
@@ -580,9 +612,12 @@ ExVaultResult ex_vault_delete(ExVault *v, const char *rel) {
     char *abs;
     ExVaultResult res = EX_VAULT_IO;
     if (!valid_rel(rel) || !rel[0]) return EX_VAULT_INVALID;
-    if (!ex_vault_find(v, rel)) return EX_VAULT_NOT_FOUND;
     abs = ex_vault_abs_path(v, rel);
     if (!abs) return EX_VAULT_IO;
+    if (!ex_vault_find(v, rel)) {                                  /* the tree is a picture of the folder that may be a moment old: a file made outside Exhaust is still there to delete */
+        ExPathInfo pi;
+        if (ex_platform_path_info(abs, &pi) != 0) { free(abs); return EX_VAULT_NOT_FOUND; }
+    }
     switch (v->opt.trash_mode) {
     case EX_TRASH_PERMANENT:
         if (ex_platform_remove_tree(abs) == 0) res = EX_VAULT_OK;

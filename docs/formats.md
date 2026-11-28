@@ -586,13 +586,14 @@ Then records until the end of the file. Each record:
 
 Rules:
 - A record with a bad checksum, or a short record at the end of the file (a power cut in mid-write), ends replay at that point; everything before it is replayed.
+- A record whose type is not `B`, `E` or `S` and whose checksum is right (a newer version's record, of any layout) is skipped; the records after it are read. Replay checks that every edit fits before it applies one: a journal that does not belong to the text is refused and the text is left as it was.
 - Replay applies the edits since the last saved record for a path onto the file as it is on disk. If the file's size and hash no longer match the last base or saved record, the conflict banner appears and both versions are kept.
 - After an atomic save succeeds, a saved record is appended. Records before the last saved record for a path may then be removed when a journal file is compacted. Nothing is removed before its saved record exists.
 - Since: 0.1.0, frozen after release.
 
 ### Session state file
 
-`session.ini` in the same folder, plain text, INI style, rewritten atomically on every change (write-through). It is separate from `workspaces.ini`, which holds layouts you saved by name.
+`session.ini` in the same folder, plain text, INI style, rewritten atomically on every change (write-through). It is separate from `workspaces.ini`, which holds layouts you saved by name. Only Exhaust writes it, so a value is read as it is written: ` #` in a value (a tab's name, a graph query, an open panel) is part of the value, not the start of a comment. The path of a tab and the path and view of a history entry are written with `%`, `|`, control characters and a space at either end as `%XX` (a history entry is `path|view|line|column|scroll`).
 
 | Name | Type | Default | Since |
 | --- | --- | --- | --- |
@@ -848,7 +849,7 @@ Everything is in the `exhaust` table. A function that needs a permission fails w
 | --- | --- |
 | `exhaust.version()` | none |
 | `exhaust.commands.register(id, name, fn, opts)` | `commands.register` |
-| `exhaust.commands.run(id)` | `commands.register` |
+| `exhaust.commands.run(id)` | `commands.register` for the plugin's own commands; `vault.write` or `editor.write` for a command of the application (it may rename, delete or rewrite notes) |
 | `exhaust.vault.read(path)` | `vault.read` |
 | `exhaust.vault.list(dir)` | `vault.read` |
 | `exhaust.vault.exists(path)` | `vault.read` |
@@ -894,7 +895,7 @@ A plugin runs only when `enabled` is true, `[plugins] allow` is true and its man
 
 **Panes.** `exhaust.ui.add_pane(id, opts)` with `opts.title` and either `opts.text` (Markdown) or `opts.render` (a function that returns Markdown): the command `plugin.<plugin id>.pane-<id>` (*<plugin name>: Open <title>*) opens the text in a tab (the reading view, read-only); it is rendered again each time the command runs.
 
-**Settings of a plugin.** `exhaust.settings.get(key)` and `exhaust.settings.set(key, value)` keep strings in `.exhaust/plugins/<id>/data.ini` (section `[data]`; key and value up to 1,000 bytes, at most 200 keys).
+**Settings of a plugin.** `exhaust.settings.get(key)` and `exhaust.settings.set(key, value)` keep strings in `.exhaust/plugins/<id>/data.ini` (section `[data]`; key and value up to 1,000 bytes, at most 200 keys). A value comes back exactly as it was set, with any bytes, line breaks and NUL included: the file is INI, which trims spaces and cuts a value at ` #`, so the writer percent-encodes `%` as `%25`, `#` as `%23`, every byte under 0x20 and 0x7F as `%XX`, and a space that is first or last as `%20`; the reader decodes a valid `%XX` and leaves any other `%` as it is. (Since 0.1.0; a `data.ini` written before this has no `%` escapes, so a value that contains something like `%41` comes back as `A`.) A key has no `=`, `[`, `]` or line break.
 
 **Events.** `exhaust.events.on(name, fn)`: `vault-open` (no argument), `file-open(path)`, `file-save(path)`, `file-rename(from, to)` and `editor-change(path)`; the last one is sent at most every 500 ms and only after the text has changed. Events are handled on the plugin thread, one after another, and are dropped when more than 64 wait.
 
@@ -935,7 +936,7 @@ The language of filters, formulas and custom summaries of `.base` files and `bas
 
 **Dates.** A date is a moment (`date("2025-01-01")` has no time of day, `date("2025-01-01 12:00:00")` has one); text is read as `YYYY-MM-DD`, with `HH:mm`, `:ss` and `.SSS` after it, `T` for the space and `Z` or `+hh:mm` at the end. Dates are in the system time zone. `date + "1M"`, `date - "2h"` and `date + duration("1d")` add or take away a duration; whole days keep a date without a time a date without a time; months are calendar months (January 31 plus a month is the last day of February); `date - date` is a duration of exact time; `date.year .month .day .hour .minute .second .millisecond`. A duration is written `1y`, `2M`, `1w`, `3d`, `4h`, `5m`, `6s`, `7ms` (also `year(s)`, `month(s)`, `week(s)`, `day(s)`, `hour(s)`, `minute(s)`, `second(s)`, `millisecond(s)`, with a space allowed after the number, decimals allowed and several amounts in a row: `1y 2M`); `duration * number`, `duration / number`, `duration + duration` and `duration - duration` work with the duration on the left; a duration has `.days .hours .minutes .seconds .milliseconds .weeks .months .years` (whole numbers, a month counting as 30.436875 days). Dates are shown as `YYYY-MM-DD` or `YYYY-MM-DD HH:mm:ss`.
 
-**Numbers as text** are written as JavaScript writes them (`1e+21`, `1e-7`, `0.30000000000000004`). `round` rounds halves up; `toFixed` writes the exact decimal value of the number.
+**Numbers as text** are written as JavaScript writes them (`1e+21`, `1e-7`, `0.30000000000000004`). `round` rounds halves up; `toFixed` writes the exact decimal value of the number, rounded at the digit asked for with a tie going away from zero, as JavaScript does (`(2.5).toFixed(0)` is `"3"`, `(-2.5).toFixed(0)` is `"-3"`; `(1.005).toFixed(2)` is `"1.00"` because the double is a little under 1.005); the digits asked for are whole (NaN is 0).
 
 **The 72 functions** (the 68 of the help, and the four list statistics `sum`, `mean`, `median`, `stddev` that the help's own summary example uses; `stddev` is the population standard deviation): global `escapeHTML date duration file html if image icon link list max min now number today random`; on any value `isTruthy isType toString`; date `date format time relative isEmpty`; string `contains containsAll containsAny endsWith isEmpty lower replace repeat reverse slice split startsWith title trim`; number `abs ceil floor isEmpty round toFixed`; list `contains containsAll containsAny filter flat isEmpty join map reduce reverse slice sort unique sum mean median stddev`; link `asFile linksTo`; file `asLink hasLink hasProperty hasTag inFolder`; object `isEmpty keys values`; regular expression `matches`. Choices where the help does not say: `title()` capitalises the first letter of each word and lowers the rest; `flat()` goes one level deep; `reverse()` returns a reversed copy; a text pattern in `replace` is not a regular expression and every occurrence goes; `link("[[Note#Head|Shown]]")` is a link to `Note`, heading `Head`, shown as `Shown`; `file(text)` is null when no file answers; `hasTag` ignores case and a leading `#` and matches nested tags (`x` matches `#x/y`); `sort()` puts null, then booleans, numbers, texts, dates and durations; `now()` and `today()` take the clock the program gives; a function called on null gives null (except `isTruthy`, `isType`, `toString` and `isEmpty`); URLs have the string functions. `max` and `min` take numbers or one list and skip nulls.
 
@@ -1438,7 +1439,7 @@ Plain text, written atomically. Line 1 is `EXHAUST-FONTS 1` (the format version;
 
 ## vaults.ini
 
-*Since 0.1.0.* The list of vaults Exhaust remembers. One file for the user, in the OS config folder, not in any vault: `<config>/Exhaust/vaults.ini` with `<config>` = `$XDG_CONFIG_HOME` or `~/.config` on Linux, `%APPDATA%` on Windows, `~/Library/Application Support` on macOS. Plain text, INI style, written atomically. Removing a vault from the list never touches its files.
+*Since 0.1.0.* The list of vaults Exhaust remembers. One file for the user, in the OS config folder, not in any vault: `<config>/Exhaust/vaults.ini` with `<config>` = `$XDG_CONFIG_HOME` or `~/.config` on Linux, `%APPDATA%` on Windows, `~/Library/Application Support` on macOS. Plain text, INI style, written atomically. Removing a vault from the list never touches its files. A `path` or `name` is written with `%`, `#`, control characters (a line break among them) and a space at either end as `%XX`, and read back the same way, so a vault in a folder called `Notes #1` or with a name that has two lines stays one vault; a `%` that is not part of a valid `%XX` is read as it is.
 
 ```
 [vaults]

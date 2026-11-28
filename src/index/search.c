@@ -784,7 +784,9 @@ static int cmp_order(const void *a, const void *b) {
     case EX_SEARCH_PATH_ZA: c = strcmp(g_keys[y], g_keys[x]); break;
     default: c = strcmp(g_keys[x], g_keys[y]); break;
     }
-    return c ? c : strcmp(g_notes->path[x], g_notes->path[y]);
+    if (c) return c;
+    c = strcmp(g_notes->path[x], g_notes->path[y]);
+    return g_sort == EX_SEARCH_PATH_ZA ? -c : c;      /* Z to A is exactly A to Z reversed, ties included */
 }
 
 static int cmp_result(const void *a, const void *b) {
@@ -792,17 +794,19 @@ static int cmp_result(const void *a, const void *b) {
     const char *bx = strrchr(x->path, '/'), *by = strrchr(y->path, '/');
     int c;
     switch (g_sort) {
-    case EX_SEARCH_PATH_ZA: c = strcmp(y->path, x->path); break;
     case EX_SEARCH_MODIFIED_NEW: c = x->mtime < y->mtime ? 1 : x->mtime > y->mtime ? -1 : 0; break;
     case EX_SEARCH_MODIFIED_OLD: c = x->mtime < y->mtime ? -1 : x->mtime > y->mtime; break;
     case EX_SEARCH_CREATED_NEW: c = x->ctime < y->ctime ? 1 : x->ctime > y->ctime ? -1 : 0; break;
     case EX_SEARCH_CREATED_OLD: c = x->ctime < y->ctime ? -1 : x->ctime > y->ctime; break;
     case EX_SEARCH_MATCHES_MOST: c = x->total_matches < y->total_matches ? 1 : x->total_matches > y->total_matches ? -1 : 0; break;
     case EX_SEARCH_MATCHES_LEAST: c = x->total_matches < y->total_matches ? -1 : x->total_matches > y->total_matches; break;
-    default: {
+    default: {                                       /* A to Z, and Z to A as its mirror image */
         char *kx = ex_name_key(bx ? bx + 1 : x->path, strlen(bx ? bx + 1 : x->path)), *ky = ex_name_key(by ? by + 1 : y->path, strlen(by ? by + 1 : y->path));
         c = kx && ky ? strcmp(kx, ky) : 0;
+        if (!c) c = strcmp(x->path, y->path);
+        if (g_sort == EX_SEARCH_PATH_ZA) c = -c;
         free(kx); free(ky);
+        return c;
     }
     }
     return c ? c : strcmp(x->path, y->path);

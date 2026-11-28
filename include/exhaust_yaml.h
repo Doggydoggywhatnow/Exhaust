@@ -21,7 +21,7 @@ typedef struct ExYNode {
     size_t n, cap;
 } ExYNode;
 
-/* Reads a document. An empty file is an empty mapping. NULL with a reason in err when it is not valid YAML. */
+/* Reads a document. An empty file, or a document with nothing in it (`---` and no value), is an empty mapping. NULL with a reason in err when it is not valid YAML. */
 ExYNode *ex_y_parse(const char *text, size_t len, char *err, size_t errcap);
 /* Writes it with two spaces of indent, lists indented under their keys, no line folding (malloc'ed, NUL terminated). */
 char *ex_y_write(const ExYNode *root, size_t *len);

@@ -61,7 +61,7 @@ size_t ex_history_encode(const char *rel, char *out, size_t cap) {
     if (k > NAME_MAX_ENC) {      /* too long for a file name: the start of it and a hash of the whole path, still one name for one note */
         uint8_t h[16];
         static const char hex[] = "0123456789abcdef";
-        size_t cut = NAME_MAX_ENC - 20;
+        size_t cut = NAME_MAX_ENC - 33;                                         /* room for the "~" and 32 hex digits: the name never passes NAME_MAX_ENC */
         int j;
         while (cut > 0 && ((unsigned char)out[cut] & 0xC0) == 0x80) cut--;     /* not in the middle of a character */
         ex_hash16(rel, n, h);

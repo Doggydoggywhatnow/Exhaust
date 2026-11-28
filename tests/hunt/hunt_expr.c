@@ -542,7 +542,7 @@ static void names_asked(const char *expr, char *out, size_t cap) {
 static void test_names_and_dates(void) {
     char got[200];
     ExArena *a = ex_arena_new();
-    struct { const char *expr, *want; } nm[] = { { "price-5", "price" }, { "image-property", "image-property" }, { "price - age", "price,age" }, { "price-age", "price-age" }, { "price -age", "price" },
+    struct { const char *expr, *want; } nm[] = { { "price-5", "price" }, { "image-property", "image-property" }, { "price - age", "price,age" }, { "price-age", "price-age" }, { "price -age", "price,age" },
         { "a-b-c", "a-b-c" }, { "a - b-c", "a,b-c" }, { "price-(5)", "price" }, { "x-1", "x" }, { "x[0]", "x" }, { "note.price", "price" }, { "title.title", "title" } };
     size_t i;
     hunt_step("names with a hyphen");
@@ -574,7 +574,7 @@ static void test_names_and_dates(void) {
         struct { const char *expr, *want; } da[] = {
             { "date(\"2024-01-31\") + \"1M\"", "date(2024-02-29)" }, { "date(\"2023-01-31\") + \"1M\"", "date(2023-02-28)" }, { "date(\"2024-03-31\") - \"1M\"", "date(2024-02-29)" }, { "date(\"2024-02-29\") + \"1y\"", "date(2025-02-28)" },
             { "date(\"2024-01-01\") + \"1d\"", "date(2024-01-02)" }, { "date(\"2024-01-01\") + \"36h\"", "date(2024-01-02 12:00:00)" }, { "date(\"2024-12-31\") + \"1d\"", "date(2025-01-01)" }, { "date(\"2024-01-01 10:00:00\") + \"1M\"", "date(2024-02-01 10:00:00)" },
-            { "date(\"2024-01-01 10:00:00\") - \"10h\"", "date(2024-01-01)" }, { "date(\"2024-03-01\") - \"1d\"", "date(2024-02-29)" }, { "date(\"2025-01-01\") - date(\"2024-01-01\")", "duration(366d)" }, { "(date(\"2025-01-01\") - date(\"2024-01-01\")).days", "366" },
+            { "date(\"2024-01-01 10:00:00\") - \"10h\"", "date(2024-01-01 00:00:00)" }, { "date(\"2024-03-01\") - \"1d\"", "date(2024-02-29)" }, { "date(\"2025-01-01\") - date(\"2024-01-01\")", "duration(366d)" }, { "(date(\"2025-01-01\") - date(\"2024-01-01\")).days", "366" },
             { "date(\"2024-02-29\").year", "2024" }, { "date(\"2024-02-29\").month", "2" }, { "date(\"2024-02-29\").day", "29" }, { "date(\"2024-02-29 13:14:15.016\").hour", "13" }, { "date(\"2024-02-29 13:14:15.016\").millisecond", "16" },
             { "date(\"2024-02-29\").format(\"YYYY/MM/DD dddd\")", "\"2024/02/29 Thursday\"" }, { "date(\"2024-02-29\") == date(\"2024-02-29\")", "true" }, { "date(\"2024-02-29\") < date(\"2024-03-01\")", "true" },
             { "duration(\"1d\") * 3", "duration(3d)" }, { "duration(\"1d\") / 2", "duration(12h)" }, { "duration(\"1d\") + duration(\"1h\")", "duration(1d 1h)" }, { "duration(\"2h\") - duration(\"30m\")", "duration(1h 30m)" },

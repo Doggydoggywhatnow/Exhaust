@@ -79,6 +79,8 @@ static const char *result(const char *name) {
     return NULL;
 }
 static int result_ok(const char *name) { const char *r = result(name); return r && !strncmp(r, "ok", 2); }
+/* the call went through: the API reports a refusal either as an error or as nil (plus a message), which `try` prints as ok:nil */
+static int result_yes(const char *name) { const char *r = result(name); return r && !strncmp(r, "ok", 2) && strcmp(r, "ok:nil") && strcmp(r, "ok:false"); }
 static int result_err(const char *name, const char *needle) { const char *r = result(name); return r && !strncmp(r, "err", 3) && (!needle || strstr(r, needle)); }
 
 static const char *PREAMBLE = "local function report(n, ok, e) exhaust.ui.notice(n .. '=' .. (ok and ('ok:' .. tostring(e)) or ('err:' .. tostring(e)))) end\n"
@@ -130,7 +132,7 @@ static void test_sandbox(void) {
         "try('string_dump_load', function() local f = string.dump(function() return 42 end); return load and load(f, 'x', 'b') end)\n"
         "try('env_get', function() local env = _ENV; return type(env.os) end)\n"
         "try('getfenv', function() return getfenv and getfenv(1) end)\n"
-        "try('setmetatable_g', function() setmetatable(_G, {__index = function(t, k) return k end}); return os end)\n"
+        "try('setmetatable_g', function() setmetatable(_G, {__index = function(t, k) return nil end}); local r = os; setmetatable(_G, nil); return r end)\n"
         "try('tostring_function', function() return tostring(print):sub(1, 8) end)\n"
         "try('exhaust_keys', function() local t = {} for k in pairs(exhaust) do t[#t + 1] = k end table.sort(t) return table.concat(t, ',') end)\n"
         "try('exhaust_http', function() return exhaust.http.get('http://127.0.0.1:9/') end)\n"
@@ -206,7 +208,7 @@ static void test_paths(void) {
             int should_fail = 0;
             snprintf(key, sizeof key, "r|%s", RD[i]);
             for (j = 0; j < sizeof MUST_FAIL / sizeof *MUST_FAIL; j++) if (!strcmp(RD[i], MUST_FAIL[j])) should_fail = 1;
-            if (should_fail && result_ok(key)) HUNT_SPECF(0, "docs/formats.md, The runtime (8b): an absolute path, a .. part, a backslash, a drive letter or anything in .exhaust or .trash is refused (path not allowed)", "vault.read(\"%s\") succeeded: %s", RD[i], result(key));
+            if (should_fail && result_yes(key)) HUNT_SPECF(0, "docs/formats.md, The runtime (8b): an absolute path, a .. part, a backslash, a drive letter or anything in .exhaust or .trash is refused (path not allowed)", "vault.read(\"%s\") succeeded: %s", RD[i], result(key));
             if (should_fail && result(key) && !result_ok(key)) HUNT_SPECF(strstr(result(key), "path not allowed") != NULL, "docs/formats.md: the error is `path not allowed`", "vault.read(\"%s\") failed with %s", RD[i], result(key));
             if (result(key) && strstr(result(key), "TOPSECRET")) HUNT_CHECKF(0, "a plugin read a file outside the vault through the path \"%s\"", RD[i]);
         }
@@ -264,7 +266,7 @@ static void test_paths(void) {
         char *t;
         const char *denied[] = { "w_dotdot", "w_abs", "w_plugins_ini", "w_manifest", "w_main", "w_settings", "w_hotkeys", "w_trash", "w_case", "w_case2", "w_empty", "w_dir", "rn_over", "rn_out", "rn_exhaust", "rn_from_exhaust", "rn_from_out" };
         size_t i;
-        for (i = 0; i < sizeof denied / sizeof *denied; i++) HUNT_SPECF(result(denied[i]) && !result_ok(denied[i]), "docs/formats.md, The runtime (8b): paths stay in the vault; .exhaust, .trash and `..` are refused; rename never replaces", "%s: %s", denied[i], result(denied[i]) ? result(denied[i]) : "(no report)");
+        for (i = 0; i < sizeof denied / sizeof *denied; i++) HUNT_SPECF(result(denied[i]) && !result_yes(denied[i]), "docs/formats.md, The runtime (8b): paths stay in the vault; .exhaust, .trash and `..` are refused; rename never replaces", "%s: %s", denied[i], result(denied[i]) ? result(denied[i]) : "(no report)");
         snprintf(p, sizeof p, "%s/.exhaust/plugins.ini", g_vault);
         t = ex_platform_read_file(p, NULL);
         HUNT_CHECKF(t && !strstr(t, "network") && !strstr(t, "plugin.wr]\nenabled = true\napproved = vault.read,vault.write,network"), "a plugin rewrote its own approvals in .exhaust/plugins.ini");
@@ -371,6 +373,7 @@ static void test_limits(void) {
             HUNT_SPECF(info_of(id, &inf) && !inf.running && strstr(inf.status, "Stopped"), "docs/formats.md, The runtime (8b): a plugin that goes over a limit gets an error and is stopped", "plugin %s (%s) is still running after %.1f s: %s", id, loops[i], wall, info_of(id, &inf) ? inf.status : "?");
             HUNT_SUSPECT(wall < 3.0, "a limit of 1,000 ms took longer than 3 seconds to apply");
             if (wall >= 3.0) hunt_note_("%s took %.1f s to stop", loops[i], wall);
+            settle_ms(500);                                 /* removing the commands is a request the interface thread carries out in ex_plugins_update */
             HUNT_CHECKF(!ex_commands_available(CMDS, cmd), "the command of a stopped plugin is still there");
             settle_ms(3000);
         }
@@ -395,7 +398,10 @@ static void test_limits(void) {
             hunt_stepf("memory hog %lu: %s", (unsigned long)i, hogs[i]);
             if (!ex_commands_available(CMDS, cmd)) continue;
             ex_commands_run(CMDS, cmd);
-            while (waited < 15000) { ex_plugins_update(P); SDL_Delay(5); waited += 5; if (info_of(id, &inf) && !inf.running) break; }
+            while (waited < (i >= 6 && i <= 8 ? 1500 : 15000)) { ex_plugins_update(P); SDL_Delay(5); waited += 5; if (info_of(id, &inf) && !inf.running) break; }
+            /* hogs 6, 7 and 8 never reach the allocator: string.rep refuses a result over 2^31 - 1 bytes and table.unpack refuses 1e7 values with an ordinary Lua error,
+             * so the plugin is not over a limit and stays running; what matters is that it did not crash or hang (the loop below waited 15 s for nothing) */
+            if (i >= 6 && i <= 8) { HUNT_CHECKF(info_of(id, &inf) && inf.running, "the plugin %s (%s) should have got an ordinary error and kept running: %s", id, hogs[i], info_of(id, &inf) ? inf.status : "?"); settle_ms(500); continue; }
             HUNT_SPECF(info_of(id, &inf) && !inf.running, "docs/formats.md, The runtime (8b): 32 MB of memory for the state; a plugin over a limit is stopped", "the plugin %s (%s) is still running after %d ms", id, hogs[i], waited);
             settle_ms(3000);
         }
@@ -606,7 +612,7 @@ static void test_manifests(void) {
             snprintf(dir, sizeof dir, "%s/mf/%s", g_vault, k[i].folder);
             memset(&m, 0, sizeof m);
             rc = ex_plugin_read_manifest(dir, k[i].folder, &m);
-            if (!strcmp(k[i].folder, "h12") || !strcmp(k[i].folder, "h13") || !strcmp(k[i].folder, "h19") || !strcmp(k[i].folder, "h27") || !strcmp(k[i].folder, "h21") || !strcmp(k[i].folder, "h22") || !strcmp(k[i].folder, "h24") || !strcmp(k[i].folder, "h25")) { HUNT_SUSPECT(rc == 0, "a manifest that is odd but not covered by the documentation: read by hand"); if (rc != 0) hunt_note_("manifest %s was accepted", k[i].folder); continue; }
+            if (!strcmp(k[i].folder, "h6") /* an empty entry: the documented default is main.lua, and nothing says an empty value is invalid */ || !strcmp(k[i].folder, "h12") || !strcmp(k[i].folder, "h13") || !strcmp(k[i].folder, "h19") || !strcmp(k[i].folder, "h27") || !strcmp(k[i].folder, "h21") || !strcmp(k[i].folder, "h22") || !strcmp(k[i].folder, "h24") || !strcmp(k[i].folder, "h25")) { HUNT_SUSPECT(rc == 0, "a manifest that is odd but not covered by the documentation: read by hand"); if (rc != 0) hunt_note_("manifest %s was accepted", k[i].folder); continue; }
             HUNT_SPECF(rc == 0 && !m.valid && m.error[0], "docs/formats.md, Plugin manifest", "the hostile manifest %s was accepted (entry %s, id %s)", k[i].folder, m.entry, m.id);
         }
     }

@@ -366,6 +366,13 @@ static void replace_in_parent(ExWorkspace *ws, Node *old, ExId repl) {
     }
 }
 
+/* The first group at or under a node: the active group is always a group, and the root of a window may be a split. */
+static ExId first_group_of(ExWorkspace *ws, ExId id) {
+    Node *n = node(ws, id);
+    while (n && n->kind == EX_NODE_SPLIT && n->nkids) n = node(ws, n->kids[0]);
+    return n && n->kind == EX_NODE_GROUP ? n->id : 0;
+}
+
 /* Removes a group from its window's tree; collapses a split left with one child. The group's
  * node stays allocated (the caller deletes it). Returns the id of a neighbouring group. */
 static ExId detach_group(ExWorkspace *ws, ExId gid) {
@@ -478,7 +485,7 @@ static int detach_tab(ExWorkspace *ws, ExId tid) {
         ExId neighbour = detach_group(ws, gid);
         unlink_all(ws, gid);
         delete_node(ws, gid);
-        if (ws->active_group == gid) ws->active_group = neighbour ? neighbour : ex_ws_window_root(ws, ex_ws_main_window(ws));
+        if (ws->active_group == gid) ws->active_group = neighbour ? neighbour : first_group_of(ws, ex_ws_window_root(ws, ex_ws_main_window(ws)));
         return 1;
     }
     drop_window_if_empty_popout(ws, window);
@@ -492,7 +499,7 @@ static void drop_window_if_empty_popout(ExWorkspace *ws, ExId window) {
     {
         Node *root = node(ws, w->root);
         if (!root || root->kind != EX_NODE_GROUP || root->ntabs > 0) return;
-        if (ws->active_group == root->id) ws->active_group = ex_ws_window_root(ws, ex_ws_main_window(ws));
+        if (ws->active_group == root->id) ws->active_group = first_group_of(ws, ex_ws_window_root(ws, ex_ws_main_window(ws)));
         unlink_all(ws, root->id);
         delete_node(ws, root->id);
     }
@@ -822,6 +829,27 @@ static void write_list_ids(char *out, size_t cap, const ExId *ids, size_t n, cha
     for (i = 0; i < n && used + 16 < cap; i++) used += (size_t)snprintf(out + used, cap - used, "%s%s%u", i ? "," : "", prefix ? (char[2]){prefix, 0} : "", (unsigned)ids[i]);
 }
 
+/* A path or a view name inside a value of session.ini: "%", "|" (the separator of a history entry), control characters and a space at either end are written
+ * as %XX, so the value reads back as it was (INI trims the ends of a value). */
+static void enc_field(const char *s, char *out, size_t cap) {
+    size_t n = strlen(s), i, w = 0;
+    for (i = 0; i < n && w + 4 < cap; i++) {
+        unsigned char c = (unsigned char)s[i];
+        if (c == '%' || c == '|' || c < 0x20 || c == 0x7F || (c == ' ' && (i == 0 || i == n - 1))) w += (size_t)snprintf(out + w, 4, "%%%02X", c);
+        else out[w++] = (char)c;
+    }
+    out[w] = 0;
+}
+static int hexd(int c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'A' && c <= 'F' ? c - 'A' + 10 : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1; }
+static void dec_field(char *s) {
+    char *r = s, *w = s;
+    while (*r) {
+        if (r[0] == '%' && hexd((unsigned char)r[1]) >= 0 && hexd((unsigned char)r[2]) >= 0 && (hexd((unsigned char)r[1]) * 16 + hexd((unsigned char)r[2])) != 0) { *w++ = (char)(hexd((unsigned char)r[1]) * 16 + hexd((unsigned char)r[2])); r += 3; }
+        else *w++ = *r++;
+    }
+    *w = 0;
+}
+
 static void write_node(const ExWorkspace *ws, ExIni *ini, ExId id) {
     Node *nd = node(ws, id);
     char sec[48], buf[1024];
@@ -850,9 +878,10 @@ static void write_node(const ExWorkspace *ws, ExIni *ini, ExId id) {
         if (nd->nhist) {                                                    /* the pane's history (5d) */
             ex_ini_set_int(ini, sec, "history_pos", nd->hpos);
             for (i = 0; i < nd->nhist; i++) {
-                char key[24], val[900];
+                char key[24], val[2200], ep[1000], ev[300];
                 snprintf(key, sizeof key, "history_%u", (unsigned)i);
-                snprintf(val, sizeof val, "%s|%s|%d|%d|%.1f", nd->hist[i].path, nd->hist[i].view, nd->hist[i].line, nd->hist[i].column, (double)nd->hist[i].scroll);
+                enc_field(nd->hist[i].path, ep, sizeof ep); enc_field(nd->hist[i].view, ev, sizeof ev);
+                snprintf(val, sizeof val, "%s|%s|%d|%d|%.1f", ep, ev, nd->hist[i].line, nd->hist[i].column, (double)nd->hist[i].scroll);
                 ex_ini_set(ini, sec, key, val);
             }
         }
@@ -881,8 +910,9 @@ char *ex_ws_serialize(const ExWorkspace *ws, size_t *len) {
     }
     ex_ini_set(ini, "layout", "left_visible", ws->side[EX_SIDE_LEFT].visible ? "true" : "false");
     ex_ini_set(ini, "layout", "right_visible", ws->side[EX_SIDE_RIGHT].visible ? "true" : "false");
-    ex_ini_set_int(ini, "layout", "left_width", ws->side[EX_SIDE_LEFT].width);
-    ex_ini_set_int(ini, "layout", "right_width", ws->side[EX_SIDE_RIGHT].width);
+    /* a sidebar is read back no wider than 1200 (ex_ws_deserialize), so that is the most written: what is written is what is read */
+    ex_ini_set_int(ini, "layout", "left_width", ws->side[EX_SIDE_LEFT].width > 1200 ? 1200 : ws->side[EX_SIDE_LEFT].width);
+    ex_ini_set_int(ini, "layout", "right_width", ws->side[EX_SIDE_RIGHT].width > 1200 ? 1200 : ws->side[EX_SIDE_RIGHT].width);
     buf[0] = 0;
     {
         size_t used = 0;
@@ -905,7 +935,7 @@ char *ex_ws_serialize(const ExWorkspace *ws, size_t *len) {
     for (i = 0; i < ws->ntabs; i++) {
         const ExTab *t = &ws->tabs[i];
         snprintf(sec, sizeof sec, "tab.%u", (unsigned)t->id);
-        ex_ini_set(ini, sec, "path", t->path);
+        { char ep[2000]; enc_field(t->path ? t->path : "", ep, sizeof ep); ex_ini_set(ini, sec, "path", ep); }
         ex_ini_set(ini, sec, "view", t->view);
         ex_ini_set(ini, sec, "mode", t->mode);
         ex_ini_set(ini, sec, "pinned", t->pinned ? "true" : "false");
@@ -1002,7 +1032,7 @@ static ExId build_node(ExWorkspace *ws, const ExIni *ini, const char *ref, ExId 
         {
             float sum = 0;
             for (k = 0; k < nk; k++) { if (ratios[k] <= 0) ratios[k] = 1.0f / (float)nk; sum += ratios[k]; }
-            for (k = 0; k < nk; k++) ratios[k] /= sum;
+            if (sum > 1.001f || sum < 0.999f) for (k = 0; k < nk; k++) ratios[k] /= sum;      /* only a real mismatch: four decimals add up to 1 within rounding, and dividing again would shift the last digit on every save */
         }
         nd->kids = malloc(nk * sizeof *nd->kids);
         nd->ratios = malloc(nk * sizeof *nd->ratios);
@@ -1028,7 +1058,7 @@ static ExId build_node(ExWorkspace *ws, const ExIni *ini, const char *ref, ExId 
 }
 
 int ex_ws_deserialize(ExWorkspace *ws, const char *text, size_t len) {
-    ExIni *ini = ex_ini_parse(text, len);
+    ExIni *ini = ex_ini_parse_plain(text, len);   /* session.ini is written by Exhaust only: " #" in a value is part of it */
     size_t i, k;
     ExId seen[512], main_root = 0;
     size_t nseen = 0;
@@ -1114,13 +1144,18 @@ int ex_ws_deserialize(ExWorkspace *ws, const char *text, size_t len) {
         t->id = tid;
         t->group = gid;                                    /* 0: placed in the main window below */
         t->path = dup_str(ex_ini_get(ini, name, "path") ? ex_ini_get(ini, name, "path") : "");
+        if (t->path) dec_field(t->path);
         t->view = dup_str(ex_ini_get(ini, name, "view") ? ex_ini_get(ini, name, "view") : "note");
         t->mode = dup_str(ex_ini_get(ini, name, "mode") ? ex_ini_get(ini, name, "mode") : "live");
         t->pinned = ex_ini_get_bool(ini, name, "pinned", 0);
         t->stacked = ex_ini_get_bool(ini, name, "stacked", 0);
-        t->cursor_line = (int)ex_ini_get_int(ini, name, "cursor_line", 0);
-        t->cursor_column = (int)ex_ini_get_int(ini, name, "cursor_column", 0);
-        t->scroll_y = (float)ex_ini_get_float(ini, name, "scroll_y", 0);
+        {   /* a file written by hand or damaged: the numbers that reach the editor are whole, not negative and not absurd */
+            long long ln = ex_ini_get_int(ini, name, "cursor_line", 0), col = ex_ini_get_int(ini, name, "cursor_column", 0);
+            double sy = ex_ini_get_float(ini, name, "scroll_y", 0);
+            t->cursor_line = ln < 0 ? 0 : ln > 100000000 ? 100000000 : (int)ln;
+            t->cursor_column = col < 0 ? 0 : col > 100000000 ? 100000000 : (int)col;
+            t->scroll_y = !(sy == sy) || sy < 0 ? 0.0f : sy > 1e9 ? 1e9f : (float)sy;       /* NaN, infinity and negative values are 0 or the top of the range */
+        }
         if (tid > max_tab) max_tab = tid;
     }
     ws->next_tab = max_tab + 1;
@@ -1177,6 +1212,7 @@ int ex_ws_deserialize(ExWorkspace *ws, const char *text, size_t len) {
                     if (!np) break;
                     g->hist = np; g->caphist = nc;
                 }
+                dec_field(f[0]); dec_field(f[1]);
                 g->hist[g->nhist].path = dup_str(f[0]); g->hist[g->nhist].view = dup_str(f[1]);
                 g->hist[g->nhist].line = atoi(f[2]); g->hist[g->nhist].column = atoi(f[3]); g->hist[g->nhist].scroll = (float)atof(f[4]);
                 if (g->hist[g->nhist].line < 0) g->hist[g->nhist].line = 0;
@@ -1253,6 +1289,32 @@ int ex_ws_deserialize(ExWorkspace *ws, const char *text, size_t len) {
             const char *key = ex_ini_key_name(ini, name, k);
             ex_ini_set(ws->extra, name, key, ex_ini_get(ini, name, key));
         }
+    }
+    {   /* what a newer version wrote inside a section this version knows: the keys the model does not write are kept, and written back */
+        size_t n2 = 0;
+        char *mine_text = ex_ws_serialize(ws, &n2);
+        ExIni *mine = mine_text ? ex_ini_parse_plain(mine_text, n2) : NULL;
+        if (mine) {
+            for (i = 0; i < ex_ini_section_count(ini); i++) {
+                const char *name = ex_ini_section_name(ini, i);
+                int in_mine = 0;
+                size_t j;
+                if (is_known_section(name)) {
+                    for (j = 0; j < ex_ini_section_count(mine); j++) if (!strcmp(ex_ini_section_name(mine, j), name)) in_mine = 1;
+                    if (!in_mine) continue;                                   /* a section the model does not have now (a group that was dropped): its keys go with it */
+                    for (k = 0; k < ex_ini_key_count(ini, name); k++) {
+                        const char *key = ex_ini_key_name(ini, name, k);
+                        if (!strncmp(key, "history_", 8)) continue;                    /* the entries of a pane's history are numbered again each time: they are the model's */
+                        if (!ex_ini_get(mine, name, key)) ex_ini_set(ws->extra, name, key, ex_ini_get(ini, name, key));
+                    }
+                }
+            }
+            {   /* a session saved by a newer version keeps its version number */
+                const char *ver = ex_ini_get(ini, "session", "version");
+                if (ver && strtol(ver, NULL, 10) > 1) ex_ini_set(ws->extra, "session", "version", ver);
+            }
+        }
+        ex_ini_free(mine); free(mine_text);
     }
     ex_ini_free(ini);
     touch_layout(ws);

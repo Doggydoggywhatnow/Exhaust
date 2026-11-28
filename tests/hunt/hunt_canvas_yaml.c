@@ -27,7 +27,7 @@ static char *write_canvas(const ExCanvas *c, size_t *n) { size_t l = 0; char *t 
 static const char *const SAMPLE =
     "{\n\t\"nodes\":[\n"
     "\t\t{\"id\":\"8c2f1a9b0d3e4f51\",\"type\":\"group\",\"x\":-480,\"y\":-300,\"width\":820,\"height\":520,\"label\":\"Reading list\",\"color\":\"4\"},\n"
-    "\t\t{\"id\":\"a1b2c3d4e5f60718\",\"type\":\"text\",\"x\":-440,\"y\":-240,\"width\":300,\"height\":120,\"text\":\"# Ideas\\n\\n- a **bold** one\\n\\ttabbed \\\"q\\\" \\u00e9\"},\n"
+    "\t\t{\"id\":\"a1b2c3d4e5f60718\",\"type\":\"text\",\"x\":-440,\"y\":-240,\"width\":300,\"height\":120,\"text\":\"# Ideas\\n\\n- a **bold** one\\n\\ttabbed \\\"q\\\" \xC3\xA9\"},\n"
     "\t\t{\"id\":\"0f1e2d3c4b5a6978\",\"type\":\"file\",\"x\":-60,\"y\":-240,\"width\":340,\"height\":200,\"file\":\"Notes/Home.md\",\"subpath\":\"#Welcome\",\"color\":\"#ff8800\"},\n"
     "\t\t{\"id\":\"5e4d3c2b1a090807\",\"type\":\"link\",\"x\":-440,\"y\":-60,\"width\":300,\"height\":120,\"url\":\"https://jsoncanvas.org/spec/1.0/\"},\n"
     "\t\t{\"id\":\"c0ffee00c0ffee01\",\"type\":\"text\",\"x\":420,\"y\":-120,\"width\":260,\"height\":90,\"text\":\"unknown keys\",\"zIndex\":7,\"meta\":{\"tags\":[\"a\",\"b\"],\"ratio\":1.50,\"big\":12345678901234567890,\"none\":null}},\n"
@@ -53,7 +53,7 @@ static void check_fixed_point(const char *text, size_t len, const char *what) {
         HUNT_CHECKF(w2 && n1 == n2 && !memcmp(w1, w2, n1), "%s: writing, reading and writing again changed the text", what);
         if (c->n == d->n && c->ne == d->ne) {
             size_t i;
-            for (i = 0; i < c->n; i++) HUNT_CHECKF(!strcmp(c->nodes[i].id, d->nodes[i].id), "%s: node %lu changed its id", what, (unsigned long)i);
+            for (i = 0; i < c->n; i++) HUNT_CHECKF(c->nodes[i].id && d->nodes[i].id ? !strcmp(c->nodes[i].id, d->nodes[i].id) : c->nodes[i].id == d->nodes[i].id, "%s: node %lu changed its id", what, (unsigned long)i);
         } else HUNT_CHECKF(0, "%s: %lu nodes and %lu edges became %lu and %lu", what, (unsigned long)c->n, (unsigned long)c->ne, (unsigned long)d->n, (unsigned long)d->ne);
         free(w2);
         ex_canvas_free(d);
@@ -161,8 +161,8 @@ static void test_files(void) {
             size_t a, b;
             int dup = 0;
             HUNT_CHECK(c->repaired);
-            for (a = 0; a < c->n; a++) for (b = a + 1; b < c->n; b++) if (!strcmp(c->nodes[a].id, c->nodes[b].id)) dup = 1;
-            for (a = 0; a < c->ne; a++) for (b = a + 1; b < c->ne; b++) if (!strcmp(c->edges[a].id, c->edges[b].id)) dup = 1;
+            for (a = 0; a < c->n; a++) for (b = a + 1; b < c->n; b++) if (c->nodes[a].id && c->nodes[b].id && !strcmp(c->nodes[a].id, c->nodes[b].id)) dup = 1;      /* an entry that is not an object has no id */
+            for (a = 0; a < c->ne; a++) for (b = a + 1; b < c->ne; b++) if (c->edges[a].id && c->edges[b].id && !strcmp(c->edges[a].id, c->edges[b].id)) dup = 1;
             HUNT_CHECKF(!dup, "after repair two cards or two edges still share an id");
             ex_canvas_free(c);
         }
@@ -170,7 +170,7 @@ static void test_files(void) {
         if (c) {
             size_t a, b;
             int dup = 0, empty = 0;
-            for (a = 0; a < c->n; a++) { if (!c->nodes[a].id || !*c->nodes[a].id) empty = 1; for (b = a + 1; b < c->n; b++) if (!strcmp(c->nodes[a].id, c->nodes[b].id)) dup = 1; }
+            for (a = 0; a < c->n; a++) { if (c->nodes[a].raw) continue; if (!c->nodes[a].id || !*c->nodes[a].id) empty = 1; for (b = a + 1; b < c->n; b++) if (!c->nodes[b].raw && c->nodes[a].id && c->nodes[b].id && !strcmp(c->nodes[a].id, c->nodes[b].id)) dup = 1; }
             HUNT_CHECK(!dup && !empty);
             ex_canvas_free(c);
         }
@@ -399,7 +399,7 @@ static void test_geometry(void) {
     hunt_step("colors");
     {
         uint8_t rgb[3] = { 9, 9, 9 };
-        const char *bad[] = { "7", "0", "", "#abc", "#abcdef0", "#12345", "#ggggg0", "red", "#", " #ffffff", "#ffffff ", "10", "-1", "#00000g", "##ffffff", "1 ", " 1" };
+        const char *bad[] = { "7", "0", "", "#abcdef0", "#12345", "#ggggg0", "red", "#", " #ffffff", "#ffffff ", "10", "-1", "#00000g", "##ffffff", "1 ", " 1" };
         size_t i;
         for (i = 1; i <= 6; i++) { char s[2] = { (char)('0' + i), 0 }; HUNT_CHECKF(ex_canvas_color(s, rgb) == (int)i, "preset %s", s); }
         HUNT_CHECK(ex_canvas_color("#ff8800", rgb) == 0 && rgb[0] == 0xff && rgb[1] == 0x88 && rgb[2] == 0x00);

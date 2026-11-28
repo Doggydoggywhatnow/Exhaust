@@ -7,7 +7,7 @@
 #define MAX_ENTRY (64u * 1024u * 1024u)
 #define MAX_ENTRIES 20000
 
-typedef struct ZEntry { char *name; uint32_t method, csize, usize, offset; int is_dir; } ZEntry;
+typedef struct ZEntry { char *name; uint32_t method, csize, usize, offset; int is_dir, encrypted; } ZEntry;
 struct ExZip { const unsigned char *d; size_t len; ZEntry *e; size_t n; };
 
 static uint32_t u16(const unsigned char *p) { return (uint32_t)p[0] | ((uint32_t)p[1] << 8); }
@@ -43,6 +43,7 @@ ExZip *ex_zip_open(const unsigned char *data, size_t len) {
         if (pos + 46 > cd_off + cd_size || memcmp(data + pos, "PK\x01\x02", 4)) break;
         nl = u16(data + pos + 28); el = u16(data + pos + 30); cl = u16(data + pos + 32);
         if (pos + 46 + nl + el + cl > cd_off + cd_size) break;
+        e->encrypted = (u16(data + pos + 8) & 0x41) != 0;        /* general purpose bit 0 (encrypted) or 6 (strong encryption): its bytes are not the file */
         e->method = u16(data + pos + 10); e->csize = u32(data + pos + 20); e->usize = u32(data + pos + 24); e->offset = u32(data + pos + 42);
         e->name = malloc(nl + 1);
         if (!e->name) break;
@@ -72,7 +73,7 @@ unsigned char *ex_zip_extract(const ExZip *z, size_t i, size_t *len) {
     if (len) *len = 0;
     if (!z || i >= z->n) return NULL;
     e = &z->e[i];
-    if (e->is_dir || e->usize > MAX_ENTRY || (size_t)e->offset + 30 > z->len) return NULL;
+    if (e->is_dir || e->encrypted || e->usize > MAX_ENTRY || (size_t)e->offset + 30 > z->len) return NULL;
     h = z->d + e->offset;
     if (memcmp(h, "PK\x03\x04", 4)) return NULL;
     nl = u16(h + 26); el = u16(h + 28);

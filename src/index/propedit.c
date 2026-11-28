@@ -120,15 +120,35 @@ static size_t front_content_end(const ExExtract *x, const char *text) {
     return e;
 }
 
+/* The lines made for a property end with "\n"; in a note whose first line break is "\r\n" (a file with CRLF that is edited as it is, because it also has a lone LF) they end the
+ * same way as the lines around them. Returns a new buffer (or NULL when out of memory); the old one is freed. */
+static char *follow_eol(const char *text, size_t len, char *lines, size_t *flen) {
+    const char *nl = memchr(text, '\n', len);
+    size_t i, extra = 0, w = 0;
+    char *out;
+    if (!(nl && nl > text && nl[-1] == '\r')) return lines;
+    for (i = 0; i < *flen; i++) if (lines[i] == '\n' && (i == 0 || lines[i - 1] != '\r')) extra++;
+    out = malloc(*flen + extra + 1);
+    if (!out) { free(lines); return NULL; }
+    for (i = 0; i < *flen; i++) { if (lines[i] == '\n' && (i == 0 || lines[i - 1] != '\r')) out[w++] = '\r'; out[w++] = lines[i]; }
+    out[w] = 0;
+    free(lines);
+    *flen = w;
+    return out;
+}
+
 char *ex_prop_text_set(const char *text, size_t len, const char *name, int type, const char *value, size_t *out_len) {
     ExExtract *x;
     const ExXProp *p;
     size_t flen = 0;
     char *lines, *out;
+    int crlf;
     if (!valid_key(name)) return NULL;
     x = ex_extract(text, len);
     if (!x) return NULL;
     lines = format_prop(name, type, value, &flen);
+    if (lines) lines = follow_eol(text, len, lines, &flen);
+    { const char *nl = memchr(text, '\n', len); crlf = nl && nl > text && nl[-1] == '\r'; }
     if (!lines) { ex_extract_free(x); return NULL; }
     p = find_prop(x, name);
     if (p) out = splice(text, len, p->start, p->end, lines, flen, out_len);
@@ -137,7 +157,7 @@ char *ex_prop_text_set(const char *text, size_t len, const char *name, int type,
         else out = splice(text, len, front_content_end(x, text), front_content_end(x, text), lines, flen, out_len);
     } else {                                                     /* no frontmatter yet: one is made at the top */
         B b = {0};
-        bstr(&b, "---\n"); badd(&b, lines, flen); bstr(&b, "---\n"); badd(&b, text, len);
+        bstr(&b, crlf ? "---\r\n" : "---\n"); badd(&b, lines, flen); bstr(&b, crlf ? "---\r\n" : "---\n"); badd(&b, text, len);
         out = b.oom ? NULL : b.v;
         if (b.oom) free(b.v);
         if (out && out_len) *out_len = b.n;

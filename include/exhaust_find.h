@@ -27,7 +27,8 @@ typedef enum ExFindResult { EX_FIND_NONE = 0, EX_FIND_MATCH = 1, EX_FIND_LIMIT =
 
 /* The first match that starts at or after `from`. */
 ExFindResult ex_find_next(ExFind *f, const char *text, size_t len, size_t from, size_t *start, size_t *end);
-/* The last match that starts before `before` (searching backwards from the caret). */
+/* The last match that starts before `before` (searching backwards from the caret). The matches are the ones ex_find_next finds one after another from the start of
+ * the text, without overlapping (so "aa" in "aaaa" is 0-2 and 2-4, and going back from 3 gives 0-2): stepping forward and back visits the same matches. */
 ExFindResult ex_find_prev(ExFind *f, const char *text, size_t len, size_t before, size_t *start, size_t *end);
 /* The number of matches (empty matches count, each ends where the next search starts one character on), at most `limit`. */
 size_t ex_find_count(ExFind *f, const char *text, size_t len, size_t limit);

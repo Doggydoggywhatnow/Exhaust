@@ -251,6 +251,13 @@ static int push_edge(ExCanvas *c, ExCanvasEdge **out) {
 
 static void fail(char *err, size_t cap, const char *msg) { if (err && cap) snprintf(err, cap, "%s", msg); }
 
+typedef struct EdgeKey { const char *id; size_t at; } EdgeKey;
+static int cmp_edge_id(const void *a, const void *b) {
+    const EdgeKey *x = a, *y = b;
+    int c = strcmp(x->id, y->id);
+    return c ? c : (x->at < y->at ? -1 : x->at > y->at);
+}
+
 ExCanvas *ex_canvas_parse(const char *text, size_t len, char *err, size_t errcap) {
     yyjson_read_err re;
     yyjson_doc *doc;
@@ -314,10 +321,20 @@ ExCanvas *ex_canvas_parse(const char *text, size_t len, char *err, size_t errcap
         else dup = ex_canvas_find_node(c, n->id) != (int)i;                              /* the index finds the first card of an id */
         if (dup) { char nid[17]; ex_canvas_new_id(c, nid); free(n->id); n->id = dups(nid); c->repaired = 1; if (!n->id) { ex_canvas_free(c); fail(err, errcap, "out of memory"); return NULL; } }
     }
-    for (i = 0; i < c->ne; i++) {
-        ExCanvasEdge *e = &c->edges[i];
-        if (e->raw) continue;
-        if (!e->id || !*e->id) { char nid[17]; ex_canvas_new_id(c, nid); free(e->id); e->id = dups(nid); c->repaired = 1; if (!e->id) { ex_canvas_free(c); fail(err, errcap, "out of memory"); return NULL; } }
+    {   /* every edge has an id that no other edge has: the first edge of an id keeps it */
+        EdgeKey *ord = c->ne ? malloc(c->ne * sizeof *ord) : NULL;
+        size_t no = 0;
+        unsigned char *again = c->ne ? calloc(c->ne, 1) : NULL;
+        if (c->ne && (!ord || !again)) { free(ord); free(again); ex_canvas_free(c); fail(err, errcap, "out of memory"); return NULL; }
+        for (i = 0; i < c->ne; i++) if (!c->edges[i].raw && c->edges[i].id && *c->edges[i].id) { ord[no].id = c->edges[i].id; ord[no].at = i; no++; }
+        qsort(ord, no, sizeof *ord, cmp_edge_id);
+        for (i = 1; i < no; i++) if (!strcmp(ord[i - 1].id, ord[i].id)) again[ord[i].at] = 1;       /* sorted by id, then by place: all but the first of an id */
+        for (i = 0; i < c->ne; i++) {
+            ExCanvasEdge *e = &c->edges[i];
+            if (e->raw) continue;
+            if (!e->id || !*e->id || again[i]) { char nid[17]; ex_canvas_new_id(c, nid); free(e->id); e->id = dups(nid); c->repaired = 1; if (!e->id) { free(ord); free(again); ex_canvas_free(c); fail(err, errcap, "out of memory"); return NULL; } }
+        }
+        free(ord); free(again);
     }
     c->hvalid = 0;
     c->final_newline = len > 0 && text[len - 1] == '\n';

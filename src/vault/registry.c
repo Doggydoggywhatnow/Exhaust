@@ -6,6 +6,7 @@
 
 #include "exhaust_platform.h"
 #include "exhaust_util.h"
+#include "exhaust_ini.h"
 #include "exhaust_vault.h"
 
 typedef struct Pair { char *key, *value; } Pair;
@@ -119,6 +120,7 @@ ExRegistry *ex_registry_load(const char *path) {
             {
                 char *key = trim(l), *val = trim(eq + 1), *hash = strstr(val, " #");
                 if (hash) { *hash = 0; val = trim(val); }
+                if ((!strcmp(key, "path") || !strcmp(key, "name")) && strchr(val, '%')) ex_ini_decode_value(val, val);       /* written by ex_registry_save with %XX (the decoded text is never longer) */
                 set(cur, key, val);
             }
         }
@@ -146,7 +148,15 @@ int ex_registry_save(const ExRegistry *r) {
         for (k = 0; k < s->n; k++) need += strlen(s->pairs[k].key) + strlen(s->pairs[k].value) + 8;
         if (n + need > cap) { char *nb; cap = (n + need) * 2; nb = realloc(buf, cap); if (!nb) { free(buf); return -1; } buf = nb; }
         n += (size_t)sprintf(buf + n, "[%s]\n", s->name);
-        for (k = 0; k < s->n; k++) n += (size_t)sprintf(buf + n, "%s = %s\n", s->pairs[k].key, s->pairs[k].value);
+        for (k = 0; k < s->n; k++) {
+            const char *val = s->pairs[k].value;
+            char *enc = NULL;
+            /* a folder named "Notes #1" or a name with a line break is still one value in the file (the list of vaults must never lose or split one) */
+            if (!strcmp(s->pairs[k].key, "path") || !strcmp(s->pairs[k].key, "name")) { size_t el = 0; enc = ex_ini_encode_value(val, strlen(val), &el); if (!enc) { free(buf); return -1; } val = enc;
+                if (n + strlen(s->pairs[k].key) + el + 16 > cap) { char *nb; cap = (n + el + 64 + need) * 2; nb = realloc(buf, cap); if (!nb) { free(enc); free(buf); return -1; } buf = nb; } }
+            n += (size_t)sprintf(buf + n, "%s = %s\n", s->pairs[k].key, val);
+            free(enc);
+        }
         buf[n++] = '\n';
     }
     dir = dup_str(r->path);

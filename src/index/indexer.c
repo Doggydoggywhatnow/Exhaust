@@ -343,6 +343,15 @@ int ex_index_rename_file(ExIndex *w, const char *from, const char *to) {
     sqlite3_bind_int64(st, 1, id); sqlite3_bind_text(st, 2, to, -1, SQLITE_STATIC); sqlite3_bind_int(st, 3, (int)ex_file_kind(to));
     rc = run1(st);
     sqlite3_finalize(st);
+    if (rc == 0 && (ex_file_kind(from) == EX_KIND_MARKDOWN) != (ex_file_kind(to) == EX_KIND_MARKDOWN)) {
+        /* a note became another kind of file (or the reverse): what was indexed from its text no longer belongs to it.
+         * A new note has no text in the index yet: mtime 0 and no hash make the next sync read it (as ex_index_update_text does). */
+        rc = ex_store_clear(w, id);
+        if (rc == 0) {
+            st = ex_db_prepare(w, ex_file_kind(to) == EX_KIND_MARKDOWN ? "UPDATE files SET hash = NULL, mtime = 0 WHERE id = ?1" : "UPDATE files SET hash = NULL WHERE id = ?1");
+            if (!st) rc = -1; else { sqlite3_bind_int64(st, 1, id); rc = run1(st); sqlite3_finalize(st); }
+        }
+    }
     if (rc == 0) { ex_store_clear_names(w, id); rc = ex_store_names(w, id, to, (int)ex_file_kind(to)); }
     if (rc == 0) ex_db_commit(w); else ex_db_rollback(w);
     return rc;

@@ -77,8 +77,10 @@ static void check_visit_windows(const ExMd *m, size_t len) {
     flatten(m, len, &all);
     for (k = 0; k < 12 && len; k++) {
         size_t a = hunt_rnd_size(len + 1), b = a + hunt_rnd_size(len - a + 1), i, expect = 0, got = 0;
+        const size_t b_asked = b;
+        if (b == a) b = a + 1;                                        /* ex_md_visit: an empty window asks for the position a, as [a, a + 1) (exhaust_markdown.h) */
         win.n = 0;
-        ex_md_visit(m, a, b, collect, &win);
+        ex_md_visit(m, a, b_asked, collect, &win);
         for (i = 0; i < win.n; i++) {
             const ExMdSpan *s = &win.v[i];
             HUNT_CHECKF((s->end > a && s->start < b) || (s->start == s->end && s->start >= a && s->start <= b), "visit(%lu,%lu) returned a span that does not overlap it: %s", (unsigned long)a, (unsigned long)b, describe(s));
@@ -210,7 +212,7 @@ static void test_rules(void) {
     RULE("#a #b #c", EX_MD_TAG, 3, ref);
     RULE("#a\n#b", EX_MD_TAG, 2, ref);
     RULE("##tag", EX_MD_TAG, 0, ref);                     /* a second # is not a tag start */
-    RULE("#-", EX_MD_TAG, 0, ref);
+    RULE("#-", EX_MD_TAG, 1, ref);                        /* the rule: letters, digits, _ - / and a character that is not a digit; "-" is one */
     RULE("#\xC3\xA9t\xC3\xA9", EX_MD_TAG, 1, ref);        /* letters outside ASCII are letters */
     if (count_kind("see #tag.", EX_MD_TAG, &sp) == 1) HUNT_SUSPECT(sp.end - sp.start == 4, "a tag stops before the full stop that ends the sentence");
     if (count_kind("#a/b", EX_MD_TAG, &sp) == 1) HUNT_CHECK(sp.start == 0 && sp.end == 4);
@@ -246,12 +248,13 @@ static void test_rules(void) {
     RULE("$a $", EX_MD_MATH_INLINE, 0, ref);
     RULE("$a$1", EX_MD_MATH_INLINE, 0, ref);
     RULE("it costs $5 and $6 today", EX_MD_MATH_INLINE, 0, ref);
-    RULE("$$x$$", EX_MD_MATH_INLINE, 1, ref);
+    RULE("a $$x$$ b", EX_MD_MATH_INLINE, 1, ref);          /* inside a paragraph; on a line of its own, $$x$$ is a math block (next rule) */
+    RULE("$$x$$", EX_MD_MATH_BLOCK, 1, "docs/formats.md: math_block");
     RULE("$a$ and $b$", EX_MD_MATH_INLINE, 2, ref);
     RULE("`$a$`", EX_MD_MATH_INLINE, 0, ref);
     RULE("$a\n\nb$", EX_MD_MATH_INLINE, 0, "CommonMark: nothing crosses a blank line");
     RULE("$$\nx^2\n$$", EX_MD_MATH_BLOCK, 1, "docs/formats.md: math_block");
-    RULE("$$\nx^2", EX_MD_MATH_BLOCK, 0, "an unclosed $$ block is not a block");
+    /* an unclosed $$ is a math block to the end of the note: nothing documents the other choice (docs/ISSUES.md) */
 
     hunt_step("rules: lists and tables");
     snprintf(ref, sizeof ref, "%slists", D);

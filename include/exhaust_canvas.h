@@ -37,7 +37,7 @@ typedef struct ExCanvasNode {
     ExCanvasKind kind;
     char *type;                       /* the "type" string of the file: for EX_CN_OTHER the one it had (NULL when it had none) */
     double x, y, w, h;                /* the file's x, y, width and height */
-    char *color;                      /* "1" to "6" (preset) or "#rrggbb"; NULL: none */
+    char *color;                      /* "1" to "6" (preset) or "#rrggbb" (ex_canvas_color also reads "#rgb"); NULL: none */
     char *text;                       /* EX_CN_TEXT (never NULL for one) */
     char *file, *subpath;             /* EX_CN_FILE (file never NULL for one) */
     char *url;                        /* EX_CN_LINK (never NULL for one) */

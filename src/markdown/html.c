@@ -160,7 +160,15 @@ static char *decode(const char *s, size_t len) {
         unsigned cp;
         size_t used;
         if (s[i] == '&' && (used = decode_ref(s, len, i, &cp)) != 0) { o += ex_utf8_encode(cp, o); i += used; }
-        else *o++ = s[i++];
+        else if (s[i] == 0) { o += ex_utf8_encode(0xFFFD, o); i++; }          /* a NUL byte would end the string: U+FFFD */
+        else if ((unsigned char)s[i] < 0x80) *o++ = s[i++];
+        else {                                                              /* the text goes into notes, which are UTF-8 only: bytes that are not UTF-8 become U+FFFD */
+            size_t at = i;
+            uint32_t c = ex_utf8_decode(s, len, &at);
+            if (c == 0xFFFD && !(at - i == 3 && (unsigned char)s[i] == 0xEF && (unsigned char)s[i + 1] == 0xBF && (unsigned char)s[i + 2] == 0xBD)) { o += ex_utf8_encode(0xFFFD, o); }
+            else { memcpy(o, s + i, at - i); o += at - i; }
+            i = at;
+        }
     }
     *o = 0;
     return out;
@@ -171,7 +179,23 @@ char *ex_html_decode(const char *s, size_t len) { return decode(s, len); }
 
 /* ---- urls ---- */
 
+static int url_ok(const char *url, size_t len);
+
 int ex_html_url_allowed(const char *url, size_t len) {
+    char *d;
+    int ok;
+    size_t k;
+    if (!memchr(url, '&', len)) return url_ok(url, len);
+    /* a character reference may hide a part of the scheme ("jav&#x09;ascript:", "javascript&colon;"): judge the decoded text, and refuse a reference this table does not know before any path */
+    d = decode(url, len);
+    if (!d) return 0;
+    for (k = 0; d[k] && d[k] != '/' && d[k] != '?' && d[k] != '#'; k++) if (d[k] == '&') { free(d); return 0; }
+    ok = url_ok(d, strlen(d));
+    free(d);
+    return ok;
+}
+
+static int url_ok(const char *url, size_t len) {
     size_t i = 0, k;
     char scheme[16];
     while (i < len && (unsigned char)url[i] <= ' ') i++;                     /* leading spaces and controls are ignored by browsers: so are they here */

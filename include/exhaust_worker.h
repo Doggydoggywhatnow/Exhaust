@@ -47,7 +47,9 @@ int ex_queue_pop(ExQueue *q, ExMessage *m);
 /* ---- workers ---- */
 
 typedef struct ExWorker ExWorker;
-/* Runs on the worker thread for each job posted to it. */
+/* Runs on the worker thread for each job posted to it. The job's payload stays
+ * the worker's: it is released with job->free_payload after the handler returns,
+ * so the handler must not free it (it may copy or take what it needs). */
 typedef void (*ExWorkerFn)(ExWorker *self, const ExMessage *job, void *user);
 
 /* Starts a thread. Results go to `results` (the UI's queue). id must be nonzero

@@ -73,6 +73,21 @@ static void reorder(uint32_t *v, size_t n) {
         if (ccc_of(v[i]) == 0) { i++; continue; }
         j = i;
         while (j < n && ccc_of(v[j]) != 0) j++;
+        if (j - i > 32) {                                  /* a long run: a stable counting sort, so 60,000 marks do not cost 60,000 squared steps */
+            size_t m = j - i, count[257] = {0}, a;
+            uint32_t *tmp = malloc(m * sizeof *tmp);
+            unsigned char *cls = malloc(m);
+            if (tmp && cls) {
+                for (a = 0; a < m; a++) { cls[a] = (unsigned char)ccc_of(v[i + a]); count[cls[a] + 1]++; }
+                for (a = 0; a < 256; a++) count[a + 1] += count[a];
+                for (a = 0; a < m; a++) tmp[count[cls[a]]++] = v[i + a];
+                memcpy(v + i, tmp, m * sizeof *tmp);
+                free(tmp); free(cls);
+                i = j;
+                continue;
+            }
+            free(tmp); free(cls);                          /* out of memory: the slow sort below gives the same result */
+        }
         for (size_t a = i + 1; a < j; a++) {               /* stable insertion sort by combining class */
             uint32_t x = v[a];
             int cx = ccc_of(x);

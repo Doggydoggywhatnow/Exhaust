@@ -171,10 +171,10 @@ static void walk(const ExHtmlNode *n, size_t depth, const char *what, const char
     size_t i, k;
     g_nodes++;
     if (depth > g_max_depth) g_max_depth = depth;
-    if (n->tag == EX_HTML_TEXT) {
+    if (n->tag == EX_HTML_TEXT && (n->text || depth > 0)) {          /* the container at depth 0 has tag 0 and no text, and the fragment as kids (exhaust_html.h) */
         HUNT_CHECKF(n->nkids == 0, "%s: a text node has children", what);
         if (n->text) HUNT_CHECKF(valid_utf8_nonul(n->text, strlen(n->text)) , "%s: text that is not valid UTF-8", what);
-    } else {
+    } else if (depth > 0) {
         HUNT_CHECKF((int)n->tag > 0 && (int)n->tag < EX_HTML_TAG_COUNT, "%s: a node with tag %d", what, (int)n->tag);
         for (i = 0; i < n->nattrs; i++) {
             const char *name = n->attrs[i].name, *val = n->attrs[i].value;
@@ -198,6 +198,26 @@ static void walk(const ExHtmlNode *n, size_t depth, const char *what, const char
     (void)src;
 }
 
+static int has_bytes(const char *h, size_t len, const char *needle) { size_t n = strlen(needle), i; for (i = 0; i + n <= len; i++) if (!memcmp(h + i, needle, n)) return 1; return 0; }
+
+/* Whether `needle` is an attribute of a tag of the output: in a tag, outside the quoted values (a value may hold " onclick=x" as text; its < and > are written
+ * as &lt; and &gt;, and so is every < of the text, so every < starts a tag). */
+static int attr_in_tag(const char *out, const char *needle) {
+    const char *t = out;
+    size_t n = strlen(needle);
+    while ((t = strchr(t, '<')) != NULL) {
+        const char *q = t + 1;
+        int quoted = 0;
+        for (; *q && (quoted || *q != '>'); q++) {
+            if (*q == '"') { quoted = !quoted; continue; }
+            if (!quoted && !strncmp(q, needle, n)) return 1;
+        }
+        t = *q ? q : q;
+        if (!*t) break;
+    }
+    return 0;
+}
+
 static void check_tree(const char *html, size_t len, const char *what, int forbid_script_text) {
     ExHtml *h = ex_html_parse(html, len);
     const ExHtmlNode *root;
@@ -211,7 +231,8 @@ static void check_tree(const char *html, size_t len, const char *what, int forbi
     HUNT_SPECF(g_max_depth <= 66, "docs/formats.md, HTML subset: nesting deeper than 64 levels is flattened", "%s: the tree is %lu levels deep", what, (unsigned long)g_max_depth);
     text = ex_html_text(h);
     HUNT_CHECKF(text != NULL, "%s: no text", what);
-    if (text && forbid_script_text) HUNT_SPECF(!strstr(text, "ALERT_PAYLOAD"), "docs/formats.md, HTML subset: script and style lose their content as well", "%s: the content of a script or style came out as text: %.80s", what, text);
+    /* text that only looks like a script is not one: an escaped &lt;script&gt; is text, and "<scr<script>ipt>" is a tag named "scr<script" */
+    if (text && forbid_script_text && !has_bytes(html, len, "&lt;") && !has_bytes(html, len, "<scr<")) HUNT_SPECF(!strstr(text, "ALERT_PAYLOAD"), "docs/formats.md, HTML subset: script and style lose their content as well", "%s: the content of a script or style came out as text: %.80s", what, text);
     out = ex_html_serialize(h);
     HUNT_CHECKF(out != NULL, "%s: nothing to write", what);
     if (out) {
@@ -222,7 +243,7 @@ static void check_tree(const char *html, size_t len, const char *what, int forbi
         if (out2) {
             if (!strstr(out2, "<script") && !strstr(out2, "<style")) HUNT_CHECKF(!strstr(out, "<script") && !strstr(out, "<style") && !strstr(out, "<iframe") && !strstr(out, "<object") && !strstr(out, "<embed") && !strstr(out, "<form"), "%s: a tag outside the subset was written: %.100s", what, out);
         }
-        HUNT_CHECKF(!strstr(out, " onerror") && !strstr(out, " onclick") && !strstr(out, " onload") && !strstr(out, " style=") && !strstr(out, " class="), "%s: a dropped attribute was written: %.100s", what, out);
+        HUNT_CHECKF(!attr_in_tag(out, " onerror") && !attr_in_tag(out, " onclick") && !attr_in_tag(out, " onload") && !attr_in_tag(out, " style=") && !attr_in_tag(out, " class="), "%s: a dropped attribute was written: %.100s", what, out);
         free(out2); ex_html_free(h2);
         free(out);
     }

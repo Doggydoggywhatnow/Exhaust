@@ -28,14 +28,28 @@ size_t ex_csv_parse(const char *text, size_t len, ExCsvRowFn fn, void *user) {
     memset(&r, 0, sizeof r);
     if (!text) return 0;
     if (len >= 3 && !memcmp(text, "\xEF\xBB\xBF", 3)) i = 3;
-    {   /* the delimiter: the one the first line has most of, outside quotes */
-        size_t k, c = 0, s = 0, t = 0;
-        int q = 0;
-        for (k = i; k < len && !(text[k] == '\n' && !q); k++) {
-            if (text[k] == '"') q = !q;
-            else if (!q) { if (text[k] == ',') c++; else if (text[k] == ';') s++; else if (text[k] == '\t') t++; }
+    {   /* The delimiter: the one that splits the first rows the same way every time, counted outside quotes. A text that has more ";" than "," in its first line
+         * (a name such as "a;b" in a comma file) is still a comma file when the next rows each have one comma and no ";". */
+        static const char cand[3] = { ',', ';', '\t' };
+        size_t first[3] = { 0, 0, 0 }, cur[3] = { 0, 0, 0 }, same[3] = { 0, 0, 0 }, row = 0, k;
+        int q = 0, best = 0, d;
+        for (k = i; k <= len && row < 20; k++) {
+            char ch = k < len ? text[k] : '\n';
+            if (ch == '"') { q = !q; continue; }
+            if (!q && (ch == '\n' || k == len)) {
+                for (d = 0; d < 3; d++) {
+                    if (row == 0) first[d] = cur[d];
+                    if (first[d] > 0 && cur[d] == first[d]) same[d]++;
+                    cur[d] = 0;
+                }
+                row++;
+                continue;
+            }
+            if (!q) for (d = 0; d < 3; d++) if (ch == cand[d]) cur[d]++;
         }
-        if (s > c && s >= t) delim = ';'; else if (t > c && t > s) delim = '\t';
+        for (d = 1; d < 3; d++) if (same[d] > same[best] || (same[d] == same[best] && same[d] > 0 && first[d] > first[best] && same[best] == 0)) best = d;
+        if (same[0] == 0 && same[1] == 0 && same[2] == 0) best = 0;
+        delim = cand[best];
     }
     fields = malloc(MAX_FIELDS * sizeof *fields); lens = malloc(MAX_FIELDS * sizeof *lens); offs = malloc(MAX_FIELDS * sizeof *offs);
     if (!fields || !lens || !offs) { free(fields); free(lens); free(offs); return 0; }

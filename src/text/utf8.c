@@ -15,7 +15,11 @@ uint32_t ex_utf8_decode(const char *s, size_t len, size_t *i) {
     else { *i += 1; return 0xFFFD; }
 
     for (k = 1; k <= need; k++) {
-        if (k >= left || (p[k] & 0xC0) != 0x80) { *i += k; return 0xFFFD; }
+        /* the second byte has a narrower range after E0, ED, F0 and F4 (no overlong forms, surrogates or values above 10FFFF), so such
+         * a lead byte is one error on its own and the next byte starts again: the "maximal subpart" rule of Unicode and the WHATWG decoder */
+        unsigned lo = 0x80, hi = 0xBF;
+        if (k == 1) { if (c == 0xE0) lo = 0xA0; else if (c == 0xED) hi = 0x9F; else if (c == 0xF0) lo = 0x90; else if (c == 0xF4) hi = 0x8F; }
+        if (k >= left || p[k] < lo || p[k] > hi) { *i += k; return 0xFFFD; }
         cp = (cp << 6) | (p[k] & 0x3F);
     }
     *i += need + 1;

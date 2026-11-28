@@ -78,7 +78,9 @@ static void clean_name(const char *name, char *stem, size_t scap, char *ext, siz
         t[w++] = ch;
     }
     t[w] = 0;
+    for (i = 0; i + 1 < w; i++) if (t[i] == '%' && t[i + 1] == '%') { t[i] = '_'; t[i + 1] = '_'; i++; }       /* "%%" starts a comment in a note's name */
     while (w && (t[w - 1] == ' ' || t[w - 1] == '.')) t[--w] = 0;
+    { size_t lead = 0; while (t[lead] == ' ') lead++; if (lead) { memmove(t, t + lead, w - lead + 1); w -= lead; } }      /* a name cannot start with a space either */
     dot = strrchr(t, '.');
     if (dot && dot != t && strlen(dot) <= 16) { snprintf(ext, ecap, "%s", dot); snprintf(stem, scap, "%.*s", (int)(dot - t), t); }
     else { ext[0] = 0; snprintf(stem, scap, "%s", t); }
@@ -159,8 +161,14 @@ int ex_attach_save_bytes(const ExAttachConfig *c, const char *stem, const char *
     int rc;
     memset(out, 0, sizeof *out);
     if (!c || !c->vault_root || !data || len == 0) { fail(out, "Nothing to save", ""); return -1; }
-    snprintf(st, sizeof st, "%s", stem && stem[0] ? stem : "Attachment");
-    snprintf(ex, sizeof ex, "%s", ext ? ext : "");
+    {   /* the name and the extension come from the caller (a picture's name from the clipboard, a type from a format): a "/" or ".." in either would write outside
+         * the folder, even outside the vault. They go through the same cleaning as the name of a dropped file. */
+        char joined[500], st2[400], ex2[40];
+        snprintf(joined, sizeof joined, "%s%s", stem && stem[0] ? stem : "Attachment", ext ? ext : "");
+        clean_name(joined, st2, sizeof st2, ex2, sizeof ex2);
+        snprintf(st, sizeof st, "%s", st2);
+        snprintf(ex, sizeof ex, "%s", ex2);
+    }
     in = SDL_IOFromConstMem(data, len);
     if (!in) { fail(out, "Out of memory", ""); return -1; }
     rc = attach_stream(c, in, st, ex, out);

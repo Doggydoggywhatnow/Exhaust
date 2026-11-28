@@ -238,6 +238,7 @@ static int safe_rel(const char *in, char *out, size_t cap, int allow_empty) {
         size_t pl = strcspn(part, "/");
         if (pl == 0) return 0;                                                   /* an empty part: "a//b" or a trailing slash */
         if ((pl == 1 && part[0] == '.') || (pl == 2 && part[0] == '.' && part[1] == '.')) return 0;
+        if (part[pl - 1] == '.' || part[pl - 1] == ' ') return 0;                /* Windows drops a trailing dot or space: ".exhaust." is ".exhaust" there */
         if (part == in) {
             if (pl == 8 && !SDL_strncasecmp(part, ".exhaust", 8)) return 0;
             if (pl == 6 && !SDL_strncasecmp(part, ".trash", 6)) return 0;
@@ -247,6 +248,39 @@ static int safe_rel(const char *in, char *out, size_t cap, int allow_empty) {
     }
     snprintf(out, cap, "%s", in);
     return 1;
+}
+
+/* Whether what the path leads to, with every symbolic link followed, is inside the vault and not in .exhaust or .trash.
+ * A path that does not exist yet is judged by its deepest folder that does (a write makes the rest). */
+static int inside_vault(const ExPlugins *P, const char *abs) {
+    char *root = ex_platform_realpath(P->root), *real = NULL, *probe = NULL;
+    size_t rl;
+    int ok = 0;
+    if (!root) return 0;
+    probe = dup_s(abs);
+    if (!probe) { free(root); return 0; }
+    for (;;) {                                               /* shorten the path until a part of it exists */
+        real = ex_platform_realpath(probe);
+        if (real) break;
+        {
+            char *sl = strrchr(probe, '/');
+            if (!sl || sl == probe) break;
+            *sl = 0;
+        }
+    }
+    if (!real) goto done;
+    rl = strlen(root);                                       /* what does not exist yet holds no links, and safe_rel vetted its names */
+    if (strncmp(real, root, rl) != 0) goto done;
+    if (real[rl] != 0 && real[rl] != '/') goto done;       /* "/vault2" is not inside "/vault" */
+    {
+        const char *rest = real + rl;
+        if (*rest == '/') rest++;
+        if ((!SDL_strncasecmp(rest, ".exhaust", 8) && (rest[8] == 0 || rest[8] == '/')) || (!SDL_strncasecmp(rest, ".trash", 6) && (rest[6] == 0 || rest[6] == '/'))) goto done;
+    }
+    ok = 1;
+done:
+    free(root); free(real); free(probe);
+    return ok;
 }
 
 static char *abs_path(const ExPlugins *P, const char *rel, char *buf, size_t cap) { snprintf(buf, cap, "%s%s%s", P->root, rel[0] ? "/" : "", rel); return buf; }
@@ -266,6 +300,7 @@ static int l_vault_read(lua_State *L) {
     need(L, "vault.read"); p = plug_of(L);
     path_arg(L, 1, rel, sizeof rel, 0);
     abs_path(p->P, rel, abs, sizeof abs);
+    if (!inside_vault(p->P, abs)) { lua_pushnil(L); lua_pushstring(L, "not found"); return 2; }     /* a link that leads out of the vault is as good as absent */
     if (ex_platform_path_info(abs, &info) != 0 || !info.is_file) { lua_pushnil(L); lua_pushstring(L, "not found"); return 2; }
     if (info.size > (int64_t)MAX_READ) { lua_pushnil(L); lua_pushstring(L, "the file is over 8 MB"); return 2; }
     t = ex_platform_read_file(abs, &len);
@@ -280,7 +315,7 @@ static int l_vault_exists(lua_State *L) {
     need(L, "vault.read"); p = plug_of(L);
     path_arg(L, 1, rel, sizeof rel, 0);
     abs_path(p->P, rel, abs, sizeof abs);
-    lua_pushboolean(L, ex_platform_path_info(abs, &info) == 0);
+    lua_pushboolean(L, inside_vault(p->P, abs) && ex_platform_path_info(abs, &info) == 0);
     return 1;
 }
 
@@ -307,7 +342,7 @@ static int l_vault_list(lua_State *L) {
     need(L, "vault.read"); p = plug_of(L);
     path_arg(L, 1, rel, sizeof rel, 1);
     abs_path(p->P, rel, abs, sizeof abs);
-    if (ex_platform_path_info(abs, &info) != 0 || !info.is_dir) { lua_pushnil(L); lua_pushstring(L, "not a folder"); return 2; }
+    if (!inside_vault(p->P, abs) || ex_platform_path_info(abs, &info) != 0 || !info.is_dir) { lua_pushnil(L); lua_pushstring(L, "not a folder"); return 2; }
     memset(&c, 0, sizeof c); c.root = rel[0] == 0;
     SDL_EnumerateDirectory(abs, list_cb, &c);
     qsort(c.v, c.n, sizeof *c.v, cmp_s);
@@ -324,6 +359,7 @@ static int l_vault_write(lua_State *L) {
     t = luaL_checklstring(L, 2, &len);
     if (len > MAX_WRITE) { lua_pushnil(L); lua_pushstring(L, "the text is over 16 MB"); return 2; }
     abs_path(p->P, rel, abs, sizeof abs);
+    if (!inside_vault(p->P, abs)) { lua_pushnil(L); lua_pushstring(L, "the path leads out of the vault"); return 2; }   /* nothing is made before this */
     snprintf(dir, sizeof dir, "%s", abs);
     sl = strrchr(dir, '/'); if (sl) { *sl = 0; if (ex_platform_make_dirs(dir) != 0) { lua_pushnil(L); lua_pushstring(L, "the folder could not be made"); return 2; } }
     if (ex_platform_write_file_atomic(abs, t, len) != 0) { lua_pushnil(L); lua_pushstring(L, "the file could not be written"); return 2; }
@@ -335,6 +371,13 @@ static int l_vault_rename(lua_State *L) {
     Plug *p; char from[600], to[600]; Req *r;
     need(L, "vault.write"); p = plug_of(L);
     path_arg(L, 1, from, sizeof from, 0); path_arg(L, 2, to, sizeof to, 0);
+    {
+        char af[2000], at[2000], *sl;
+        abs_path(p->P, from, af, sizeof af); abs_path(p->P, to, at, sizeof at);
+        sl = strrchr(af, '/'); if (sl) *sl = 0;               /* the link itself may be renamed; the folders around it must be in the vault */
+        sl = strrchr(at, '/'); if (sl) *sl = 0;
+        if (!inside_vault(p->P, af) || !inside_vault(p->P, at)) { lua_pushnil(L); lua_pushstring(L, "the path leads out of the vault"); return 2; }
+    }
     r = calloc(1, sizeof *r);
     if (!r) return luaL_error(L, "not enough memory");
     r->kind = R_RENAME; r->s1 = dup_s(from); r->s2 = dup_s(to);
@@ -454,7 +497,16 @@ static int l_commands_run(lua_State *L) {
     id = luaL_checkstring(L, 1);
     r = calloc(1, sizeof *r);
     if (!r) return luaL_error(L, "not enough memory");
-    { char full[200]; if (strchr(id, '.')) snprintf(full, sizeof full, "%s", id); else snprintf(full, sizeof full, "plugin.%s.%s", p->info.id, id); r->s1 = dup_s(full); }
+    {
+        char full[200], own[100];
+        if (strchr(id, '.')) snprintf(full, sizeof full, "%s", id); else snprintf(full, sizeof full, "plugin.%s.%s", p->info.id, id);
+        snprintf(own, sizeof own, "plugin.%s.", p->info.id);
+        if (strncmp(full, own, strlen(own)) != 0 && !has_perm(p, "vault.write") && !has_perm(p, "editor.write")) {   /* an application command may delete, rename or rewrite notes */
+            free(r);
+            return luaL_error(L, "permission denied: vault.write or editor.write (to run a command of the application)");
+        }
+        r->s1 = dup_s(full);
+    }
     r->kind = R_CMD_RUN; r->nowait = 1;
     post_req(p->P, r);
     lua_pushboolean(L, 1);
@@ -488,6 +540,31 @@ static int l_add_pane(lua_State *L) {
 }
 
 /* a plugin's own settings: .exhaust/plugins/<id>/data.ini */
+/* The value of a plugin setting is kept in INI, which trims it and cuts it at " #", so the bytes it cannot hold are written as %XX (docs/formats.md, Settings of a plugin). */
+static char *enc_value(const char *v, size_t n, size_t *outlen) {
+    char *o = malloc(n * 3 + 1);
+    size_t i, w = 0;
+    if (!o) return NULL;
+    for (i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)v[i];
+        if (c == '%' || c == '#' || c < 0x20 || c == 0x7F || (c == ' ' && (i == 0 || i == n - 1))) { snprintf(o + w, 4, "%%%02X", c); w += 3; }
+        else o[w++] = (char)c;
+    }
+    o[w] = 0;
+    *outlen = w;
+    return o;
+}
+static int hexv(int c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'A' && c <= 'F' ? c - 'A' + 10 : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1; }
+static size_t dec_value(const char *v, char *out) {
+    size_t i = 0, w = 0, n = strlen(v);
+    while (i < n) {
+        if (v[i] == '%' && i + 2 < n && hexv((unsigned char)v[i + 1]) >= 0 && hexv((unsigned char)v[i + 2]) >= 0) { out[w++] = (char)(hexv((unsigned char)v[i + 1]) * 16 + hexv((unsigned char)v[i + 2])); i += 3; }
+        else out[w++] = v[i++];
+    }
+    out[w] = 0;
+    return w;
+}
+
 static int l_settings_get(lua_State *L) {
     Plug *p; char path[1500]; char *t; size_t len = 0; ExIni *ini; const char *v;
     need(L, "settings.own"); p = plug_of(L);
@@ -496,23 +573,25 @@ static int l_settings_get(lua_State *L) {
       if (!t) { lua_pushnil(L); return 1; }
       ini = ex_ini_parse(t, len); free(t);
       v = ini ? ex_ini_get(ini, "data", k) : NULL;
-      if (v) lua_pushstring(L, v); else lua_pushnil(L);
+      if (v) { char *d = malloc(strlen(v) + 1); if (!d) { ex_ini_free(ini); return luaL_error(L, "not enough memory"); } lua_pushlstring(L, d, dec_value(v, d)); free(d); } else lua_pushnil(L);
       ex_ini_free(ini); }
     return 1;
 }
 static int l_settings_set(lua_State *L) {
-    Plug *p; char path[1500]; char *t, *out; size_t len = 0, ol = 0; const char *k, *v; ExIni *ini; size_t i;
+    Plug *p; char path[1500]; char *t, *out, *ev; size_t len = 0, ol = 0, vlen = 0, evlen = 0; const char *k, *v; ExIni *ini; size_t i;
     need(L, "settings.own"); p = plug_of(L);
-    k = luaL_checkstring(L, 1); v = luaL_checkstring(L, 2);
-    if (strlen(k) > 1000 || strlen(v) > 1000 || !*k || strpbrk(k, "=[]\r\n") || strpbrk(v, "\r\n")) return luaL_error(L, "a setting has a key without = [ ] or line breaks and a value without line breaks, up to 1,000 bytes each");
+    k = luaL_checkstring(L, 1); v = luaL_checklstring(L, 2, &vlen);
+    if (strlen(k) > 1000 || vlen > 1000 || !*k || strpbrk(k, "=[]\r\n")) return luaL_error(L, "a setting has a key without = [ ] or line breaks, up to 1,000 bytes for the key and for the value");
+    ev = enc_value(v, vlen, &evlen);
+    if (!ev) return luaL_error(L, "not enough memory");
     snprintf(path, sizeof path, "%s/data.ini", p->folder);
     t = ex_platform_read_file(path, &len);
     if (!t) { t = dup_s(""); len = 0; }
     ini = ex_ini_parse(t, len);
-    if (ini && !ex_ini_get(ini, "data", k) && ex_ini_key_count(ini, "data") >= 200) { ex_ini_free(ini); free(t); return luaL_error(L, "too many settings (200)"); }
+    if (ini && !ex_ini_get(ini, "data", k) && ex_ini_key_count(ini, "data") >= 200) { ex_ini_free(ini); free(t); free(ev); return luaL_error(L, "too many settings (200)"); }
     ex_ini_free(ini);
-    out = ex_ini_patch(t, len, "data", k, v, &ol);
-    free(t);
+    out = ex_ini_patch(t, len, "data", k, ev, &ol);
+    free(t); free(ev); (void)evlen;
     (void)i;
     if (!out || ex_platform_write_file_atomic(path, out, ol) != 0) { free(out); lua_pushnil(L); lua_pushstring(L, "the settings could not be saved"); return 2; }
     free(out);

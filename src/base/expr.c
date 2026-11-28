@@ -1259,6 +1259,35 @@ static ExValue string_method(Ev *ev, ExValue r, const char *s, const char *name,
     return err(ev, "a string has no function called %s", name);
 }
 
+/* Number.prototype.toFixed: the exact decimal value of the double, rounded at `digits` places with a tie going away from zero ((2.5).toFixed(0) is "3" and
+ * (-2.5).toFixed(0) is "-3"); printf rounds a tie to even, which gives "2". */
+static void js_to_fixed(double x, int digits, char *out, size_t cap) {
+    char big[1500], tmp[1500];                                                                      /* a double has at most 1074 digits after the point */
+    const char *dot;
+    size_t keep, i, w = 0;
+    int neg = x < 0, up;
+    if (neg) x = -x;
+    snprintf(big, sizeof big, "%.1100f", x);
+    dot = strchr(big, '.');
+    if (!dot) { snprintf(out, cap, "%s%.300s", neg ? "-" : "", big); return; }
+    keep = (size_t)(dot - big) + (digits > 0 ? (size_t)digits + 1 : 0);
+    up = dot[1 + digits] >= '5';
+    if (keep + 2 > sizeof tmp || keep + 3 > cap) { snprintf(out, cap, "%s%.*f", neg ? "-" : "", digits, x); return; }
+    memcpy(tmp, big, keep);
+    tmp[keep] = 0;
+    if (up) {
+        for (i = keep; i-- > 0;) {
+            if (tmp[i] == '.') continue;
+            if (tmp[i] == '9') tmp[i] = '0';
+            else { tmp[i]++; up = 0; break; }
+        }
+        if (up) { memmove(tmp + 1, tmp, keep + 1); tmp[0] = '1'; }
+    }
+    if (neg && w + 1 < cap) out[w++] = '-';
+    for (i = 0; tmp[i] && w + 1 < cap; i++) out[w++] = tmp[i];
+    out[w] = 0;
+}
+
 static ExValue number_method(Ev *ev, double x, const char *name, const ExValue *a, size_t n) {
     ExValue e;
     if (!strcmp(name, "abs")) return ex_v_num(fabs(x));
@@ -1271,16 +1300,23 @@ static ExValue number_method(Ev *ev, double x, const char *name, const ExValue *
         if (n && !to_num(a[0], &d)) return err(ev, "round() needs a number of digits");
         if (d < 0 || d > 15) d = d < 0 ? 0 : 15;
         f = pow(10.0, floor(d));
-        return ex_v_num(floor(x * f + 0.5) / f);                                                    /* halves go up, as Math.round does */
+        {   /* halves go up, as Math.round does; floor(y + 0.5) is wrong for 0.49999999999999994 (the sum rounds up to 1) and for numbers past 2^52 (it adds a whole one) */
+            double y = x * f, r = floor(y);
+            if (isfinite(y) && y - r >= 0.5) r += 1.0;
+            return ex_v_num(isfinite(y) ? r / f : x);
+        }
     }
     if (!strcmp(name, "toFixed")) {
         double p;
         char b[400];
         e = need(ev, name, n, 1, 1); if (IS_ERR(e)) return e;
-        if (!to_num(a[0], &p) || p < 0 || p > 100) return err(ev, "toFixed() needs 0 to 100 digits");
+        if (!to_num(a[0], &p)) return err(ev, "toFixed() needs 0 to 100 digits");
+        if (isnan(p)) p = 0;                                                  /* ToIntegerOrInfinity: NaN is 0 and 2.7 is 2 */
+        p = trunc(p);
+        if (p < 0 || p > 100) return err(ev, "toFixed() needs 0 to 100 digits");
         if (isnan(x) || isinf(x)) { ex_number_to_string(x, b, sizeof b); return str_v(ev, b); }
         if (fabs(x) >= 1e21) { ex_number_to_string(x, b, sizeof b); return str_v(ev, b); }
-        snprintf(b, sizeof b, "%.*f", (int)p, x);
+        js_to_fixed(x, (int)p, b, sizeof b);
         return str_v(ev, b);
     }
     return err(ev, "a number has no function called %s", name);

@@ -121,12 +121,19 @@ int ex_journal_next(const uint8_t *data, size_t len, size_t *pos, ExJournalRecor
     if (p >= len) return 0;
     if (len - p < 4) return 0;
     blen = rd32(data + p); /* body + checksum */
-    if (blen < 4 + 1 + 8 + 2 || blen > len - p - 4) return 0;
+    if (blen < 1 + 4 || blen > len - p - 4) return 0;
     body = data + p + 4;
     blen -= 4;
     if (rd32(body + blen) != ex_crc32(0, body, blen)) return 0;
     memset(rec, 0, sizeof *rec);
     rec->type = (char)body[0];
+    if (rec->type != 'E' && rec->type != 'B' && rec->type != 'S') {
+        /* a record of a type this version does not know (a newer version's): its checksum is right, so it is not damage; whatever its layout,
+         * it is skipped and the records after it are still read (docs/formats.md, Journal file) */
+        *pos = p + 4 + blen + 4;
+        return 1;
+    }
+    if (blen < 1 + 8 + 2) return 0;
     rec->timestamp_ms = rd64(body + 1);
     plen = rd16(body + 9);
     if (11 + plen > blen) return 0;
@@ -162,6 +169,14 @@ int ex_journal_replay(const uint8_t *data, size_t len, const char *path, ExBuffe
         if (r.type == 'S' && r.path_len == plen && memcmp(r.path, path, plen) == 0) last_saved_end = pos;
     /* pass 2: apply this path's edits after it */
     pos = last_saved_end;
+    {   /* check that every edit fits before one is applied: a journal that does not belong to the text leaves the text as it was, not half changed */
+        size_t sz = ex_buffer_size(buf), at = pos;
+        while ((rc = ex_journal_next(data, len, &at, &r)) == 1) {
+            if (r.type != 'E' || r.path_len != plen || memcmp(r.path, path, plen) != 0) continue;
+            if (r.offset > sz || r.removed > sz - r.offset) return -1;
+            sz = sz - (size_t)r.removed + r.inserted_len;
+        }
+    }
     while ((rc = ex_journal_next(data, len, &pos, &r)) == 1) {
         if (r.type != 'E' || r.path_len != plen || memcmp(r.path, path, plen) != 0) continue;
         if (r.offset > ex_buffer_size(buf) || r.removed > ex_buffer_size(buf) - r.offset) return -1;

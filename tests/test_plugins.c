@@ -139,6 +139,7 @@ int main(void) {
         "  ok, e = pcall(exhaust.editor.text); exhaust.ui.notice('editor: ' .. tostring(ok) .. ' ' .. tostring(e))\n"
         "  ok, e = pcall(exhaust.http.get, 'https://example.org'); exhaust.ui.notice('http: ' .. tostring(ok) .. ' ' .. tostring(e))\n"
         "  ok, e = pcall(exhaust.ui.add_pane, 'p', {title = 'x', text = 'y'}); exhaust.ui.notice('pane: ' .. tostring(ok) .. ' ' .. tostring(e))\n"
+        "  ok, e = pcall(exhaust.commands.run, 'app.rename-file'); exhaust.ui.notice('run: ' .. tostring(ok) .. ' ' .. tostring(e))\n"
         "end)\n");
     P = ex_plugins_create(V, CMDS, &host, NULL, NULL);
     CHECK(P != NULL);
@@ -199,6 +200,7 @@ int main(void) {
     CHECK(notice_has("editor: false") && notice_has("permission denied: editor.read"));
     CHECK(notice_has("http: false") && notice_has("permission denied: network"));
     CHECK(notice_has("pane: false") && notice_has("permission denied: ui.pane"));
+    CHECK(notice_has("run: false") && notice_has("permission denied: vault.write or editor.write"));      /* a command of the application, with only commands.register */
 
     /* when a plugin's permissions change, the approval no longer matches: it stops and needs the user again */
     plugin("denied", "commands.register, ui.notice, vault.write", "exhaust.commands.register('try', 'Try', function() end)\n");

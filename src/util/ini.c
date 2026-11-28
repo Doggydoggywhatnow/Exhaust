@@ -51,9 +51,13 @@ void ex_ini_free(ExIni *ini) {
 }
 
 int ex_ini_set(ExIni *ini, const char *section, const char *key, const char *value) {
-    Section *s = find(ini, section);
+    Section *s;
     size_t i;
     char *v;
+    /* A line break in a key, a value or a section name, or a key that reads as a header, a comment or "a = b", would be written as more lines than one:
+     * a line injected into a file that a user or a plugin controls. Such a pair is refused (-1) and the model stays as it was. */
+    if (!key[0] || strpbrk(key, "\r\n=") || key[0] == '[' || key[0] == '#' || key[0] == ';' || strpbrk(value, "\r\n") || strpbrk(section, "\r\n]")) return -1;
+    s = find(ini, section);
     if (!s) s = add_section(ini, section);
     if (!s) return -1;
     v = dup_str(value);
@@ -125,12 +129,14 @@ static char *trim(char *s) {
     return s;
 }
 
-ExIni *ex_ini_parse(const char *text, size_t len) {
+static ExIni *parse_impl(const char *text, size_t len, int inline_comments) {
     ExIni *ini = ex_ini_new();
     char *copy = malloc(len + 1), *line, *next;
-    char cur[256] = "";
+    char *cur = NULL;                      /* the name of the section being read: as long as a line can be */
     int have_section = 0;
     if (!ini || !copy) { free(copy); ex_ini_free(ini); return NULL; }
+    cur = calloc(len + 2, 1);
+    if (!cur) { free(copy); ex_ini_free(ini); return NULL; }
     memcpy(copy, text, len);
     copy[len] = 0;
     if (len >= 3 && (unsigned char)copy[0] == 0xEF && (unsigned char)copy[1] == 0xBB && (unsigned char)copy[2] == 0xBF) memmove(copy, copy + 3, len - 2);
@@ -144,7 +150,7 @@ ExIni *ex_ini_parse(const char *text, size_t len) {
             char *close = strchr(l, ']');
             if (!close) continue;
             *close = 0;
-            snprintf(cur, sizeof cur, "%s", l + 1);
+            strcpy(cur, l + 1);
             have_section = 1;
             if (!find(ini, cur) && !add_section(ini, cur)) break;
             continue;
@@ -153,14 +159,18 @@ ExIni *ex_ini_parse(const char *text, size_t len) {
         if (!eq) continue;
         *eq = 0;
         {
-            char *key = trim(l), *val = trim(eq + 1), *hash = strstr(val, " #");
+            char *key = trim(l), *val = trim(eq + 1), *hash = inline_comments ? strstr(val, " #") : NULL;
             if (hash) { *hash = 0; val = trim(val); }
             if (*key) ex_ini_set(ini, have_section ? cur : "", key, val);
         }
     }
     free(copy);
+    free(cur);
     return ini;
 }
+
+ExIni *ex_ini_parse(const char *text, size_t len) { return parse_impl(text, len, 1); }
+ExIni *ex_ini_parse_plain(const char *text, size_t len) { return parse_impl(text, len, 0); }
 
 char *ex_ini_write(const ExIni *ini, size_t *len) {
     size_t i, k, cap = 256, n = 0;
@@ -171,7 +181,9 @@ char *ex_ini_write(const ExIni *ini, size_t *len) {
         size_t need = strlen(s->name) + 8;
         for (k = 0; k < s->n; k++) need += strlen(s->pairs[k].key) + strlen(s->pairs[k].value) + 8;
         if (n + need + 2 > cap) { char *nb; cap = (n + need + 2) * 2; nb = realloc(buf, cap); if (!nb) { free(buf); return NULL; } buf = nb; }
-        if (s->name[0]) n += (size_t)sprintf(buf + n, "[%s]\n", s->name);
+        /* the section without a name needs no header at the top of the file (its keys are the ones before any header), but anywhere
+         * else, or with no keys, "[]" is what keeps its keys out of the section above it and keeps the section itself */
+        if (s->name[0] || i > 0 || s->n == 0) n += (size_t)sprintf(buf + n, "[%s]\n", s->name);
         for (k = 0; k < s->n; k++) n += (size_t)sprintf(buf + n, "%s = %s\n", s->pairs[k].key, s->pairs[k].value);
         buf[n++] = '\n';
     }
@@ -291,11 +303,13 @@ char *ex_ini_patch(const char *text, size_t len, const char *section, const char
             vs = val_off;
             while (vs < eol && (l[vs] == ' ' || l[vs] == '\t')) vs++;                   /* a value that starts with # (a colour) is a value, as the reader sees it, not a comment */
             for (i = vs; i + 1 < eol; i++) if (l[i] == ' ' && l[i + 1] == '#') { while (i > val_off + 1 && l[i - 1] == ' ') i--; keep_from = i; break; }   /* a trailing comment stays, with its spacing */
+            if (value[0] == 0) keep_from = 0;      /* "x = # note" reads as the value "# note" (a value that starts with # is a colour), so an empty value cannot keep a comment */
             put(&b, text, key_start);
             {
                 size_t k = 0, ke;
                 while (k < eol && (l[k] == ' ' || l[k] == '\t')) k++;
-                for (ke = k; ke < val_off - 1 && l[ke] != ' ' && l[ke] != '\t' && l[ke] != '='; ke++) {}
+                ke = val_off - 1;                                                      /* the "=" that key_line found */
+                while (ke > k && (l[ke - 1] == ' ' || l[ke - 1] == '\t')) ke--;          /* the key may hold spaces ("my key"); only the blanks before the "=" are not part of it */
                 put(&b, l, ke);              /* indentation and the key as written */
                 put(&b, " = ", 3);
                 put(&b, value, strlen(value));
@@ -327,4 +341,32 @@ char *ex_ini_patch(const char *text, size_t len, const char *section, const char
     if (!b.p) { b.p = malloc(1); if (!b.p) return NULL; b.p[0] = 0; }
     if (out_len) *out_len = b.n;
     return b.p;
+}
+
+/* ---- values that INI cannot hold as they are ---- */
+
+char *ex_ini_encode_value(const char *v, size_t n, size_t *outlen) {
+    char *o = malloc(n * 3 + 1);
+    size_t i, w = 0;
+    if (!o) return NULL;
+    for (i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)v[i];
+        if (c == '%' || c == '#' || c < 0x20 || c == 0x7F || (c == ' ' && (i == 0 || i == n - 1))) { snprintf(o + w, 4, "%%%02X", c); w += 3; }
+        else o[w++] = (char)c;
+    }
+    o[w] = 0;
+    if (outlen) *outlen = w;
+    return o;
+}
+
+static int hexval(int c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'A' && c <= 'F' ? c - 'A' + 10 : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1; }
+
+size_t ex_ini_decode_value(const char *v, char *out) {
+    size_t i = 0, w = 0, n = strlen(v);
+    while (i < n) {
+        if (v[i] == '%' && i + 2 < n && hexval((unsigned char)v[i + 1]) >= 0 && hexval((unsigned char)v[i + 2]) >= 0) { out[w++] = (char)(hexval((unsigned char)v[i + 1]) * 16 + hexval((unsigned char)v[i + 2])); i += 3; }
+        else out[w++] = v[i++];
+    }
+    out[w] = 0;
+    return w;
 }

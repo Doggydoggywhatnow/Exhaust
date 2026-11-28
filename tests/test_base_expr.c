@@ -320,7 +320,7 @@ int main(void) {
     T("(-5).abs()", "5"); T("(5).abs()", "5"); T("(2.1).ceil()", "3"); T("(-2.1).ceil()", "-2"); T("(2.9).floor()", "2"); T("(-2.1).floor()", "-3");
     T("(5).isEmpty()", "false"); T("(0/0).isEmpty()", "true");
     T("(2.5).round()", "3"); T("(2.3333).round(2)", "2.33"); T("(2.4).round()", "2"); T("(-2.5).round()", "-2"); T("(1234.5678).round(1)", "1234.6");
-    T("(3.14159).toFixed(2)", "\"3.14\""); T("(5).toFixed(2)", "\"5.00\""); T("(2.5).toFixed(0)", "\"2\""); T("(1.005).toFixed(2)", "\"1.00\""); T("(0).toFixed(1)", "\"0.0\"");
+    T("(3.14159).toFixed(2)", "\"3.14\""); T("(5).toFixed(2)", "\"5.00\""); T("(2.5).toFixed(0)", "\"3\""); T("(-2.5).toFixed(0)", "\"-3\""); T("(0.5).toFixed(0)", "\"1\"");   /* a tie goes away from zero, as in JavaScript (printf gives "2", "-2" and "0") */ T("(1.005).toFixed(2)", "\"1.00\""); T("(0).toFixed(1)", "\"0.0\"");
     E("(1).toFixed(-1)", "digits"); E("(1).nonsense()", "no function");
     T("price.toFixed(2)", "\"12.50\"");
 

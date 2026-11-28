@@ -116,15 +116,22 @@ static void check_patch(const char *text, size_t len, const char *sec, const cha
     }
     /* byte for byte: the same lines, except the one that changed or the lines added at the end of a section or the file */
     {
-        size_t ls[64], ps[64], nl = split_lines(text, len, ls, 62), np = split_lines(patched, outlen, ps, 62), same_prefix = 0, same_suffix = 0;
+        /* the byte-order mark belongs to the first line; compare the lines after it, as the BOM stays at the top of the file whatever is put in front of the old first line */
+        const char *btext = text, *bpatched = patched;
+        size_t blen = len, boutlen = outlen;
+        if (blen >= 3 && !memcmp(btext, "\xEF\xBB\xBF", 3)) { btext += 3; blen -= 3; if (boutlen >= 3 && !memcmp(bpatched, "\xEF\xBB\xBF", 3)) { bpatched += 3; boutlen -= 3; } }
+        size_t ls[64], ps[64], nl = split_lines(btext, blen, ls, 62), np = split_lines(bpatched, boutlen, ps, 62), same_prefix = 0, same_suffix = 0;
         if (nl < 62 && np < 62) {
             while (same_prefix < nl && same_prefix < np && ls[same_prefix + 1] - ls[same_prefix] == ps[same_prefix + 1] - ps[same_prefix] &&
-                   !memcmp(text + ls[same_prefix], patched + ps[same_prefix], ls[same_prefix + 1] - ls[same_prefix])) same_prefix++;
+                   !memcmp(btext + ls[same_prefix], bpatched + ps[same_prefix], ls[same_prefix + 1] - ls[same_prefix])) same_prefix++;
             while (same_suffix < nl - same_prefix && same_suffix < np - same_prefix &&
                    ls[nl - same_suffix] - ls[nl - same_suffix - 1] == ps[np - same_suffix] - ps[np - same_suffix - 1] &&
-                   !memcmp(text + ls[nl - same_suffix - 1], patched + ps[np - same_suffix - 1], ls[nl - same_suffix] - ls[nl - same_suffix - 1])) same_suffix++;
+                   !memcmp(btext + ls[nl - same_suffix - 1], bpatched + ps[np - same_suffix - 1], ls[nl - same_suffix] - ls[nl - same_suffix - 1])) same_suffix++;
             /* what is left in the middle may be one changed line, or one added line (or two when the last line had no line end) */
-            HUNT_CHECKF(nl - same_prefix - same_suffix <= 1 && np - same_prefix - same_suffix <= 2, "patching [%s] %s touched %lu old lines and %lu new lines", sec, key, (unsigned long)(nl - same_prefix - same_suffix), (unsigned long)(np - same_prefix - same_suffix));
+            /* a section that the file does not have is added at the end with its header and a blank line before it: up to three lines, and the last old line when it had no line ending and now has one */
+            int has_sec = 0;
+            for (i = 0; i < ex_ini_section_count(before); i++) if (!strcmp(ex_ini_section_name(before, i), sec)) has_sec = 1;
+            HUNT_CHECKF(nl - same_prefix - same_suffix <= 1 && np - same_prefix - same_suffix <= (has_sec || !sec[0] ? 2u : 3u + (blen > 0 && btext[blen - 1] != '\n' ? 1u : 0u)), "patching [%s] %s touched %lu old lines and %lu new lines", sec, key, (unsigned long)(nl - same_prefix - same_suffix), (unsigned long)(np - same_prefix - same_suffix));
         }
     }
     /* the BOM and the line ending style */

@@ -361,6 +361,7 @@ typedef struct MatchState {
   const char *p_end;  /* end ('\0') of pattern */
   lua_State *L;
   int matchdepth;  /* control for recursive depth (to avoid C stack overflow) */
+  unsigned int steps;  /* Exhaust: steps taken, so a pattern that backtracks for ever can be stopped (see 'match') */
   unsigned char level;  /* total number of captures (finished or unfinished) */
   struct {
     const char *init;
@@ -571,6 +572,12 @@ static const char *match (MatchState *ms, const char *s, const char *p) {
   if (l_unlikely(ms->matchdepth-- == 0))
     luaL_error(ms->L, "pattern too complex");
   init: /* using goto to optimize tail recursion */
+  /* Exhaust: the instruction hook never runs inside a C function, so a pattern such as ('a'):rep(30) .. 'b' against '(a*)*c'
+   * could not be stopped by the plugin time limit. Every 16384 steps the hook is called as well; it raises the error. */
+  if (l_unlikely((++ms->steps & 0x3FFF) == 0)) {
+    lua_Hook hk = lua_gethook(ms->L);
+    if (hk) { lua_Debug ar; memset(&ar, 0, sizeof ar); hk(ms->L, &ar); }
+  }
   if (p != ms->p_end) {  /* end of pattern? */
     switch (*p) {
       case '(': {  /* start capture */
@@ -758,6 +765,7 @@ static void prepstate (MatchState *ms, lua_State *L,
                        const char *s, size_t ls, const char *p, size_t lp) {
   ms->L = L;
   ms->matchdepth = MAXCCALLS;
+  ms->steps = 0;
   ms->src_init = s;
   ms->src_end = s + ls;
   ms->p_end = p + lp;

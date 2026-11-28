@@ -1,5 +1,6 @@
 /* HTML to Markdown for the HTML importer (sub-slice 6e-v). A forgiving single pass over the tags with an explicit stack (no recursion, so deeply nested
  * input cannot overflow the call stack); see include/exhaust_import.h. */
+#include "exhaust_html.h"
 #include "exhaust_import.h"
 
 #include <ctype.h>
@@ -42,6 +43,7 @@ typedef struct Frame {
     int marker_pending;  /* li: the marker is not yet written */
     char *href;          /* a: malloc'ed */
     size_t href_text_at; /* a: where its text starts in the output */
+    Buf *href_buf;       /* a: the buffer that holds it (the page, or a table cell: the link may close in another one) */
     int level;           /* heading */
     int header_cell;
 } Frame;
@@ -277,7 +279,7 @@ static void open_tag(St *s, const char *name, Attr *a, int na, int self_close) {
     if (!strcmp(name, "hr")) { block_break(s); begin_line(s); bs(dst(s), "---"); newline(s); block_break(s); return; }
     if (!strcmp(name, "img")) {
         char *src = attr_of(a, na, "src"), *alt = attr_of(a, na, "alt"), *altd = decode(alt ? alt : "", alt ? strlen(alt) : 0), *srcd = decode(src ? src : "", src ? strlen(src) : 0);
-        if (srcd && *srcd && altd) {
+        if (srcd && *srcd && altd && ex_html_url_allowed(srcd, strlen(srcd))) {      /* only http, https, mailto, relative and # addresses: a page's javascript: or data: address does not come into a note */
             size_t i;
             begin_line(s);
             bs(dst(s), "![");
@@ -327,9 +329,12 @@ static void open_tag(St *s, const char *name, Attr *a, int na, int self_close) {
     if (k == T_SUPSUB) { begin_line(s); bs(dst(s), name[1] == 'u' && name[2] == 'p' ? "<sup>" : "<sub>"); s->last_space = 1; }
     if (k == T_A) {
         char *h = attr_of(a, na, "href");
-        if (h && *h) {
-            f->href = decode(h, strlen(h));
+        f->href = NULL;
+        if (h && *h) f->href = decode(h, strlen(h));
+        if (f->href && !ex_html_url_allowed(f->href, strlen(f->href))) { free(f->href); f->href = NULL; }          /* the text stays, without the link */
+        if (f->href) {
             begin_line(s); bc(dst(s), '[');
+            f->href_buf = dst(s);
             f->href_text_at = dst(s)->n;
             s->last_space = 1;
         }
@@ -373,7 +378,7 @@ static void close_frame(St *s, int i, const char *name) {
     case T_MARK: trim_trailing_space_then(s, "=="); break;
     case T_SUPSUB: bs(dst(s), name[1] == 'u' && name[2] == 'p' ? "</sup>" : "</sub>"); break;
     case T_A:
-        if (f->href) {
+        if (f->href && f->href_buf == dst(s) && f->href_buf->n >= f->href_text_at && f->href_text_at > 0) {     /* the same buffer it was opened in, and not emptied since */
             Buf *b = dst(s);
             size_t k;
             if (b->n > f->href_text_at) {

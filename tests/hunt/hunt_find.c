@@ -72,7 +72,8 @@ static void test_plain_oracle(void) {
             for (from = 0; from <= len + 1; from++) {
                 size_t st = 0, en = 0, want = (size_t)-1;
                 ExFindResult rc;
-                for (s = 0; s < from && s + pl <= len; s++) if (naive_at(text, len, s, pat, pl, mc, ww)) want = s;
+                /* the matches in the order next finds them, one after another without overlapping (exhaust_find.h): the last that starts before `from` */
+                for (s = 0; s < from && s + pl <= len;) { if (naive_at(text, len, s, pat, pl, mc, ww)) { want = s; s += pl; } else s++; }
                 rc = ex_find_prev(f, text, len, from, &st, &en);
                 if (want == (size_t)-1) HUNT_CHECKF(rc == EX_FIND_NONE, "prev(%lu) found a match at %lu, the oracle finds none (text %s, pattern %s)", (unsigned long)from, (unsigned long)st, text, pat);
                 else HUNT_CHECKF(rc == EX_FIND_MATCH && st == want && en == want + pl, "prev(%lu) = %d %lu-%lu, the oracle says %lu (text %s, pattern %s, case %d, word %d)", (unsigned long)from, (int)rc, (unsigned long)st, (unsigned long)en, (unsigned long)want, text, pat, mc, ww);
@@ -135,11 +136,13 @@ static void test_regex_consistency(void) {
         {
             size_t starts[80], nstarts = 0, s, nchain = 0, from = 0;
             size_t guard = 0;
-            /* every place a match starts, found by asking next from that very place */
-            for (s = 0; s <= len; s++) {
+            /* the matches in the order next finds them, one after another without overlapping: prev walks the same matches back (exhaust_find.h) */
+            for (s = 0; s <= len;) {
                 size_t st = 0, en = 0;
-                if (s < len && ((unsigned char)text[s] & 0xC0) == 0x80) continue;
-                if (ex_find_next(f, text, len, s, &st, &en) == EX_FIND_MATCH && st == s && en >= st && en <= len) { if (nstarts < 80) starts[nstarts++] = s; }
+                if (ex_find_next(f, text, len, s, &st, &en) != EX_FIND_MATCH || st < s || en < st || en > len) break;
+                if (nstarts < 80) starts[nstarts++] = st;
+                s = en > st ? en : st + 1;
+                while (s < len && ((unsigned char)text[s] & 0xC0) == 0x80) s++;
             }
             for (s = 0; s <= len + 1; s++) {
                 size_t st = 0, en = 0, want = (size_t)-1, k;
@@ -280,7 +283,7 @@ static void test_patterns(void) {
             { "\\$1", "$1" }, { "a\\nb", "a\nb" }, { "", "" }, { "plain", "plain" }, { "$3", "" }, { "$9", "" }, { "${9}", "" }, { "${99}", "" }, { "$1$2", "helloworld" }, { "$1-$2-$0", "hello-world-hello world" },
         };
         size_t k;
-        HUNT_EQ_INT(ex_find_next(f, t, strlen(t), 0, &st, &en), 1);
+        HUNT_EQ_INT(ex_find_next(f, t, strlen(t), 4, &st, &en), 1);          /* from 4: "say hello" would be the first match from 0 */
         HUNT_CHECK(st == 4 && en == 15);
         for (k = 0; k < sizeof rp / sizeof *rp; k++) {
             r = ex_find_replacement(f, t, strlen(t), st, en, rp[k].repl, strlen(rp[k].repl), &ol);

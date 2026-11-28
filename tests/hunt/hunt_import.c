@@ -740,7 +740,8 @@ static void test_html2md(void) {
             if (out) {
                 HUNT_CHECK(out[ol] == 0);
                 HUNT_CHECKF(valid_utf8_s(out), "the output is not valid UTF-8");
-                HUNT_CHECK(!strstr(out, "javascript:") || !strstr(text, "javascript:"));
+                /* javascript: as text is only text; as the address of a link or an image it must not come through */
+                HUNT_CHECK(!strstr(out, "](javascript:") && !strstr(out, "<javascript:") && !strstr(out, "](JavaScript:") && !strstr(out, "](  javascript:"));
             }
             hunt_clear_input();
             free(out); free(title); title = NULL;

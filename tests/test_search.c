@@ -163,7 +163,7 @@ static void t_results(void) {
     /* sorting */
     { ExSearch *s = ex_search_parse("fox", NULL, 0);
       ex_search_results_free(g_res, g_n); g_res = NULL;
-      o.sort = EX_SEARCH_PATH_ZA; CHECK(ex_search_run(g_ix, g_root, s, &o, &g_res, &g_n, NULL) == 0 && g_n == 4 && !strcmp(g_res[0].path, "notes/Fox diary.md"));
+      o.sort = EX_SEARCH_PATH_ZA; CHECK(ex_search_run(g_ix, g_root, s, &o, &g_res, &g_n, NULL) == 0 && g_n == 4 && !strcmp(g_res[0].path, "Gamma.md"));      /* Z to A is A to Z reversed (the file names Alpha, Beta, Fox diary, Gamma): it had been sorted by the whole path, "notes/..." first */
       ex_search_results_free(g_res, g_n); g_res = NULL;
       o.sort = EX_SEARCH_PATH_AZ; CHECK(ex_search_run(g_ix, g_root, s, &o, &g_res, &g_n, NULL) == 0 && !strcmp(g_res[0].path, "Alpha.md"));
       ex_search_results_free(g_res, g_n); g_res = NULL;

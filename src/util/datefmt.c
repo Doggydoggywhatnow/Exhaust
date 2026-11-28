@@ -147,7 +147,8 @@ static size_t format_into(Out *o, double ms, int tz_min, const char *fmt, int de
             continue;
         }
         if (*f == '\\' && f[1]) { put(o, f + 1, 1); f += 2; continue; }
-        if (depth < 2 && (token_is(f, "LLLL") || token_is(f, "llll"))) { format_into(o, ms, tz_min, "dddd, MMMM D, YYYY h:mm A", depth + 1); f += 4; continue; }
+        if (depth < 2 && token_is(f, "LLLL")) { format_into(o, ms, tz_min, "dddd, MMMM D, YYYY h:mm A", depth + 1); f += 4; continue; }
+        if (depth < 2 && token_is(f, "llll")) { format_into(o, ms, tz_min, "ddd, MMM D, YYYY h:mm A", depth + 1); f += 4; continue; }     /* Moment's English (US): the short names */
         if (depth < 2 && token_is(f, "LLL")) { format_into(o, ms, tz_min, "MMMM D, YYYY h:mm A", depth + 1); f += 3; continue; }
         if (depth < 2 && token_is(f, "lll")) { format_into(o, ms, tz_min, "MMM D, YYYY h:mm A", depth + 1); f += 3; continue; }
         if (depth < 2 && token_is(f, "LTS")) { format_into(o, ms, tz_min, "h:mm:ss A", depth + 1); f += 3; continue; }
@@ -271,6 +272,7 @@ int ex_date_parse(const char *s, size_t n, int tz_min, double *ms, int *has_time
                 if (digits(s, n, &pos, 2, &th)) return -1;
                 if (pos < n && s[pos] == ':') pos++;
                 if (pos < n && digits(s, n, &pos, 2, &tm)) return -1;
+                if (th > 23 || tm > 59) return -1;                 /* +25:00 and +05:60 are not zones */
                 tz = sign * (th * 60 + tm);
             }
             if (pos != n) return -1;

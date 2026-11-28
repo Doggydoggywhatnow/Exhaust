@@ -16,7 +16,7 @@
 
 /* ---- A. structure ---- */
 
-static uint32_t brute_line(const char *t, size_t off) { uint32_t l = 1; size_t i; for (i = 0; i < off && i < strlen(t); i++) if (t[i] == '\n') l++; return l; }
+static uint32_t brute_line(const char *t, size_t off) { uint32_t l = 1; size_t i; for (i = 0; i < off; i++) if (t[i] == '\n') l++; return l; }       /* off is within the text, NUL bytes included */
 
 static void check_structure(const char *text, size_t len, const char *what) {
     ExExtract *x = ex_extract(text, len);
@@ -207,7 +207,7 @@ static void test_known(void) {
     }
     ex_extract_free(x);
     hunt_step("known: properties");
-    x = X("---\ntitle: Hello\ntags: [a, b]\naliases:\n  - A1\n  - A2\nn: 42\nf: 3.5\nneg: -7\ndone: true\nno: false\nd: 2024-02-29\ndt: 2024-02-29T10:30:00\ndt2: 2024-02-29 10:30\nq: \"2024-02-29\"\nl: \"[[Note]]\"\nl2: [[Note]]\nempty:\ntxt: a: b\nlst: [x, y]\nn2: '5'\nbig: 1e3\n---\nbody\n");
+    x = X("---\ntitle: Hello\ntags: [a, b]\naliases:\n  - A1\n  - A2\nn: 42\nf: 3.5\nneg: -7\ndone: true\nno: false\nd: 2024-02-29\ndt: 2024-02-29T10:30:00\ndt2: 2024-02-29 10:30\nq: \"2024-02-29\"\nl: \"[[Note]]\"\nl2: [[Note]]\nempty:\ntxt: \"a: b\"\nlst: [x, y]\nn2: '5'\nbig: 1e3\n---\nbody\n");
     HUNT_CHECK(x && x->front_valid);
     if (x && x->front_valid) {
         struct { const char *name; int type; } ty[] = { { "title", EX_PROP_TEXT }, { "tags", EX_PROP_LIST }, { "aliases", EX_PROP_LIST }, { "n", EX_PROP_NUMBER }, { "f", EX_PROP_NUMBER }, { "neg", EX_PROP_NUMBER }, { "done", EX_PROP_CHECKBOX },

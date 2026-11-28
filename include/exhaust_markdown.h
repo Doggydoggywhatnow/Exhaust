@@ -70,7 +70,9 @@ typedef struct ExMdRange { size_t start, end; } ExMdRange;
 ExMdRange ex_md_update(ExMd *m, const char *text, size_t len, size_t offset, size_t removed, size_t inserted);
 
 /* Calls fn for every span that overlaps [from, to), ordered by start and, for equal starts, outer
- * before inner. Return non-zero from fn to stop. */
+ * before inner. Return non-zero from fn to stop. An empty window (to <= from) asks for the position
+ * `from`: the spans that contain it (as for [from, from + 1)), which is what the editor asks for the
+ * place of the caret. */
 typedef int (*ExMdVisit)(const ExMdSpan *span, void *user);
 void ex_md_visit(const ExMd *m, size_t from, size_t to, ExMdVisit fn, void *user);
 

@@ -47,6 +47,11 @@ ExFind *ex_find_compile(const char *pattern, size_t len, const ExFindOptions *op
     if (err && errcap) err[0] = 0;
     if (!pattern || len == 0) { if (err && errcap) snprintf(err, errcap, "Nothing to search for"); return NULL; }
     if (!opt->match_case) flags |= PCRE2_CASELESS;
+    /* A caseless search for a letter makes PCRE2 look for that letter in both cases with memchr over the whole rest of the text on every call, and that scan is
+     * not remembered between calls: a text without a capital T, searched for "the", cost the length of the text for each match (replace-all over 100,000 matches
+     * in 6 MB took minutes). Without the start-of-match optimization (a compile option) PCRE2 tries each position instead, which costs only the distance to the
+     * next match. Only for plain text: a regular expression keeps the optimization its author may rely on. */
+    if (!opt->regex && !opt->match_case) flags |= PCRE2_NO_START_OPTIMIZE;
     if (opt->regex) { pat = malloc(len + 1); if (pat) { memcpy(pat, pattern, len); pat[len] = 0; plen = len; } }
     else pat = escape_plain(pattern, len, &plen);
     if (!pat) return NULL;

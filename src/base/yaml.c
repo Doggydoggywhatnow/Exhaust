@@ -1,4 +1,5 @@
 /* A YAML tree that keeps everything: see include/exhaust_yaml.h. */
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -120,6 +121,7 @@ ExYNode *ex_y_parse(const char *text, size_t len, char *err, size_t errcap) {
         if (err && errcap) snprintf(err, errcap, "%s", msg);
         return NULL;
     }
+    if (root && root->kind == EXY_SCALAR && (root->style == EXY_PLAIN || root->style == 0) && (!root->value || !*root->value) && !root->anchor && !root->tag) { ex_y_free(root); root = NULL; }   /* "---" and nothing else: the same as an empty file */
     if (!root) root = node_new(EXY_MAP);                                              /* an empty file is an empty mapping */
     return root;
 }
@@ -206,6 +208,25 @@ static int looks_special(const char *s) {
     if (!*s) return 1;
     if (!strcmp(s, "true") || !strcmp(s, "false") || !strcmp(s, "null") || !strcmp(s, "~") || !strcmp(s, "yes") || !strcmp(s, "no") || !strcmp(s, "on") || !strcmp(s, "off")
         || !strcmp(s, "True") || !strcmp(s, "False") || !strcmp(s, "Null") || !strcmp(s, "TRUE") || !strcmp(s, "FALSE") || !strcmp(s, "NULL") || !strcmp(s, "Yes") || !strcmp(s, "No") || !strcmp(s, "YES") || !strcmp(s, "NO")) return 1;
+    /* what YAML 1.1 readers (PyYAML and many other tools) read as something other than text; quoting such text costs nothing and keeps its meaning for every reader */
+    if (!strcmp(s, "y") || !strcmp(s, "n") || !strcmp(s, "Y") || !strcmp(s, "N") || !strcmp(s, "On") || !strcmp(s, "Off") || !strcmp(s, "ON") || !strcmp(s, "OFF")) return 1;
+    if (!strcmp(s, ".inf") || !strcmp(s, ".Inf") || !strcmp(s, ".INF") || !strcmp(s, "+.inf") || !strcmp(s, "-.inf") || !strcmp(s, "-.Inf") || !strcmp(s, "-.INF") || !strcmp(s, ".nan") || !strcmp(s, ".NaN") || !strcmp(s, ".NAN")) return 1;
+    {
+        size_t i = 0, digits = 0, us = 0, n = strlen(s);
+        if (n > 2 && s[0] == '0' && s[1] == 'o') { for (i = 2; i < n && s[i] >= '0' && s[i] <= '7'; i++) {} if (i == n) return 1; }       /* 0o17 */
+        i = (s[0] == '+' || s[0] == '-') ? 1 : 0;
+        for (; i < n && ((s[i] >= '0' && s[i] <= '9') || s[i] == '_'); i++) { if (s[i] == '_') us++; else digits++; }
+        if (i == n && digits && us) return 1;                                                                                          /* 1_000 */
+        if (n >= 10 && isdigit((unsigned char)s[0]) && isdigit((unsigned char)s[1]) && isdigit((unsigned char)s[2]) && isdigit((unsigned char)s[3]) && s[4] == '-' &&
+            isdigit((unsigned char)s[5]) && isdigit((unsigned char)s[6]) && s[7] == '-' && isdigit((unsigned char)s[8]) && isdigit((unsigned char)s[9])) return 1;     /* 2024-01-01 and a time after it */
+        i = 0;                                                                                                                         /* 1:30 and 1:30:15.5 */
+        while (i < n && isdigit((unsigned char)s[i])) i++;
+        if (i > 0 && i < n && s[i] == ':') {
+            size_t groups = 0;
+            while (i < n && s[i] == ':') { size_t j = i + 1; while (j < n && isdigit((unsigned char)s[j])) j++; if (j == i + 1) break; i = j; groups++; }
+            if (groups && (i == n || (s[i] == '.' && n > i))) { size_t j = i; if (j < n) { j++; while (j < n && isdigit((unsigned char)s[j])) j++; } if (j == n) return 1; }
+        }
+    }
     strtod(s, &end);
     return end != s && !*end;
 }

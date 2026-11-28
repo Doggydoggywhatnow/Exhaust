@@ -12,15 +12,27 @@ static int word_start(const char *t, size_t i) {
     return t[i - 1] == ' ' || t[i - 1] == '-' || t[i - 1] == '_' || t[i - 1] == ':' || t[i - 1] == '/' || t[i - 1] == '.';
 }
 
+/* Whether query[qi..] is a subsequence of text[ti..], without regard to case. */
+static int tail_fits(const char *query, size_t qn, size_t qi, const char *text, size_t tn, size_t ti) {
+    for (; qi < qn; qi++) {
+        char qc = (char)tolower((unsigned char)query[qi]);
+        while (ti < tn && (char)tolower((unsigned char)text[ti]) != qc) ti++;
+        if (ti >= tn) return 0;
+        ti++;
+    }
+    return 1;
+}
+
 int ex_fuzzy_score(const char *query, const char *text) {
     size_t qn = strlen(query), tn = strlen(text), qi, ti = 0, prev = (size_t)-1, first = 0;
     int score = 0;
     if (qn == 0) return 0;
+    if (!tail_fits(query, qn, 0, text, tn, 0)) return -1;
     for (qi = 0; qi < qn; qi++) {
         size_t found = (size_t)-1, k;
         char qc = (char)tolower((unsigned char)query[qi]);
-        for (k = ti; k < tn; k++)                                   /* prefer the start of a word, or the character right after the last */
-            if ((char)tolower((unsigned char)text[k]) == qc && (word_start(text, k) || (prev != (size_t)-1 && k == prev + 1))) { found = k; break; }
+        for (k = ti; k < tn; k++)                                   /* prefer the start of a word, or the character right after the last, if the rest of the query still fits after it */
+            if ((char)tolower((unsigned char)text[k]) == qc && (word_start(text, k) || (prev != (size_t)-1 && k == prev + 1)) && tail_fits(query, qn, qi + 1, text, tn, k + 1)) { found = k; break; }
         if (found == (size_t)-1)
             for (k = ti; k < tn; k++) if ((char)tolower((unsigned char)text[k]) == qc) { found = k; break; }
         if (found == (size_t)-1) return -1;

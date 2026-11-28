@@ -516,7 +516,8 @@ static const Snap *snap_find(const Snap *s, size_t n, const char *path) { size_t
 static const char *map_path(const MovePair *mv, size_t nm, const char *p, char *buf, size_t cap) {
     size_t i;
     for (i = 0; i < nm; i++) if (!strcmp(mv[i].from, p)) { snprintf(buf, cap, "%s", mv[i].to); return buf; }
-    return p;
+    snprintf(buf, cap, "%s", p);                         /* not moved: callers read buf too */
+    return buf;
 }
 
 /* The note's text with every link removed, to compare the text that is not a link. */

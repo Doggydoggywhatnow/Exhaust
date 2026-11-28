@@ -75,6 +75,7 @@ size_t ex_chord_format(const ExChord *c, char *out, size_t cap) {
     char buf[48];
     size_t n = 0, i;
     int found = 0;
+    if (out && cap) out[0] = 0;                              /* a buffer that is too small, or a bad chord, still holds a string */
     if (!c || c->key == 0) return 0;
     if (c->mods & EX_HK_CTRL) n += (size_t)snprintf(buf + n, sizeof buf - n, "Ctrl+");
     if (c->mods & EX_HK_ALT) n += (size_t)snprintf(buf + n, sizeof buf - n, "Alt+");

@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,14 +50,17 @@ static int parse_bool(const char *v, int *out) {
 
 int ex_settings_valid(const ExSettingDef *def, const char *value) {
     char *end;
-    size_t n = strlen(value), i;
+    size_t n, i;
+    if (!def || !value) return 0;
+    n = strlen(value);
     if (strchr(value, '\n') || strchr(value, '\r')) return 0;
     switch (def->type) {
-    case EX_SET_BOOL: { int b; return parse_bool(value, &b); }
+    case EX_SET_BOOL: { int b; return parse_bool(value, &b) && !(b && def->stub); }       /* a stub (Sync, Publish) cannot be turned on, in a file either */
     case EX_SET_INT: case EX_SET_PERCENT:
-        if (!*value) return 0;
+        if (!*value || isspace((unsigned char)*value)) return 0;                  /* strtol skips leading blanks: " 5" is not a whole number */
+        errno = 0;
         strtol(value, &end, 10);
-        return *end == 0;
+        return *end == 0 && errno != ERANGE;                                      /* a number too big for a long is not a value either */
     case EX_SET_COLOR:
         if (n == 0) return 1;
         if ((n != 7 && n != 9) || value[0] != '#') return 0;
@@ -181,6 +185,10 @@ int ex_settings_set(ExSettings *s, const char *section, const char *key, const c
     ExMessage m;
     WriteJob *w;
     if (!def || !value || !ex_settings_valid(def, value)) return -1;
+    {   /* the file is INI: a value is trimmed and ends at " #", so one with blanks at either end or " #" in it would read back as something else; it is refused, not changed */
+        size_t vl = strlen(value);
+        if (vl && (value[0] == ' ' || value[0] == '\t' || value[vl - 1] == ' ' || value[vl - 1] == '\t' || strstr(value, " #") || strstr(value, "\t#"))) return -1;
+    }
     if (def->type == EX_SET_BOOL) {                       /* written as true or false whatever spelling was given */
         int b = 0;
         parse_bool(value, &b);

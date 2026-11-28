@@ -1150,7 +1150,7 @@ set_tests_properties(search_perf ui_not_blocked index_cold frame_budget graph_fr
 # Importers (6e-v): Markdown, text, HTML, CSV and Textbundle sources into notes.
 add_library(exhaust_import STATIC src/import/attach.c src/import/import.c src/import/csv.c src/import/zip.c src/import/html2md.c src/import/importjob.c)
 target_include_directories(exhaust_import PUBLIC include)
-target_link_libraries(exhaust_import PUBLIC exhaust_templates exhaust_vault exhaust_buffer exhaust_platform zlib_static SDL3::SDL3-static)
+target_link_libraries(exhaust_import PUBLIC exhaust_templates exhaust_markdown exhaust_vault exhaust_buffer exhaust_platform zlib_static SDL3::SDL3-static)
 
 # Plugins (8b): Lua 5.4 (the core and the base, table, string, math, utf8 and coroutine libraries: no io, os, package or debug) in a sandbox.
 add_library(lua_static STATIC
@@ -1160,6 +1160,9 @@ add_library(lua_static STATIC
   third_party/lua/lstring.c third_party/lua/lstrlib.c third_party/lua/ltable.c third_party/lua/ltablib.c third_party/lua/ltm.c third_party/lua/lundump.c
   third_party/lua/lutf8lib.c third_party/lua/lvm.c third_party/lua/lzio.c)
 target_include_directories(lua_static PUBLIC third_party/lua)
+# A plugin state may use 32 MB. With Lua's default stack of 1,000,000 slots, endless recursion used up the memory before Lua could raise
+# "stack overflow", and the plugin was stopped instead of getting an error it can catch; 160,000 slots (2.5 MB) raise the error first.
+target_compile_definitions(lua_static PUBLIC LUAI_MAXSTACK=160000)
 if(NOT MSVC)
   target_compile_options(lua_static PRIVATE -w)
 else()

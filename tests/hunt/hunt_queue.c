@@ -129,7 +129,7 @@ static void worker_fn(ExWorker *self, const ExMessage *job, void *user) {
     Payload *p = (Payload *)job->payload;
     if (p) {
         if (p->producer < 8) { if (p->index != c->last[p->producer]) c->bad_order++; c->last[p->producer] = p->index + 1; }
-        free(p);
+        /* the worker releases job->payload with free_payload after this returns (exhaust_worker.h): freeing it here is a double free */
     }
     SDL_AddAtomicInt(&c->ran, 1);
     {

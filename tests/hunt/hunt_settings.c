@@ -65,11 +65,11 @@ static void test_schema(void) {
     hunt_step("settings: validation by type");
     {
         const ExSettingDef *b = first_of(EX_SET_BOOL), *n = first_of(EX_SET_INT), *p = first_of(EX_SET_PERCENT), *c = first_of(EX_SET_COLOR), *e = first_of(EX_SET_ENUM), *s = first_of(EX_SET_STRING);
-        const char *bools[] = { "true", "false" }, *nbools[] = { "", "True", "1", "0", "yes", "no", "on", "TRUE", "t", "true ", " true", "false\n", "null" };
+        const char *bools[] = { "true", "false", "1", "0", "yes", "no", "on", "off" /* docs/formats.md: these are read too */ }, *nbools[] = { "", "True", "TRUE", "t", "true ", " true", "false\n", "null" };
         const char *ints[] = { "0", "5", "-5", "123456" }, *nints[] = { "", "1.5", "1e3", "0x10", " 5", "5 ", "abc", "5abc", "+", "-", "--5", "99999999999999999999999", "٣", "5\n", "NaN" };
         const char *cols[] = { "", "#fff000", "#FFF000", "#aabbccdd" }, *ncols[] = { "#fff", "fff000", "#ggg000", "red", "#12345", "#1234567", "#12345678a", "# fff000", "#fff000 ", "rgb(1,2,3)" };
         size_t k;
-        if (b) { for (k = 0; k < 2; k++) HUNT_CHECKF(ex_settings_valid(b, bools[k]), "bool %s", bools[k]); for (k = 0; k < sizeof nbools / sizeof *nbools; k++) HUNT_CHECKF(!ex_settings_valid(b, nbools[k]), "the bool \"%s\" should be refused", nbools[k]); }
+        if (b) { for (k = 0; k < sizeof bools / sizeof *bools; k++) HUNT_CHECKF(ex_settings_valid(b, bools[k]), "bool %s", bools[k]); for (k = 0; k < sizeof nbools / sizeof *nbools; k++) HUNT_CHECKF(!ex_settings_valid(b, nbools[k]), "the bool \"%s\" should be refused", nbools[k]); }
         if (n) { for (k = 0; k < sizeof ints / sizeof *ints; k++) HUNT_CHECKF(ex_settings_valid(n, ints[k]), "int %s", ints[k]); for (k = 0; k < sizeof nints / sizeof *nints; k++) HUNT_CHECKF(!ex_settings_valid(n, nints[k]), "the int \"%s\" should be refused", nints[k]); }
         if (p) { HUNT_CHECK(ex_settings_valid(p, "100") && ex_settings_valid(p, "0")); HUNT_SUSPECT(!ex_settings_valid(p, "-1") && !ex_settings_valid(p, "100000"), "a percent outside any sensible range should be refused (a zoom of 100000 percent)"); HUNT_CHECK(!ex_settings_valid(p, "abc") && !ex_settings_valid(p, "")); }
         if (c) { for (k = 0; k < sizeof cols / sizeof *cols; k++) HUNT_CHECKF(ex_settings_valid(c, cols[k]), "color %s", cols[k]); for (k = 0; k < sizeof ncols / sizeof *ncols; k++) HUNT_CHECKF(!ex_settings_valid(c, ncols[k]), "the color \"%s\" should be refused", ncols[k]); }
@@ -304,9 +304,13 @@ static void test_hotkeys(void) {
         HUNT_CHECK(ex_chord_parse("Ctrl+,", 0, &a) == 0 && a.key == ',');
         HUNT_CHECK(ex_chord_parse("Ctrl+F5", 0, &a) == 0 && a.key == EX_HK_F1 + 4);
         HUNT_CHECK(ex_chord_parse("F5", 0, &a) == 0 && a.mods == 0);
+        /* docs/formats.md, Key names: `+` is a key (the default of app.zoom-in is Ctrl++) and a letter, "F" among them, is a key */
+        HUNT_CHECK(ex_chord_parse("+", 0, &a) == 0 && a.key == '+' && a.mods == 0);
+        HUNT_CHECK(ex_chord_parse("Ctrl++", 0, &a) == 0 && a.key == '+' && a.mods == EX_HK_CTRL);
+        HUNT_CHECK(ex_chord_parse("F", 0, &a) == 0 && a.key == 'f');
         HUNT_CHECK(ex_chord_parse("Cmd+E", 1, &a) != 0 || a.mods == EX_HK_META);
         {
-            const char *bad[] = { "", "Ctrl", "Ctrl+", "+", "Ctrl+Ctrl+A", "Ctrl+Shift", "Ctrl+Foo", "Ctrl+F13", "Ctrl+F0", "Ctrl+AB", "A B", "Ctrl+Shift+Alt+Meta+Mod+A", "Ctrl+ +A", "Ctrl++", "Ctrl+Plus", "Ctrl+Enter+A", "Ctrl+Mod+A", "Mod+Ctrl+A", "\n", "Ctrl+A\n[x]", "Ctrl+A,Ctrl+B", "Ctrl + A", " Ctrl+A", "Ctrl+A ", "Ctrl+\xC3\xA9", "Ctrl+\x01", "F", "Ctrl+Fn", "Ctrl+Shift+Shift+A" };
+            const char *bad[] = { "", "Ctrl", "Ctrl+", "Ctrl+Ctrl+A", "Ctrl+Shift", "Ctrl+Foo", "Ctrl+F13", "Ctrl+F0", "Ctrl+AB", "A B", "Ctrl+Shift+Alt+Meta+Mod+A", "Ctrl+ +A", "Ctrl+Plus", "Ctrl+Enter+A", "Ctrl+Mod+A", "Mod+Ctrl+A", "\n", "Ctrl+A\n[x]", "Ctrl+A,Ctrl+B", "Ctrl + A", " Ctrl+A", "Ctrl+A ", "Ctrl+\xC3\xA9", "Ctrl+\x01", "Ctrl+Fn", "Ctrl+Shift+Shift+A" };
             size_t k;
             for (k = 0; k < sizeof bad / sizeof *bad; k++) {
                 memset(&a, 0, sizeof a);
