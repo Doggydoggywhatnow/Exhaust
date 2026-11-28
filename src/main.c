@@ -3267,6 +3267,7 @@ static void sync_title(App *a) {
 }
 
 /* Which tab, note and editor are active; called before every layout. */
+static void block_link(int kind, const char *target, void *user) { on_reading_link((ExRSpanKind)kind, target, user); }      /* a click on a link or card inside a drawn block of live preview: as in reading mode */
 static void sync_ui(App *a) {
     ExId g, t;
     ExWidget *c;
@@ -3330,7 +3331,7 @@ static void sync_ui(App *a) {
         for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
             ExWidget *w = ex_panes_content(a->panes, ex_ws_tab_at(a->ws, i));
             if (w && w->type == EX_WIDGET_READING) ex_reading_set_options(w, strict_breaks, readable);
-            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { ex_editor_set_blocks(w->editor, blocks_on, props_mode); ex_editor_set_block_media(w->editor, &block_media); w->text_max = readable ? 720.0f : 0.0f; ex_editor_set_display(w->editor, line_nums, guides); ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_smart(w->editor, &smart); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); ex_editor_set_spell(w->editor, spell_on ? a->spell : NULL); if (a->panels) ex_editor_set_link_suggest(w->editor, ex_panels_suggest_links, a->panels); ex_editor_set_link_click(w->editor, on_editor_link_click, a); ex_editor_set_paste_hook(w->editor, paste_picture, a); ex_editor_set_html_paste(w->editor, html_paste ? paste_html_markdown : NULL, a); }
+            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { ex_editor_set_blocks(w->editor, blocks_on, props_mode); ex_editor_set_block_media(w->editor, &block_media); ex_editor_set_block_link(w->editor, block_link, a); w->text_max = readable ? 720.0f : 0.0f; ex_editor_set_display(w->editor, line_nums, guides); ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_smart(w->editor, &smart); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); ex_editor_set_spell(w->editor, spell_on ? a->spell : NULL); if (a->panels) ex_editor_set_link_suggest(w->editor, ex_panels_suggest_links, a->panels); ex_editor_set_link_click(w->editor, on_editor_link_click, a); ex_editor_set_paste_hook(w->editor, paste_picture, a); ex_editor_set_html_paste(w->editor, html_paste ? paste_html_markdown : NULL, a); }
         }
     }
     a->note = t ? note_for_tab(a, t) : NULL;

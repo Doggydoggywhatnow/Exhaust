@@ -455,7 +455,7 @@ static int hidden_by_fold(const ExReadingView *v, const ExRBlock *b) {
 static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
     Lay L;
     size_t i, nb = v->model ? ex_reading_block_count(v->model) : 0;
-    float scale = ex_renderer_scale(r), pad = 18.0f * scale, col_w, x0, em;
+    float scale = ex_renderer_scale(r), pad = 18.0f * scale, col_w, x0, em, lastgap;
     float readable = v->unlimited ? 1e9f : 720.0f * scale * (v->page_scale > 0 ? v->page_scale : 1.0f);
     free(v->ops); v->ops = NULL; v->nops = v->capops = 0;
     free(v->back); v->back = NULL; v->nback = v->capback = 0;
@@ -478,6 +478,7 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
     else if (x0 < (float)ex_editor_text_inset(r)) x0 = (float)ex_editor_text_inset(r);
     v->col_x = x0 - (float)ex_editor_text_inset(r); v->col_w = col_w + 2.0f * (float)ex_editor_text_inset(r);
     L.y = pad + v->head;
+    lastgap = 0;
     for (i = 0; i < nb; i++) {
         const ExRBlock *b = blk(v, i);
         float indent = (float)b->list_depth * em * 1.6f + (float)b->nframes * em * 1.0f, top = L.y, gap, bar_w = 3.0f * scale;
@@ -690,8 +691,9 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
             push_op(&v->back, &v->nback, &v->capback, &d);
         }
         L.y += gap;
+        lastgap = gap;
     }
-    v->content_h = L.y + pad;
+    v->content_h = v->inline_mode ? L.y - lastgap : L.y + pad;      /* a block of an editor has no air after its last block: the editor leaves its own */
     v->laid_w = avail_w;
     v->laid_scale = scale;
     v->dirty = v->math_pending || v->dg_pending;

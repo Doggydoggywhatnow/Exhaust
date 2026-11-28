@@ -345,6 +345,22 @@ EXHAUST_SCRIPT="$work/table_slash.script" $lim "$exe" "$vault" >"$work/table_sla
 unset EXHAUST_OPEN
 if grep -qF '|      |    X |' "$vault/Table.md" && grep -qF '| bb   | 22  |' "$vault/Table.md" && grep -q '^after$' "$vault/Table.md" && ! grep -q '/table' "$vault/Table.md"; then echo "ok: the slash menu's Table: Add row below added a row and the typing went into it"; else echo "FAILED: table command from the slash menu"; cat "$vault/Table.md"; fail=1; fi
 
+# a table drawn in live preview (the blocks): a click on it opens its source with the caret at its first line, and typing goes there; nothing else of the note changes
+vault="$work/table_block"; rm -rf "$vault"; mkdir -p "$vault/.exhaust"
+printf '# Tbl\n\n| Name | Qty |\n| :--- | --: |\n| a    | 1   |\n| bb   | 22  |\n\nafter\n' > "$vault/Table.md"
+printf '%s\n' 'wait 1200
+move 404 250
+down 404 250
+up 404 250
+wait 300
+text X
+wait 2200
+quit' > "$work/table_block.script"
+export EXHAUST_OPEN=Table.md
+EXHAUST_SCRIPT="$work/table_block.script" $lim "$exe" "$vault" >"$work/table_block.log" 2>&1
+unset EXHAUST_OPEN
+if grep -qxF 'X| Name | Qty |' "$vault/Table.md" && grep -qxF '| bb   | 22  |' "$vault/Table.md" && grep -qxF 'after' "$vault/Table.md" && [ "$(wc -l < "$vault/Table.md")" -eq 8 ]; then echo "ok: a click on a table drawn in live preview opened its source and the typing went into its first line"; else echo "FAILED: click on a drawn table"; cat "$vault/Table.md"; fail=1; fi
+
 # the default note to open (7a, [files] default_file): a chosen note opens at start instead of the last session; `empty` starts with no note; a note that is not there gives the empty tab
 vault="$work/default_file"; rm -rf "$vault"; mkdir -p "$vault/.exhaust"
 printf '# Welcome\n' > "$vault/Home.md"; printf 'Alpha\n' > "$vault/Alpha.md"

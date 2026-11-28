@@ -164,6 +164,8 @@ void ex_editor_set_mode(ExEditor *e, ExEditorMode mode);
 struct ExReadingMedia;
 void ex_editor_set_blocks(ExEditor *e, int on, int properties);
 void ex_editor_set_block_media(ExEditor *e, const struct ExReadingMedia *m);
+/* A click on a link or a card (a picture's link, an audio or video or PDF embed) inside a drawn block is handed to fn as the reading view hands it: the kind of link (an ExRSpanKind) and its target. */
+void ex_editor_set_block_link(ExEditor *e, void (*fn)(int kind, const char *target, void *user), void *user);
 size_t ex_editor_block_count(ExEditor *e);       /* blocks the text has (tests) */
 size_t ex_editor_blocks_drawn(ExEditor *e);      /* of them, drawn as a picture now */
 /* The settings line_numbers (numbers left of the text) and indent_guides (a thin line for each level of indentation). Off by default; plain fields never show them. */

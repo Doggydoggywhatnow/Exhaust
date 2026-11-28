@@ -32,6 +32,10 @@ static const char *NOTE =
     "\n"                                                     /* 25 */
     "end of the note";                                       /* 26 */
 
+static int g_link_calls;
+static char g_link_target[200];
+static void link_seen(int kind, const char *target, void *user) { (void)kind; (void)user; g_link_calls++; snprintf(g_link_target, sizeof g_link_target, "%s", target); }
+
 static void frame(ExEditor *e, ExRenderer *r, const ExTheme *th) {
     ex_renderer_clear(r, ex_theme_color(th, EX_COLOR_BACKGROUND));
     ex_editor_draw(e, r, th, 1, 1);
@@ -204,6 +208,35 @@ int main(void) {
     frames(e, r, &th, 4);
     CHECK(ex_editor_block_count(e) == 1);                                    /* only the equation */
     free_editor(e);
+
+    /* a link inside a drawn table takes the click (as in reading mode) and the block stays drawn; a click on plain text opens the source */
+    {
+        static const char *T = "| a | b |\n|---|---|\n| [[Target]] | plain |\n\nend";
+        float x, y;
+        int found = 0;
+        e = new_editor(r, T, 1, 0);
+        ex_editor_set_block_link(e, link_seen, NULL);
+        ex_doc_set_caret(ex_editor_doc(e), strlen(T));
+        frames(e, r, &th, 4);
+        CHECK(ex_editor_blocks_drawn(e) == 1);
+        for (y = 4.0f; y < 140.0f && !found; y += 6.0f)
+            for (x = 20.0f; x < 400.0f && !found; x += 6.0f) {
+                g_link_calls = 0;
+                ex_editor_mouse(e, r, EX_MOUSE_DOWN, x, y, 0, 1);
+                ex_editor_mouse(e, r, EX_MOUSE_UP, x, y, 0, 1);
+                if (g_link_calls) found = 1;
+                else { caret_line(e, 4); frames(e, r, &th, 2); }                 /* a miss opened the source: back out */
+            }
+        CHECK(found);
+        CHECK(strcmp(g_link_target, "Target") == 0);
+        frames(e, r, &th, 2);
+        CHECK(ex_editor_blocks_drawn(e) == 1);                                 /* the click went to the link, the caret did not move into the table */
+        {
+            ExSel sel = ex_doc_sel(ex_editor_doc(e), 0);
+            CHECK(ex_buffer_line_of_offset(ex_doc_buffer(ex_editor_doc(e)), sel.head) == 4);
+        }
+        free_editor(e);
+    }
 
     if (failures) { fprintf(stderr, "%d check(s) failed\n", failures); return 1; }
     printf("live_blocks: ok\n");

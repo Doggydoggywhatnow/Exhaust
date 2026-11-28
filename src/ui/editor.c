@@ -76,6 +76,8 @@ struct ExEditor {
     unsigned long blk_version; int blk_valid; unsigned long blk_sig;
     BView bv[BVIEWS]; unsigned long btick;
     ExReadingMedia bmedia; int have_media;
+    void (*blink)(int kind, const char *target, void *user); void *blink_user;   /* a click on a link or card inside a drawn block */
+    ExReadingView *bcap;                         /* the drawn block that took a press, until the release */
     ExSmartOptions smart;       /* smart lists and auto-pairing (all off until the application turns them on) */
     unsigned long folds_version;
     int folds_valid;
@@ -139,6 +141,7 @@ static void clear_cache(ExEditor *e) {
 }
 
 static void blocks_free(ExEditor *e);
+static void geometry(ExEditor *e, ExRenderer *r);
 static int blocks_sync(ExEditor *e);
 static size_t blocks_hidden(const ExEditor *e, size_t (*tmp)[2], size_t n);
 void ex_editor_free(ExEditor *e) {
@@ -883,6 +886,7 @@ static uint32_t fnv(uint32_t h, const char *p, size_t n) { size_t i; for (i = 0;
 
 static void blocks_free(ExEditor *e) {
     size_t i;
+    e->bcap = NULL;
     for (i = 0; i < BVIEWS; i++) if (e->bv[i].v) { ex_readingview_free(e->bv[i].v); e->bv[i].v = NULL; }
     free(e->blk); e->blk = NULL; e->nblk = e->capblk = 0;
 }
@@ -1093,6 +1097,8 @@ static char *props_markdown(const char *y, size_t n, size_t *out_len) {
     return o;
 }
 
+static void bview_link(ExRSpanKind kind, const char *target, void *user) { ExEditor *e = user; if (e->blink) e->blink((int)kind, target, e->blink_user); }
+
 /* The picture of a block: found by what the block says, made when it is needed (at most BVIEWS are kept). */
 static BView *bview_get(ExEditor *e, size_t i) {
     const Blk *b = &e->blk[i];
@@ -1105,7 +1111,7 @@ static BView *bview_get(ExEditor *e, size_t i) {
         if (e->bv[k].used < e->bv[oldest].used) oldest = k;
     }
     bv = &e->bv[oldest];
-    if (bv->v) { ex_readingview_free(bv->v); bv->v = NULL; }
+    if (bv->v) { if (e->bcap == bv->v) e->bcap = NULL; ex_readingview_free(bv->v); bv->v = NULL; }
     t = blk_slice(e, b, &n);
     if (!t) return NULL;
     if (b->kind == BK_PROPS) { conv = props_markdown(t, n, &n); free(t); t = conv; if (!t) return NULL; }
@@ -1113,6 +1119,7 @@ static BView *bview_get(ExEditor *e, size_t i) {
     free(t);
     if (!bv->v) return NULL;
     ex_readingview_set_inline(bv->v);
+    ex_readingview_set_link_handler(bv->v, bview_link, e);
     if (e->have_media) ex_readingview_set_media(bv->v, &e->bmedia);
     bv->hash = b->hash; bv->kind = b->kind; bv->h = 0; bv->used = ++e->btick;
     return bv;
@@ -1121,7 +1128,7 @@ static BView *bview_get(ExEditor *e, size_t i) {
 /* Rows a drawn block takes: its height and a little air, or, until it is measured, a guess from the lines it has. */
 static uint32_t blk_rows(const ExEditor *e, const BView *bv, size_t i, int lh) {
     const Blk *b = &e->blk[i];
-    if (bv && bv->h > 0) return (uint32_t)ceilf((bv->h + (float)lh * 0.4f) / (float)lh);
+    if (bv && bv->h > 0) return (uint32_t)ceilf((bv->h + (float)lh * 0.15f) / (float)lh);
     return (uint32_t)(b->last - b->first + 1 > 12 ? 12 : b->last - b->first + 1);
 }
 
@@ -1178,6 +1185,25 @@ void ex_editor_set_blocks(ExEditor *e, int on, int properties) {
     e->blk_valid = 0; e->blk_sig = 0;
     wrap_free_all(e);                                                       /* the rows the blocks gave are gone with them */
 }
+void ex_editor_set_block_link(ExEditor *e, void (*fn)(int kind, const char *target, void *user), void *user) { e->blink = fn; e->blink_user = user; }
+
+/* The drawn block under a window position (its view, already placed by the last draw), or NULL. */
+static ExReadingView *block_view_at(ExEditor *e, ExRenderer *r, float x, float y) {
+    int lh = line_height_px(e, r), bi;
+    long row;
+    size_t line, k;
+    (void)x;
+    if (!e->nblk || y < e->vy || y >= e->vy + e->vh) return NULL;
+    geometry(e, r);
+    row = (long)floorf((y - e->vy + ts(e)) / (float)(lh > 0 ? lh : 1));
+    if (row < 0 || (size_t)row >= vrow_total(e)) return NULL;
+    line = line_of_vrow(e, (size_t)row, NULL);
+    bi = blk_drawn_at(e, line);
+    if (bi < 0) return NULL;
+    for (k = 0; k < BVIEWS; k++) if (e->bv[k].v && e->bv[k].hash == e->blk[bi].hash && e->bv[k].kind == e->blk[bi].kind) return e->bv[k].v;
+    return NULL;
+}
+
 void ex_editor_set_block_media(ExEditor *e, const ExReadingMedia *m) {
     size_t i;
     if (!m) { e->have_media = 0; return; }
@@ -1909,6 +1935,17 @@ void ex_editor_mouse(ExEditor *e, ExRenderer *r, ExMouse kind, float x, float y,
             return;
         }
         if (kind == EX_MOUSE_DOWN) e->slash_open = 0;                       /* a click elsewhere closes it and is then an ordinary click */
+    }
+    if (e->nblk && e->blink) {                                                              /* a link or a card inside a drawn block takes the click, as in reading mode */
+        if (kind == EX_MOUSE_DOWN && !(mods & EX_MOD_PRIMARY)) {
+            ExReadingView *bv = block_view_at(e, r, x, y);
+            if (bv && ex_readingview_mouse(bv, EX_MOUSE_DOWN, x, y)) { e->bcap = bv; return; }
+        } else if (e->bcap) {
+            ExReadingView *bv = e->bcap;
+            if (kind == EX_MOUSE_UP) e->bcap = NULL;
+            ex_readingview_mouse(bv, kind, x, y);
+            return;
+        }
     }
     if (kind == EX_MOUSE_DOWN && (mods & EX_MOD_PRIMARY) && e->link_click) {              /* Ctrl or Command and click on a link */
         char target[300], heading[200], block[100];
