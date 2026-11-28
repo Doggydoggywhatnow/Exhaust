@@ -3,7 +3,7 @@
 Exhaust is a note-taking and knowledge-base app written in **C** (C11). **Stay in C.** `README.md` is the spec; the current release's build spec is `docs/0.1.0.md`.
 
 ## Goal
-Release 0.1.0 fits **every specification in the README**. Items marked *(later)* or *(optional)* may be stubs in the first demo, but must exist as disabled, clearly labeled entries where the README places them. Things listed under the README's **Non-goals** are not built. `*(optional)*` means the feature uses the network and is off by default. Other features that are off by default are not marked `*(optional)*`. Vim mode is not part of 0.1.0 (a disabled, labelled stub). If you deviate from the README, update the README in the same change.
+Release 0.1.0 fits **every specification in the README**. Items marked *(later)* or *(optional)* may be stubs in the first demo, but must exist as disabled, clearly labeled entries where the README places them. Things listed under the README's **Non-goals** are not built. **A future goal, after 0.1.0 and not part of it:** an Android port (the README's *Future goals*); keep platform code in `src/platform/` so it stays possible. `*(optional)*` means the feature uses the network and is off by default. Other features that are off by default are not marked `*(optional)*`. Vim mode is not part of 0.1.0 (a disabled, labelled stub). If you deviate from the README, update the README in the same change.
 
 ## Other languages
 C for all of Exhaust's own code, with these exceptions only:
