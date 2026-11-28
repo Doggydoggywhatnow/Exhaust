@@ -227,6 +227,52 @@ int main(void) {
         free(s);
     }
 
+    /* headings of levels 1 to 3 take a blank row above their text in live preview: the text is lower, the keys do not stop on the blank row */
+    {
+        static const char *H = "plain\n# One\ntext\n#### Four\ntail";
+        ExDoc *hd = ex_doc_create(H, strlen(H));
+        ExWidget *hw = ex_widget_editor(ui, hd, "heads");
+        ExEditor *he = hw->editor;
+        float y_plain, y_air, h_plain, h_air, row;
+        ex_editor_set_mode(he, EX_EDITOR_LIVE);
+        ex_editor_set_wrap(he, 1);
+        ex_ui_layout(ui, hw, 800, 600);
+        ex_renderer_clear(r, ex_theme_color(&th, EX_COLOR_BACKGROUND));
+        ex_editor_draw(he, r, &th, 1, 1);
+        ex_doc_set_caret(hd, strlen("plain\n"));                                 /* on "# One" */
+        { float cx, cy, cw, ch; ex_editor_caret_rect(he, r, &cx, &cy, &cw, &ch); y_plain = cy; row = ch; }
+        h_plain = ex_editor_content_height(he, r);
+        ex_editor_set_heading_air(he, 1);
+        ex_editor_draw(he, r, &th, 1, 1);
+        ex_editor_draw(he, r, &th, 1, 1);
+        { float cx, cy, cw, ch; ex_editor_caret_rect(he, r, &cx, &cy, &cw, &ch); y_air = cy; }
+        h_air = ex_editor_content_height(he, r);
+        CHECK(y_air > y_plain + row - 1.0f && y_air < y_plain + row + 1.0f);          /* the text of "# One" is one row lower */
+        CHECK(h_air > h_plain + row - 1.0f && h_air < h_plain + row + 1.0f);          /* and only that heading took a row: "#### Four" does not */
+        /* Down from the heading goes to the next line, Up from there comes back; Up from the heading goes to the line above, not to the blank row */
+        ex_ui_set_focus(ui, hw);
+        ex_ui_key(ui, EX_KEY_DOWN, 0);
+        CHECK(ex_buffer_line_of_offset(ex_doc_buffer(hd), ex_doc_sel(hd, 0).head) == 2);
+        ex_ui_key(ui, EX_KEY_UP, 0);
+        CHECK(ex_buffer_line_of_offset(ex_doc_buffer(hd), ex_doc_sel(hd, 0).head) == 1);
+        ex_ui_key(ui, EX_KEY_UP, 0);
+        CHECK(ex_buffer_line_of_offset(ex_doc_buffer(hd), ex_doc_sel(hd, 0).head) == 0);
+        ex_ui_key(ui, EX_KEY_DOWN, 0);
+        CHECK(ex_buffer_line_of_offset(ex_doc_buffer(hd), ex_doc_sel(hd, 0).head) == 1);
+        /* a click on the blank row above the heading puts the caret on the heading */
+        {
+            float cx, cy, cw, ch;
+            ex_doc_set_caret(hd, 0);
+            ex_editor_draw(he, r, &th, 1, 1);
+            ex_editor_caret_rect(he, r, &cx, &cy, &cw, &ch);
+            ex_editor_mouse(he, r, EX_MOUSE_DOWN, hw->x + 100.0f, cy + ch + row / 2.0f, 0, 1);
+            ex_editor_mouse(he, r, EX_MOUSE_UP, hw->x + 100.0f, cy + ch + row / 2.0f, 0, 1);
+            CHECK(ex_buffer_line_of_offset(ex_doc_buffer(hd), ex_doc_sel(hd, 0).head) == 1);
+        }
+        ex_widget_free(hw);
+        ex_doc_free(hd);
+    }
+
     /* the reading view has the same bar: a drag on the thumb scrolls the page */
     {
         char *big = malloc(400 * 12 + 1);
@@ -263,6 +309,10 @@ int main(void) {
     CHECK(strstr(t, "one\ntwo") != NULL);
     free(t); ex_reading_free(m);
 
+    ex_widget_free(root);
+    ex_doc_free(d);
+    ex_ui_free(ui);
+    ex_renderer_destroy(r);
     if (failures) { fprintf(stderr, "%d check(s) failed\n", failures); return 1; }
     printf("editor_display: ok\n");
     return 0;

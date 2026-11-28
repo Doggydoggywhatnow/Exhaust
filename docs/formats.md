@@ -1170,6 +1170,7 @@ Not built: editing inside a drawn table, equations and diagrams drawn inline in 
 What the page you write on does, apart from the text itself. The explorer's buttons stay left-justified; none of this changes them.
 
 - **Line height.** `sizes.line_height` (default `150`) is a percent of the *text size*, as a style sheet's `line-height` is: 150 at 16 px is 24 px a row, never less than the font's own line. (Before the look-and-feel pass it was a percent of the font's own line, which made a row 32 px and the text look double-spaced.)
+- **Air above headings.** In live preview a heading of level 1, 2 or 3 takes a blank row above its text (a row of its own: keys and clicks pass over it, it has no line number), because the heading's letters are taller than one row and want air above them; levels 4 to 6 do not. Source mode and a pane that does not wrap are unchanged. A heading made by editing another line (a fence opened above it) takes or loses its row when the heading itself is next edited.
 - **Room at the sides.** The text starts 28 px from the left edge of its column (a 14 px margin for the fold marker and 14 px of air) and wraps 24 px before the right edge, so a line never runs into the pane's edge.
 - **Hanging rows.** The rows after the first of a wrapped list item or quote start under the item's text, not under its marker: in live preview and in source mode.
 - **Quote bar.** A quote's bar is 3 px in the accent color (a callout's is its own color), in the editor and in reading mode.

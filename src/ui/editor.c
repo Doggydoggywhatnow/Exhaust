@@ -75,6 +75,7 @@ struct ExEditor {
     int fold_headings, fold_lists;
     ExFolds folds;
     int line_numbers, indent_guides;   /* the settings of the same names (editor.line_numbers, editor.indent_guides) */
+    int heading_air;                            /* a heading takes a blank row above its text in live preview (on for note editors) */
     int blocks_on, props_mode;                  /* draw blocks (live preview with wrap only); properties: 0 visible, 1 hidden, 2 source */
     Blk *blk; size_t nblk, capblk;
     unsigned long blk_version; int blk_valid; unsigned long blk_sig;
@@ -868,11 +869,26 @@ static void wrap_remap(ExEditor *e, size_t n, unsigned long ver) {
     (void)ver;
 }
 
+/* A heading of levels 1 to 3 in live preview takes one more row, above its text: its letters are taller than a row and want air above them, as a heading has in a style
+ * sheet. The rows of a line are then `line_pre` blank rows and then its segments. */
+static int head_cb(const ExMdSpan *sp, void *user) { if (sp->kind == EX_MD_HEADING) { *(int *)user = sp->level; return 1; } return 0; }
+static size_t line_pre(ExEditor *e, size_t line) {
+    size_t ls, le;
+    int level = 0;
+    if (e->mode != EX_EDITOR_LIVE || !wrap_active(e) || !e->heading_air || line >= line_count(e)) return 0;
+    ensure_md(e);
+    if (!e->md || !e->md_valid) return 0;
+    ls = ex_buffer_line_start(buf(e), line);
+    le = line + 1 < line_count(e) ? ex_buffer_line_start(buf(e), line + 1) : ex_buffer_size(buf(e));
+    ex_md_visit(e->md, ls, le > ls ? le - 1 : ls, head_cb, &level);
+    return level >= 1 && level <= 3 ? 1 : 0;
+}
+
 static size_t vrow_total(ExEditor *e) { return wrap_active(e) && e->vpre ? e->vpre[e->wn] : row_count(e); }
 static size_t vrow_of_line(ExEditor *e, size_t line) { return wrap_active(e) && e->vpre && line <= e->wn ? e->vpre[line] : row_of_line(e, line); }
 
-/* The line that has the row, and which of its rows it is. */
-static size_t line_of_vrow(ExEditor *e, size_t vrow, size_t *seg) {
+/* The line that has the row, and which of its rows it is (counting the blank row above a heading). */
+static size_t line_of_vrow_raw(ExEditor *e, size_t vrow, size_t *seg) {
     size_t lo, hi, total;
     if (!wrap_active(e) || !e->vpre || e->wn == 0) { if (seg) *seg = 0; return line_of_row(e, vrow); }
     total = e->vpre[e->wn];
@@ -883,6 +899,21 @@ static size_t line_of_vrow(ExEditor *e, size_t vrow, size_t *seg) {
     while (lo + 1 < e->wn && e->vpre[lo + 1] <= vrow) lo++;       /* skip the hidden lines that share the number */
     if (seg) *seg = vrow - e->vpre[lo];
     return lo;
+}
+/* The line that has the row, and which of its segments the row shows (the blank row above a heading shows its first). */
+static size_t line_of_vrow(ExEditor *e, size_t vrow, size_t *seg) {
+    size_t row_in, line = line_of_vrow_raw(e, vrow, &row_in), pre;
+    if (!seg) return line;
+    pre = e->heading_air ? line_pre(e, line) : 0;
+    *seg = row_in > pre ? row_in - pre : 0;
+    return line;
+}
+/* Is this row the blank one above a heading? */
+static int vrow_is_air(ExEditor *e, size_t vrow) {
+    size_t row_in, line;
+    if (!e->heading_air || !wrap_active(e) || !e->vpre) return 0;
+    line = line_of_vrow_raw(e, vrow, &row_in);
+    return row_in < line_pre(e, line);
 }
 
 static int is_mermaid_word(const char *p) {
@@ -1139,7 +1170,7 @@ static BView *bview_get(ExEditor *e, size_t i) {
 /* Rows a drawn block takes: its height and a little air, or, until it is measured, a guess from the lines it has. */
 static uint32_t blk_rows(const ExEditor *e, const BView *bv, size_t i, int lh) {
     const Blk *b = &e->blk[i];
-    if (bv && bv->h > 0) return (uint32_t)ceilf((bv->h + (float)lh * (b->kind == BK_PROPS ? 0.7f : 0.3f)) / (float)lh);
+    if (bv && bv->h > 0) return (uint32_t)ceilf((bv->h + (float)lh * 0.3f) / (float)lh);
     return (uint32_t)(b->last - b->first + 1 > 12 ? 12 : b->last - b->first + 1);
 }
 
@@ -1189,6 +1220,7 @@ static void blocks_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, size_t i, 
     ex_set_clip(r, (int)e->vx, (int)e->vy, (int)e->vw, (int)e->vh);
 }
 
+void ex_editor_set_heading_air(ExEditor *e, int on) { on = on != 0; if (e->heading_air != on) { e->heading_air = on; wrap_free_all(e); } }
 void ex_editor_set_blocks(ExEditor *e, int on, int properties) {
     on = on != 0; properties = properties < 0 || properties > 2 ? 0 : properties;
     if (e->blocks_on == on && e->props_mode == properties) return;
@@ -1270,14 +1302,14 @@ static void wrap_sync(ExEditor *e, ExRenderer *r) {
         l1 = l1 + 30 < e->wn ? l1 + 30 : e->wn - 1;
         {   /* the caret line is measured too: the view follows the caret */
             size_t caret = e->wrap_caret;
-            if (caret < e->wn && e->nseg[caret] == 0) { WrapLine w; wrap_line(e, r, caret, &w); e->nseg[caret] = (uint32_t)w.n; wl_free(&w); changed++; }
+            if (caret < e->wn && e->nseg[caret] == 0) { WrapLine w; wrap_line(e, r, caret, &w); e->nseg[caret] = (uint32_t)(w.n + line_pre(e, caret)); wl_free(&w); changed++; }
         }
         if (e->nblk) changed += blocks_rows(e, r, l0, l1, lh);
         for (i = l0; i <= l1 && i < e->wn; i++) {
             WrapLine w;
             if (e->nseg[i] || line_hidden(e, i)) continue;
             wrap_line(e, r, i, &w);
-            e->nseg[i] = (uint32_t)w.n;
+            e->nseg[i] = (uint32_t)(w.n + line_pre(e, i));
             wl_free(&w);
             changed++;
         }
@@ -1321,7 +1353,7 @@ static void sync_goal(ExEditor *e, size_t n) {
 
 static void ensure_visible(ExEditor *e, ExRenderer *r) {
     ExSel p;
-    size_t line, seg = 0;
+    size_t line, seg = 0, pre;
     int lh;
     float top, bottom;
     if (e->vh <= 0 || !e->font) return;
@@ -1330,9 +1362,10 @@ static void ensure_visible(ExEditor *e, ExRenderer *r) {
     line = ex_buffer_line_of_offset(buf(e), p.head);
     lh = line_height_px(e, r);
     if (wrap_active(e)) { WrapLine w; seg = seg_of(e, r, line, p.head, &w); wl_free(&w); }
-    top = (float)(vrow_of_line(e, line) + seg) * (float)lh;
+    pre = line_pre(e, line);
+    top = (float)(vrow_of_line(e, line) + pre + seg) * (float)lh;
     bottom = top + (float)lh;
-    if (top < ts(e)) e->scroll_y = top == 0 ? 0 : top + e->head;                       /* the first row: back to the very top, where the header shows */
+    if (top < ts(e)) e->scroll_y = (vrow_of_line(e, line) == 0 && seg == 0) ? 0 : top + e->head;     /* the first line: back to the very top, where the header shows */                       /* the first row: back to the very top, where the header shows */
     else if (bottom > ts(e) + e->vh) e->scroll_y = bottom - e->vh + e->head;
     if (e->scroll_y < 0) e->scroll_y = 0;
 }
@@ -1387,7 +1420,7 @@ static void move_vertical(ExEditor *e, ExRenderer *r, int lines, int shift) {
         long t;
         seg = seg_of(e, r, line, s.head, &w);
         x = (e->last_vertical && e->goal && e->goal[i] >= 0) ? e->goal[i] : x_of(e, r, line, s.head) - w.x[seg];
-        t = (long)(vrow_of_line(e, line) + seg) + lines;                 /* moves by rows on the screen: hidden lines are skipped, wrapped lines count each row */
+        t = (long)(vrow_of_line(e, line) + line_pre(e, line) + seg) + lines;                 /* moves by rows on the screen: hidden lines are skipped, wrapped lines count each row */
         wl_free(&w);
         if (e->goal) e->goal[i] = x;
         if (t < 0) { heads[i] = 0; if (e->goal) e->goal[i] = -1; continue; }
@@ -1397,6 +1430,9 @@ static void move_vertical(ExEditor *e, ExRenderer *r, int lines, int shift) {
             else { line_range(e, last, &st, &en, &nx); heads[i] = en; }
             if (e->goal) e->goal[i] = -1;
             continue;
+        }
+        if (lines != 0 && vrow_is_air(e, (size_t)t)) {                           /* the blank row above a heading is passed over, in the direction of the move */
+            while (t > 0 && (size_t)t + 1 < rows && vrow_is_air(e, (size_t)t)) t += lines < 0 ? -1 : 1;
         }
         target = line_of_vrow(e, (size_t)t, &tseg);
         wrap_line(e, r, target, &tw);
@@ -2166,7 +2202,7 @@ void ex_editor_caret_rect(ExEditor *e, ExRenderer *r, float *x, float *y, float 
     cx = e->vx + (float)pad_e(e, r) + x_of(e, r, line, p.head) - wl.x[seg];
     wl_free(&wl);
     if (x) *x = cx;
-    if (y) *y = e->vy + (float)(vrow_of_line(e, line) + seg) * (float)lh - ts(e);
+    if (y) *y = e->vy + (float)(vrow_of_line(e, line) + line_pre(e, line) + seg) * (float)lh - ts(e);
     if (w) *w = (float)ex_px(r, 1.5f);
     if (h) *h = (float)lh;
 }
@@ -2557,6 +2593,7 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
         float y = e->vy + (float)row * (float)lh - ts(e);
         float ty = y + (float)(lh - fm.line_height) / 2.0f, segx, x0pad;
         line = line_of_vrow(e, row, &seg);
+        if (e->heading_air && vrow_is_air(e, row)) continue;                    /* the blank row above a heading */
         if (line != cached_line) { wl_free(&wl); wrap_line(e, r, line, &wl); cached_line = line; }
         if (e->nblk && (bi = blk_drawn_at(e, line)) >= 0) {              /* a block drawn as the reading view draws it: once, from the top of its first row */
             if (bi != last_block) { last_block = bi; blocks_draw(e, r, t, (size_t)bi, y - (float)seg * (float)lh, lh); draw_extras(e, r, t, line, y - (float)seg * (float)lh, lh, 0, 0); }

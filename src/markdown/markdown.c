@@ -1022,8 +1022,8 @@ ExMdRange ex_md_update(ExMd *m, const char *text, size_t len, size_t offset, siz
         nm = r + nb.n + (old_n - tail_from);
         merged = malloc((nm ? nm : 1) * sizeof *merged);
         if (!merged) { free(nb.v); ex_md_tokenize(m, text, len); range.start = 0; range.end = len; return range; }
-        memcpy(merged, m->b, r * sizeof *merged);
-        memcpy(merged + r, nb.v, nb.n * sizeof *merged);
+        if (r) memcpy(merged, m->b, r * sizeof *merged);              /* (a null pointer with a size of 0 is undefined for memcpy: nb.v is null when the edit left no block) */
+        if (nb.n) memcpy(merged + r, nb.v, nb.n * sizeof *merged);
         for (i = r; i < tail_from; i++) { m->nspans -= m->b[i].n; free_block(&m->b[i]); }
         for (i = 0; i < nb.n; i++) m->nspans += nb.v[i].n;
         for (i = tail_from; i < old_n; i++) {

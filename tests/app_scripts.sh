@@ -328,9 +328,9 @@ vault="$work/table_slash"; rm -rf "$vault"; mkdir -p "$vault/.exhaust"
 printf '[features]\nslash_commands = true\n[editor]\nlive_preview_blocks = false\n' > "$vault/.exhaust/settings.ini"   # a table is drawn as a picture in live preview since the blocks; this case is about the table commands in the text, which the unit test live_blocks covers for the drawn form
 printf '# Tbl\n\n| Name | Qty |\n| :--- | --: |\n| a    | 1   |\n| bb   | 22  |\n\nafter\n' > "$vault/Table.md"
 printf '%s\n' 'wait 1000
-move 410 268
-down 410 268
-up 410 268
+move 410 292
+down 410 292
+up 410 292
 wait 300
 text /
 text tableaddrowbelow

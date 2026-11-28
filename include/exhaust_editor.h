@@ -168,6 +168,8 @@ void ex_editor_set_mode(ExEditor *e, ExEditorMode mode);
  * reading view draws them while no caret or selection end is in them, and show their source while one is. properties: 0 draws the front matter as a table of its properties, 1 hides it, 2 leaves it as text (the setting
  * properties_in_document: visible, hidden, source). The media is what the reading view needs to draw pictures (the application's own, as for the reading views). */
 struct ExReadingMedia;
+/* Headings of levels 1 to 3 take a blank row above their text in live preview (with soft wrap), so their large letters have air; the note editors turn it on. */
+void ex_editor_set_heading_air(ExEditor *e, int on);
 void ex_editor_set_blocks(ExEditor *e, int on, int properties);
 void ex_editor_set_block_media(ExEditor *e, const struct ExReadingMedia *m);
 /* A click on a link or a card (a picture's link, an audio or video or PDF embed) inside a drawn block is handed to fn as the reading view hands it: the kind of link (an ExRSpanKind) and its target. */

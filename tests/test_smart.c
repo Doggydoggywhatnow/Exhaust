@@ -436,6 +436,7 @@ int main(void) {
     html_paste_cases(r);
     url_paste_cases(r);
     placeholder_cases(r);
+    ex_renderer_destroy(r);
     if (failures) { fprintf(stderr, "%d check(s) failed\n", failures); return 1; }
     printf("smart_typing: ok\n");
     return 0;
