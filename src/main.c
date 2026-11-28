@@ -12,6 +12,7 @@
 #include "exhaust_commands.h"
 #include "exhaust_datefmt.h"
 #include "exhaust_templates.h"
+#include "exhaust_import.h"
 #include "exhaust_compose.h"
 #include "exhaust_slides.h"
 #include "exhaust_canvasview.h"
@@ -290,6 +291,10 @@ static void *g_clip_image; static size_t g_clip_image_len;
 static const void *clip_image_cb(void *u, const char *mime, size_t *size) { (void)u; if (strcmp(mime, "image/png") != 0) { *size = 0; return NULL; } *size = g_clip_image_len; return g_clip_image; }
 static void clip_image_free(void *u) { (void)u; SDL_free(g_clip_image); g_clip_image = NULL; g_clip_image_len = 0; }
 
+static char *g_clip_html; static size_t g_clip_html_len;
+static const void *clip_html_cb(void *u, const char *mime, size_t *size) { (void)u; if (strcmp(mime, "text/html") != 0 && strncmp(mime, "text/plain", 10) != 0) { *size = 0; return NULL; } *size = strcmp(mime, "text/html") == 0 ? g_clip_html_len : 5; return strcmp(mime, "text/html") == 0 ? (const void *)g_clip_html : (const void *)"plain"; }
+static void clip_html_free(void *u) { (void)u; SDL_free(g_clip_html); g_clip_html = NULL; g_clip_html_len = 0; }
+
 static void script_step(App *a) {
     char *line, *end;
     SDL_Event e;
@@ -353,6 +358,10 @@ static void script_step(App *a) {
         size_t n = 0;
         char *data = ex_platform_read_file(line + 10, &n);
         if (data) { char *copy = SDL_malloc(n); if (copy) { memcpy(copy, data, n); g_clip_image = copy; g_clip_image_len = n; SDL_SetClipboardData(clip_image_cb, clip_image_free, NULL, (const char *[]){ "image/png" }, 1); } free(data); }
+    } else if (!strncmp(line, "cliphtml ", 9)) {                                   /* cliphtml PATH: the file becomes text/html on the clipboard, and its text is the plain text, as a browser leaves a copied page */
+        size_t n = 0;
+        char *data = ex_platform_read_file(line + 9, &n);
+        if (data) { char *copy = SDL_malloc(n + 1); if (copy) { memcpy(copy, data, n); copy[n] = 0; g_clip_html = copy; g_clip_html_len = n; SDL_SetClipboardData(clip_html_cb, clip_html_free, NULL, (const char *[]){ "text/html", "text/plain;charset=utf-8" }, 2); } free(data); }
     } else if (!strncmp(line, "drop ", 5)) {                                         /* drop PATH X Y: a file from the desktop dropped at a window position (docs/formats.md, "Dropping files into a note") */
         char drop_path[1500];
         char *sp = strrchr(line + 5, ' '), *sp2 = sp ? sp - 1 : NULL;
@@ -1932,6 +1941,21 @@ static int attach_start(App *a, AttachJob *j) {
     a->attach_pending++;
     return 1;
 }
+/* Paste a web page or other formatted text as Markdown (the setting paste_html_as_markdown). A page of more than 512 KB is pasted as the plain text it also holds,
+ * so the paste the user just asked for never takes long on the interface thread. */
+static char *paste_html_markdown(void *u) {
+    size_t n = 0, outn = 0;
+    char *html, *md, *title = NULL;
+    (void)u;
+    html = ex_clipboard_get_html(512u * 1024u, &n);                                   /* ui-ok: the paste the user just asked for, bounded */
+    if (!html) return NULL;
+    md = ex_html_to_markdown(html, n, &title, &outn);                                 /* ui-ok: bounded by the size above */
+    free(html); free(title);
+    if (!md) return NULL;
+    while (outn > 0 && (md[outn - 1] == '\n' || md[outn - 1] == ' ' || md[outn - 1] == '\r')) md[--outn] = 0;
+    if (outn == 0) { free(md); return NULL; }
+    return md;
+}
 /* Paste with no text on the clipboard: a picture there is saved as an attachment and linked at the caret. */
 static int paste_picture(void *u) {
     App *a = u;
@@ -2583,7 +2607,25 @@ static void on_wordcount_feature(const char *id, int enabled, void *user) {
 }
 
 static int has_editor(void *u) { return ((App *)u)->editor != NULL; }
-static void cmd_new_note(void *u) { on_new_note(NULL, "", u); }
+/* The command "Create new note": the folder the setting new_note_location names (the top folder, a folder, the folder of the open note, or a subfolder of it). The explorer's
+ * own "New note" in a folder uses that folder. The folder is made when it is not there; the note itself is written when something is typed in it. */
+static void cmd_new_note(void *u) {
+    App *a = u;
+    ExAttachConfig c;
+    ExId t = a->ws ? ex_ws_group_active(a->ws, ex_ws_active_group(a->ws)) : 0;
+    const ExTab *tab = t ? ex_ws_tab(a->ws, t) : NULL;
+    const char *loc = ex_settings_get(a->settings, "files", "new_note_location"), *folder = ex_settings_get(a->settings, "files", "new_note_folder");
+    char parent[1500] = "", dir[3200];
+    memset(&c, 0, sizeof c);
+    c.note_rel = tab && tab->path[0] ? tab->path : "";
+    c.location = !strcmp(loc, "folder") ? EX_ATTACH_FOLDER : !strcmp(loc, "same_folder") ? EX_ATTACH_SAME_FOLDER : !strcmp(loc, "subfolder") ? EX_ATTACH_SUBFOLDER : EX_ATTACH_VAULT;
+    c.folder = folder; c.subfolder = folder;
+    if (a->vault && c.location != EX_ATTACH_VAULT) {
+        ex_attach_folder(&c, parent, sizeof parent);
+        if (parent[0]) { snprintf(dir, sizeof dir, "%s/%s", ex_vault_path(a->vault), parent); ex_platform_make_dirs(dir); }
+    }
+    on_new_note(NULL, parent, u);
+}
 static int has_notes(void *u) { return ((App *)u)->notes != NULL && ((App *)u)->vault != NULL; }
 static void cmd_close_tab(void *u) {
     App *a = u;
@@ -3274,10 +3316,17 @@ static void sync_ui(App *a) {
         int tabs = ex_settings_get_bool(a->settings, "editor", "indent_with_tabs"), width = ex_settings_get_int(a->settings, "editor", "indent_width");
         int fh = ex_settings_get_bool(a->settings, "editor", "fold_heading"), fi = ex_settings_get_bool(a->settings, "editor", "fold_indent");
         int slash_on = ex_features_enabled(a->features, "slash_commands"), spell_on = ex_settings_get_bool(a->settings, "editor", "spellcheck");
+        ExSmartOptions smart;
+        int readable = ex_settings_get_bool(a->settings, "editor", "readable_line_length"), strict_breaks = ex_settings_get_bool(a->settings, "editor", "strict_line_breaks");
+        int html_paste = ex_settings_get_bool(a->settings, "editor", "paste_html_as_markdown"), line_nums = ex_settings_get_bool(a->settings, "editor", "line_numbers"), guides = ex_settings_get_bool(a->settings, "editor", "indent_guides");
         size_t i;
+        smart.lists = ex_settings_get_bool(a->settings, "editor", "smart_lists");
+        smart.brackets = ex_settings_get_bool(a->settings, "editor", "auto_pair_brackets");
+        smart.markdown = ex_settings_get_bool(a->settings, "editor", "auto_pair_markdown");
         for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
             ExWidget *w = ex_panes_content(a->panes, ex_ws_tab_at(a->ws, i));
-            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); ex_editor_set_spell(w->editor, spell_on ? a->spell : NULL); if (a->panels) ex_editor_set_link_suggest(w->editor, ex_panels_suggest_links, a->panels); ex_editor_set_link_click(w->editor, on_editor_link_click, a); ex_editor_set_paste_hook(w->editor, paste_picture, a); }
+            if (w && w->type == EX_WIDGET_READING) ex_reading_set_options(w, strict_breaks, readable);
+            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { w->text_max = readable ? 720.0f : 0.0f; ex_editor_set_display(w->editor, line_nums, guides); ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_smart(w->editor, &smart); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); ex_editor_set_spell(w->editor, spell_on ? a->spell : NULL); if (a->panels) ex_editor_set_link_suggest(w->editor, ex_panels_suggest_links, a->panels); ex_editor_set_link_click(w->editor, on_editor_link_click, a); ex_editor_set_paste_hook(w->editor, paste_picture, a); ex_editor_set_html_paste(w->editor, html_paste ? paste_html_markdown : NULL, a); }
         }
     }
     a->note = t ? note_for_tab(a, t) : NULL;

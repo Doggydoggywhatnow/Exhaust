@@ -82,6 +82,10 @@ void ex_editor_set_clipboard(ExEditor *e, const ExClipboard *cb);
 /* Called when paste finds no text on the clipboard (docs/formats.md, "Dropping files into a note": pasting a picture). May be NULL. */
 void ex_editor_set_paste_hook(ExEditor *e, int (*fn)(void *user), void *user);
 
+/* The setting paste_html_as_markdown: when a plain paste (not Paste without formatting) finds that the clipboard holds a web page or other formatted text, the
+ * application's function turns it into Markdown (malloc'ed; NULL to paste the plain text as usual) and that is pasted instead. NULL turns it off. */
+void ex_editor_set_html_paste(ExEditor *e, char *(*fn)(void *user), void *user);
+
 /* Font and metrics. size is at 100% zoom, line_height_pct is the theme's
  * line_height token. The renderer supplies the scale. */
 void ex_editor_set_font(ExEditor *e, ExFont *font, float size, int line_height_pct);
@@ -154,6 +158,8 @@ void ex_editor_set_head(ExEditor *e, float px);
 /* Pixels from an editor's left edge to its text. */
 int ex_editor_text_inset(ExRenderer *r);
 void ex_editor_set_mode(ExEditor *e, ExEditorMode mode);
+/* The settings line_numbers (numbers left of the text) and indent_guides (a thin line for each level of indentation). Off by default; plain fields never show them. */
+void ex_editor_set_display(ExEditor *e, int line_numbers, int indent_guides);
 /* Soft wrap: a long line continues on the next row at the width of the viewport (default off; the note editors turn it on). */
 void ex_editor_set_wrap(ExEditor *e, int on);
 float ex_editor_content_height(ExEditor *e, ExRenderer *r);     /* pixels of all the rows; for fields that grow with their text */
@@ -185,6 +191,16 @@ typedef struct ExFormatOptions { int use_tabs; int indent_width; } ExFormatOptio
 int ex_doc_format(ExDoc *d, ExFormat f, const ExFormatOptions *opt);
 void ex_editor_format(ExEditor *e, ExFormat f);
 void ex_editor_set_indent(ExEditor *e, int use_tabs, int indent_width);
+
+/* Typing helpers (docs/formats.md, "Typing helpers: smart lists and auto-pairing"). Each works on the one selection of a document and returns 1 if it
+ * changed the text or the caret, 0 if the key should type as usual. in_literal: the caret is in front matter, fenced code, math, a comment or an
+ * HTML block, where Markdown has no meaning. */
+typedef struct ExSmartOptions { int lists; int brackets; int markdown; } ExSmartOptions;   /* the settings smart_lists, auto_pair_brackets, auto_pair_markdown */
+int ex_doc_smart_enter(ExDoc *d, int in_literal);
+int ex_doc_smart_type(ExDoc *d, const char *text, size_t len, const ExSmartOptions *o, int in_literal);
+int ex_doc_smart_backspace(ExDoc *d, const ExSmartOptions *o, int in_literal);
+/* Turns them on for this editor (all off by default; plain fields never use them). */
+void ex_editor_set_smart(ExEditor *e, const ExSmartOptions *o);
 
 /* Table editing (sub-slice 5f): the table.* commands. Each works on the Markdown table the primary caret is in, is one text edit (one undo
  * step) that touches only the table's lines, and puts the caret in the cell it concerns. ex_doc_table returns 1 if the text changed (0 when

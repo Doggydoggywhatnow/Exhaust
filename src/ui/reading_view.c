@@ -52,6 +52,8 @@ struct ExReadingView {
     ExReadingLinkFn on_link; void *link_user;
     int press_link, press_toggle;
     float base_size;
+    char *src; size_t src_len;         /* the text last given, kept to build the page again when the line-break setting changes */
+    int strict, unlimited;             /* strict_line_breaks; readable_line_length off (the page is as wide as the pane) */
     float page_scale;                  /* 1, or the factor of the slides' larger text: the page gets wider with it */
     ExReadingMedia media;
     unsigned long img_version;
@@ -115,7 +117,13 @@ ExReadingView *ex_readingview_create(const char *text, size_t len) {
 void ex_readingview_set_text(ExReadingView *v, const char *text, size_t len) {
     ex_reading_free(v->model);
     free(v->plain);
-    v->model = ex_reading_build(text, len);
+    if (text != v->src) {                                   /* (a rebuild passes the kept text itself) */
+        char *copy = malloc(len + 1);
+        if (copy) { memcpy(copy, text, len); copy[len] = 0; }
+        free(v->src); v->src = copy; v->src_len = copy ? len : 0;
+        if (copy) text = copy;
+    }
+    v->model = ex_reading_build_ex(text, len, v->strict);
     v->plain = v->model ? ex_reading_plain_text(v->model) : NULL;
     v->dirty = 1;
     if (v->model) reset_closed(v);
@@ -125,7 +133,7 @@ void ex_readingview_free(ExReadingView *v) {
     if (!v) return;
     ex_reading_free(v->model);
     { size_t i; for (i = 0; i < v->nowned; i++) free(v->owned[i]); free(v->owned); }
-    free(v->plain); free(v->ops); free(v->back); free(v->links); free(v->closed);
+    free(v->src); free(v->plain); free(v->ops); free(v->back); free(v->links); free(v->closed);
     ex_mathcache_free(v->math);
     ex_diagcache_free(v->dgc);
     free(v);
@@ -146,6 +154,17 @@ static void clamp_scroll(ExReadingView *v) {
 }
 void ex_readingview_column(const ExReadingView *v, float *x, float *w) { *x = v->col_x; *w = v->col_w; }
 void ex_readingview_set_head(ExReadingView *v, float px) { if (px < 0) px = 0; if (px != v->head) { v->head = px; v->dirty = 1; } }
+/* The settings strict_line_breaks and readable_line_length. A change builds the page again from the text it was given. */
+void ex_readingview_set_options(ExReadingView *v, int strict_line_breaks, int readable_line_length) {
+    int unlimited = !readable_line_length;
+    if (!v) return;
+    if (unlimited != v->unlimited) { v->unlimited = unlimited; v->dirty = 1; }
+    if (strict_line_breaks != v->strict) {
+        v->strict = strict_line_breaks;
+        if (v->src) ex_readingview_set_text(v, v->src, v->src_len);
+        else v->dirty = 1;
+    }
+}
 void ex_readingview_set_page_scale(ExReadingView *v, float f) { if (v && f > 0 && f != v->page_scale) { v->page_scale = f; v->dirty = 1; } }
 void ex_readingview_scroll(ExReadingView *v, float dy) { v->scroll += dy; clamp_scroll(v); }
 void ex_readingview_set_scroll(ExReadingView *v, float y) { v->scroll = y; clamp_scroll(v); }
@@ -424,7 +443,7 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
     Lay L;
     size_t i, nb = v->model ? ex_reading_block_count(v->model) : 0;
     float scale = ex_renderer_scale(r), pad = 18.0f * scale, col_w, x0, em;
-    float readable = 720.0f * scale * (v->page_scale > 0 ? v->page_scale : 1.0f);
+    float readable = v->unlimited ? 1e9f : 720.0f * scale * (v->page_scale > 0 ? v->page_scale : 1.0f);
     free(v->ops); v->ops = NULL; v->nops = v->capops = 0;
     free(v->back); v->back = NULL; v->nback = v->capback = 0;
     for (i = 0; i < v->nowned; i++) free(v->owned[i]);

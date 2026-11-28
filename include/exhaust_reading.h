@@ -72,6 +72,8 @@ typedef struct ExReading ExReading;
 
 /* Builds the reading model of a note's text (front matter, comments and footnote definitions removed from the flow). */
 ExReading *ex_reading_build(const char *text, size_t len);
+/* strict_line_breaks != 0: a single line break inside a paragraph is a blank (CommonMark); 0 shows it as a line break (the default of the setting). */
+ExReading *ex_reading_build_ex(const char *text, size_t len, int strict_line_breaks);
 void ex_reading_free(ExReading *r);
 size_t ex_reading_block_count(const ExReading *r);
 const ExRBlock *ex_reading_block(const ExReading *r, size_t i);

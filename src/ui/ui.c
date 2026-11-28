@@ -193,6 +193,7 @@ int ex_reading_internal_link_at(ExWidget *w, float x, float y, char *target, siz
 
 void ex_reading_scroll(ExWidget *w, float dy) { if (w->reading) ex_readingview_scroll(w->reading, dy); }
 float ex_reading_scroll_y(const ExWidget *w) { return w->reading ? ex_readingview_scroll_y(w->reading) : 0; }
+void ex_reading_set_options(ExWidget *w, int strict_line_breaks, int readable_line_length) { if (w && w->reading) ex_readingview_set_options(w->reading, strict_line_breaks, readable_line_length); }
 void ex_reading_set_page_scale(ExWidget *w, float f) { if (w && w->reading && f > 0) { w->text_scale = f; ex_readingview_set_page_scale(w->reading, f); } }
 void ex_reading_set_scroll(ExWidget *w, float y) { if (w->reading) ex_readingview_set_scroll(w->reading, y); }
 
@@ -655,15 +656,20 @@ void ex_ui_layout(ExUi *ui, ExWidget *root, float width, float height) {
                 }
                 if (e->type == EX_WIDGET_EDITOR && e->editor) {
                     ExFont *f = ex_ui_font(ui, e->font_token, e->bold);
+                    float col_x = e->x, col_w = e->w;
+                    if (e->text_max > 0) {                       /* the readable line length: the text is a centered column, and so is the title above it */
+                        float mw = (float)ex_px(ui->r, e->text_max);
+                        if (mw >= 120.0f && e->w > mw) { col_x = e->x + (e->w - mw) / 2.0f; col_w = mw; }
+                    }
                     ex_editor_set_head(e->editor, e->first_child ? e->first_child->h : 0);       /* a child (the inline title) sits above the text and scrolls with it */
-                    if (e->first_child) { e->first_child->x = e->x; e->first_child->w = e->w; e->first_child->y = e->y - ex_editor_scroll_y(e->editor); }
+                    if (e->first_child) { e->first_child->x = col_x; e->first_child->w = col_w; e->first_child->y = e->y - ex_editor_scroll_y(e->editor); }
                     ex_editor_set_font(e->editor, f, ui->base_size * (e->text_scale > 0 ? e->text_scale : 1.0f), ex_theme_size(ui->theme, EX_SIZE_LINE_HEIGHT));
                     if (e->parent && (e->parent->type == EX_WIDGET_EDITOR || e->parent->type == EX_WIDGET_READING) && e->y < e->parent->y) {   /* a title scrolled partly above its editor: only the part inside is drawn */
                         float d = e->parent->y - e->y;
                         ex_editor_set_viewport(e->editor, e->x, e->y + d, e->w, e->h > d ? e->h - d : 0);
                         ex_editor_scroll(e->editor, d - ex_editor_scroll_y(e->editor));
                     } else {
-                        ex_editor_set_viewport(e->editor, e->x, e->y, e->w, e->h);
+                        ex_editor_set_viewport(e->editor, col_x, e->y, col_w, e->h);
                         if (e->parent && (e->parent->type == EX_WIDGET_EDITOR || e->parent->type == EX_WIDGET_READING)) ex_editor_scroll(e->editor, -ex_editor_scroll_y(e->editor));
                     }
                 }

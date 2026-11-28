@@ -284,6 +284,7 @@ static void preprocess(const char *t, size_t len, Pre *pre) {
 typedef struct Frame { int kind; int callout; int id; int fold; int maybe_callout; int ordered; unsigned counter; } Frame;   /* kind: 0 quote or callout, 1 list */
 
 typedef struct Ctx {
+    int strict;                          /* the setting strict_line_breaks: a soft break is a blank and not a line break */
     ExReading *r;
     int depth;
     Pre *pre;
@@ -801,7 +802,10 @@ static int text_cb(MD_TEXTTYPE type, const MD_CHAR *text, MD_SIZE size, void *us
     case MD_TEXT_NORMAL: add_text(c, text, size, 0); break;
     case MD_TEXT_NULLCHAR: add_text(c, "\xEF\xBF\xBD", 3, 0); break;
     case MD_TEXT_BR: spans_push(c, EX_RSK_BREAK, 0, "", 0, NULL); break;
-    case MD_TEXT_SOFTBR: spans_push(c, EX_RSK_BREAK, 0, "\n", 1, NULL); c->last_char = '\n'; break;
+    case MD_TEXT_SOFTBR:
+        if (c->strict) add_text(c, " ", 1, 0);                                    /* strict line breaks: a single line break is a blank, as in CommonMark */
+        else { spans_push(c, EX_RSK_BREAK, 0, "\n", 1, NULL); c->last_char = '\n'; }
+        break;
     case MD_TEXT_ENTITY: {
         char *d = ex_html_decode(text, size);
         if (d) { add_text(c, d, strlen(d), 0); free(d); }
@@ -816,7 +820,7 @@ static int text_cb(MD_TEXTTYPE type, const MD_CHAR *text, MD_SIZE size, void *us
 
 /* ---- the whole note ---- */
 
-static ExReading *build(const char *text, size_t len, int depth);
+static ExReading *build(const char *text, size_t len, int depth, int strict);
 
 /* The footnotes that were referenced, numbered in order of first reference, as a section at the end. */
 static void append_footnotes(Ctx *c, ExReading *r, const Pre *pre, int depth) {
@@ -831,7 +835,7 @@ static void append_footnotes(Ctx *c, ExReading *r, const Pre *pre, int depth) {
         ExReading *sub;
         char marker[24];
         for (k = 0; k < pre->nfoot; k++) if (strcmp(pre->foot[k].id, c->fn_names[i]) == 0) { body = pre->foot[k].text; break; }
-        sub = build(body, strlen(body), depth + 1);
+        sub = build(body, strlen(body), depth + 1, c->strict);
         snprintf(marker, sizeof marker, "%zu.", i + 1);
         if (!sub || sub->n == 0) {
             ExRBlock e;
@@ -857,7 +861,7 @@ static void append_footnotes(Ctx *c, ExReading *r, const Pre *pre, int depth) {
     }
 }
 
-static ExReading *build(const char *text, size_t len, int depth) {
+static ExReading *build(const char *text, size_t len, int depth, int strict) {
     ExReading *r = calloc(1, sizeof *r);
     Ctx c;
     Pre pre;
@@ -867,7 +871,7 @@ static ExReading *build(const char *text, size_t len, int depth) {
     memset(&c, 0, sizeof c);
     memset(&pre, 0, sizeof pre);
     preprocess(text, len, &pre);
-    c.r = r; c.depth = depth; c.pre = &pre; c.link_kind = EX_RSK_TEXT;
+    c.r = r; c.depth = depth; c.strict = strict; c.pre = &pre; c.link_kind = EX_RSK_TEXT;
     memset(&parser, 0, sizeof parser);
     parser.abi_version = 0;
     parser.flags = MD_FLAG_TABLES | MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS | MD_FLAG_LATEXMATHSPANS | MD_FLAG_WIKILINKS | MD_FLAG_PERMISSIVEURLAUTOLINKS;
@@ -883,7 +887,8 @@ static ExReading *build(const char *text, size_t len, int depth) {
     return r;
 }
 
-ExReading *ex_reading_build(const char *text, size_t len) { return build(text, len, 0); }
+ExReading *ex_reading_build(const char *text, size_t len) { return build(text, len, 0, 0); }
+ExReading *ex_reading_build_ex(const char *text, size_t len, int strict_line_breaks) { return build(text, len, 0, strict_line_breaks); }
 
 /* ---- plain text and the dump ---- */
 

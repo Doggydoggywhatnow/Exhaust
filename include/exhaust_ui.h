@@ -61,6 +61,7 @@ struct ExWidget {
     int text_token;               /* ExColorToken */
     int font_token;               /* ExFontToken */
     float text_scale;             /* times the base text size (1.0) */
+    float text_max;               /* an editor: the widest its text may be, in pixels at 100% (0: as wide as the widget); the readable line length. The text is centered. */
     int bold;
     int cursor;                   /* the pointer shape over this widget: 0 arrow, 1 resize left and right */
     int disabled;                 /* a button that does nothing yet: drawn faint, no focus, no click (its name says so)
@@ -162,6 +163,7 @@ void ex_reading_scroll(ExWidget *w, float dy);
 float ex_reading_scroll_y(const ExWidget *w);
 void ex_reading_set_scroll(ExWidget *w, float y);
 /* The text and the width of the page grow by this factor (1 = as usual): the slides use it (6e-iii). */
+void ex_reading_set_options(ExWidget *w, int strict_line_breaks, int readable_line_length);   /* the settings editor.strict_line_breaks and editor.readable_line_length */
 void ex_reading_set_page_scale(ExWidget *w, float f);
 /* The file explorer's tree: shows ex_vault_row() rows with chevrons, keeps a selection,
  * and calls on_open for a file. Up and Down move the selection, Right and Left open

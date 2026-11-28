@@ -28,6 +28,8 @@ typedef struct CachedLine {
 } CachedLine;
 
 struct ExEditor {
+    char *(*html_fn)(void *user);           /* paste_html_as_markdown: the clipboard's formatted text as Markdown, or NULL */
+    void *html_user;
     int (*paste_hook)(void *user);          /* paste with no text on the clipboard: the application may take a picture (returns 1) */
     void *paste_user;
     ExDoc *doc;
@@ -58,6 +60,8 @@ struct ExEditor {
      * where their hidden lines start, moved along with the edits), and the hidden line ranges that follow */
     int fold_headings, fold_lists;
     ExFolds folds;
+    int line_numbers, indent_guides;   /* the settings of the same names (editor.line_numbers, editor.indent_guides) */
+    ExSmartOptions smart;       /* smart lists and auto-pairing (all off until the application turns them on) */
     unsigned long folds_version;
     int folds_valid;
     size_t *folded;
@@ -151,6 +155,7 @@ void ex_editor_set_doc(ExEditor *e, ExDoc *doc) {
     e->ngoal = 0;
 }
 void ex_editor_set_clipboard(ExEditor *e, const ExClipboard *cb) { e->clip = *cb; }
+void ex_editor_set_html_paste(ExEditor *e, char *(*fn)(void *user), void *user) { e->html_fn = fn; e->html_user = user; }
 void ex_editor_set_paste_hook(ExEditor *e, int (*fn)(void *user), void *user) { e->paste_hook = fn; e->paste_user = user; }
 
 void ex_editor_set_font(ExEditor *e, ExFont *font, float size, int line_height_pct) {
@@ -196,6 +201,20 @@ static int gutter_px(ExRenderer *r) { return ex_px(r, 14); }                  /*
 static int pad_px(ExRenderer *r) { return gutter_px(r) + ex_px(r, 8); }       /* from the left edge to the text */
 
 int ex_editor_text_inset(ExRenderer *r) { return pad_px(r); }
+/* The room left of the text: the fold marker, the line numbers when they are on (as wide as the biggest number needs), and a margin. */
+static int numbers_px(const ExEditor *e, ExRenderer *r) {
+    size_t n = line_count(e);
+    int digits = 2;
+    if (!e->line_numbers || !e->font || e->mode == EX_EDITOR_PLAIN) return 0;
+    while (n >= 100) { digits++; n /= 10; }
+    return (int)ceilf((float)digits * ex_text_measure(r, e->font, e->size, "0", 1)) + ex_px(r, 10);
+}
+static int pad_e(const ExEditor *e, ExRenderer *r) { return pad_px(r) + numbers_px(e, r); }
+void ex_editor_set_display(ExEditor *e, int line_numbers, int indent_guides) {
+    line_numbers = line_numbers != 0; indent_guides = indent_guides != 0;
+    if (e->line_numbers == line_numbers && e->indent_guides == indent_guides) return;
+    e->line_numbers = line_numbers; e->indent_guides = indent_guides;
+}
 
 static int line_height_px(const ExEditor *e, ExRenderer *r) {
     ExFontMetrics m;
@@ -670,7 +689,7 @@ typedef struct WrapLine { size_t *start; float *x; size_t n, cap; } WrapLine;   
 static int wrap_active(const ExEditor *e) { return e->wrap && e->vw > 0.0f && e->font != NULL; }
 
 static float wrap_avail(const ExEditor *e, ExRenderer *r) {
-    float a = e->vw - (float)pad_px(r) - (float)ex_px(r, 8), lo = 1.0f;       /* down to one character a row: a segment always takes at least one cluster (wrap_line) */
+    float a = e->vw - (float)pad_e(e, r) - (float)ex_px(r, 8), lo = 1.0f;       /* down to one character a row: a segment always takes at least one cluster (wrap_line) */
     return a < lo ? lo : a;
 }
 
@@ -1072,7 +1091,27 @@ static void delete_ranges(ExEditor *e, ExRenderer *r, Range *rg, size_t n) {
     ensure_visible(e, r);
 }
 
+/* Is the caret where Markdown has no meaning (front matter, a fenced code block, a math, comment or HTML block)? The typing helpers stay out. */
+static int literal_cb(const ExMdSpan *sp, void *user) {
+    if (sp->kind == EX_MD_FRONTMATTER || sp->kind == EX_MD_CODE_BLOCK || sp->kind == EX_MD_CODE_BODY || sp->kind == EX_MD_MATH_BLOCK ||
+        sp->kind == EX_MD_COMMENT_BLOCK || sp->kind == EX_MD_HTML_BLOCK) *(int *)user = 1;
+    return 0;
+}
+static int caret_in_literal(ExEditor *e) {
+    ExSel p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
+    size_t len = ex_buffer_size(buf(e)), from = p.head > 0 ? p.head - 1 : 0, to = p.head + 1 < len ? p.head + 1 : len;
+    int in = 0;
+    if (e->mode == EX_EDITOR_PLAIN) return 0;
+    ensure_md(e);
+    if (!e->md || !e->md_valid) return 0;
+    ex_md_visit(e->md, from, to, literal_cb, &in);
+    return in;
+}
+static int smart_on(const ExEditor *e) { return e->mode != EX_EDITOR_PLAIN && (e->smart.lists || e->smart.brackets || e->smart.markdown); }
+void ex_editor_set_smart(ExEditor *e, const ExSmartOptions *o) { if (o) e->smart = *o; else memset(&e->smart, 0, sizeof e->smart); }
+
 static void backspace_or_delete(ExEditor *e, ExRenderer *r, int forward, int word) {
+    if (!forward && !word && !e->readonly && smart_on(e) && ex_doc_smart_backspace(e->doc, &e->smart, e->smart.markdown ? caret_in_literal(e) : 0)) { ensure_visible(e, r); return; }
     size_t n = ex_doc_sel_count(e->doc), i;
     if (e->readonly) return;
     Range *rg = malloc((n ? n : 1) * sizeof *rg);
@@ -1167,7 +1206,8 @@ static void slash_accept(ExEditor *e, ExRenderer *r) {
 void ex_editor_text_input(ExEditor *e, const char *text, size_t len) {
     if (len == 0 || e->readonly) return;
     e->composition[0] = 0;
-    ex_doc_replace_selections(e->doc, text, len, 1);
+    if (len == 1 && smart_on(e) && strchr("([{\")]}*_~=$`", text[0]) && ex_doc_smart_type(e->doc, text, len, &e->smart, caret_in_literal(e))) { /* paired, wrapped or typed over */ }
+    else ex_doc_replace_selections(e->doc, text, len, 1);
     e->last_vertical = 0;
     if (e->link_fn) {
         ExSel p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
@@ -1216,10 +1256,11 @@ char *ex_editor_selected_text(ExEditor *e, size_t *len) {
     return out;
 }
 
-static void paste(ExEditor *e) {
-    char *text;
+static void paste(ExEditor *e, int plain) {
+    char *text = NULL;
     if (e->readonly) return;
-    text = e->clip.get ? e->clip.get(e->clip.user) : NULL;
+    if (!plain && e->html_fn && e->mode != EX_EDITOR_PLAIN) text = e->html_fn(e->html_user);   /* a web page becomes Markdown */
+    if (!text) text = e->clip.get ? e->clip.get(e->clip.user) : NULL;
     size_t n = ex_doc_sel_count(e->doc), lines = 1, i, len;
     if (!text) { if (e->paste_hook) e->paste_hook(e->paste_user); return; }
     len = strlen(text);
@@ -1381,7 +1422,9 @@ void ex_editor_perform(ExEditor *e, ExRenderer *r, ExEditAction act, int extend)
     case EX_ACT_DELETE_TO_LINE_START: delete_to_line_edge(e, r, 0); break;
     case EX_ACT_DELETE_TO_LINE_END: delete_to_line_edge(e, r, 1); break;
     case EX_ACT_DELETE_LINE: delete_lines(e, r); break;
-    case EX_ACT_NEWLINE: ex_editor_text_input(e, "\n", 1); ensure_visible(e, r); break;
+    case EX_ACT_NEWLINE:
+        if (e->smart.lists && !e->readonly && e->mode != EX_EDITOR_PLAIN && ex_doc_smart_enter(e->doc, caret_in_literal(e))) { e->last_vertical = 0; ensure_visible(e, r); break; }
+        ex_editor_text_input(e, "\n", 1); ensure_visible(e, r); break;
     case EX_ACT_TAB: ex_editor_text_input(e, "\t", 1); break;
     case EX_ACT_SIMPLIFY: {
         ExSel s = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
@@ -1395,8 +1438,8 @@ void ex_editor_perform(ExEditor *e, ExRenderer *r, ExEditAction act, int extend)
     case EX_ACT_REDO: if (!e->readonly) { ex_doc_redo(e->doc); ensure_visible(e, r); } break;
     case EX_ACT_COPY: copy_or_cut(e, r, 0); break;
     case EX_ACT_CUT: copy_or_cut(e, r, 1); break;
-    case EX_ACT_PASTE:
-    case EX_ACT_PASTE_PLAIN: paste(e); ensure_visible(e, r); break;      /* the clipboard is plain text here, so both paste the same */
+    case EX_ACT_PASTE: paste(e, 0); ensure_visible(e, r); break;
+    case EX_ACT_PASTE_PLAIN: paste(e, 1); ensure_visible(e, r); break;      /* without formatting: the plain text only */
     case EX_ACT_BOLD: case EX_ACT_ITALIC: ex_editor_format(e, act == EX_ACT_BOLD ? EX_FMT_BOLD : EX_FMT_ITALIC); ensure_visible(e, r); break;
     default: break;
     }
@@ -1442,7 +1485,7 @@ static size_t point_to_offset(ExEditor *e, ExRenderer *r, float x, float y) {
     line = line_of_vrow(e, (size_t)row, &seg);
     wrap_line(e, r, line, &w);
     if (seg >= w.n) seg = w.n - 1;
-    off = offset_in_row(e, r, line, &w, seg, x - e->vx - (float)pad_px(r));
+    off = offset_in_row(e, r, line, &w, seg, x - e->vx - (float)pad_e(e, r));
     wl_free(&w);
     return off;
 }
@@ -1467,7 +1510,7 @@ void ex_editor_rect_select(ExEditor *e, ExRenderer *r, float ax, float ay, float
     int lh = line_height_px(e, r);
     long ra, rb, k;
     size_t rows, n = 0;
-    float xa = ax - e->vx - (float)pad_px(r), xb = x - e->vx - (float)pad_px(r), left, right;
+    float xa = ax - e->vx - (float)pad_e(e, r), xb = x - e->vx - (float)pad_e(e, r), left, right;
     ExSel *sel;
     if (!e->font || lh <= 0) return;
     geometry(e, r);
@@ -1640,7 +1683,7 @@ void ex_editor_caret_rect(ExEditor *e, ExRenderer *r, float *x, float *y, float 
     p = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
     line = ex_buffer_line_of_offset(buf(e), p.head);
     seg = seg_of(e, r, line, p.head, &wl);
-    cx = e->vx + (float)pad_px(r) + x_of(e, r, line, p.head) - wl.x[seg];
+    cx = e->vx + (float)pad_e(e, r) + x_of(e, r, line, p.head) - wl.x[seg];
     wl_free(&wl);
     if (x) *x = cx;
     if (y) *y = e->vy + (float)(vrow_of_line(e, line) + seg) * (float)lh - ts(e);
@@ -1724,7 +1767,7 @@ static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
                              int focused, int blink_on, ExColor sel_c, ExColor cur_c, ExColor comp_c, const WrapLine *wl, size_t seg) {
     size_t st, en, nx, si, nsel = ex_doc_sel_count(e->doc), i, ss, se;
     LLine *ll = layout_of(e, r, line, &st, &en);
-    float text_left = e->vx + (float)pad_px(r), left, segx = wl->x[seg];
+    float text_left = e->vx + (float)pad_e(e, r), left, segx = wl->x[seg];
     int base_ascent = fm->ascent, last = seg + 1 == wl->n, wrapped = wl->n > 1;
     if (!ll) return;
     line_range(e, line, &st, &en, &nx);
@@ -1763,7 +1806,7 @@ static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
     }
     if (ll->rule) {
         ExColor c = ex_theme_color(t, EX_COLOR_BORDER);
-        ex_fill_rect(r, left, y + (float)lh / 2.0f, e->vw - (float)pad_px(r) - (float)ex_px(r, 8), (float)ex_px(r, 1.5f), c);
+        ex_fill_rect(r, left, y + (float)lh / 2.0f, e->vw - (float)pad_e(e, r) - (float)ex_px(r, 8), (float)ex_px(r, 1.5f), c);
     }
     for (i = 0; i < ll->n; i++) {
         LRun *run = &ll->runs[i];
@@ -1936,6 +1979,38 @@ int ex_editor_word_at_caret(ExEditor *e, size_t *start, size_t *end) {
 
 /* The fold marker of a header line: a triangle in the gutter (pointing right when folded, down when open; open ones only
  * show on the caret's line), and three dots after the text of a folded header. */
+/* Line numbers (the first row of a line) and indent guides (a thin line for each level of indentation a line has). */
+static void draw_extras(ExEditor *e, ExRenderer *r, const ExTheme *t, size_t line, float y, int lh, int caret_line, size_t seg) {
+    if (seg != 0) return;
+    if (e->line_numbers) {
+        char num[24];
+        ExFontMetrics fm;
+        float w;
+        int n = snprintf(num, sizeof num, "%zu", line + 1);
+        if (n > 0 && !ex_font_metrics(e->font, line_px(e, r), &fm)) {
+            w = ex_text_measure(r, e->font, e->size, num, (size_t)n);
+            ex_text_draw(r, e->font, e->size, e->vx + (float)gutter_px(r) + (float)numbers_px(e, r) - (float)ex_px(r, 6) - w, y + (float)(lh - fm.line_height) / 2.0f, num, (size_t)n,
+                         ex_theme_color(t, caret_line ? EX_COLOR_TEXT_MUTED : EX_COLOR_TEXT_FAINT));
+        }
+    }
+    if (e->indent_guides) {
+        char lead[64];
+        size_t ls, en, nx, n, i, b[8], nb = 0, run = 0, run_start = 0;
+        int w = e->fmt.indent_width > 0 ? e->fmt.indent_width : 4;
+        line_range(e, line, &ls, &en, &nx);
+        n = ex_buffer_read(buf(e), ls, lead, en - ls < sizeof lead ? en - ls : sizeof lead);
+        for (i = 0; i < n && nb < 8; i++) {                      /* the guides stand at the start of each level the line is inside: a tab, or indent_width blanks */
+            if (lead[i] == '\t') { run = 0; b[nb++] = i; }
+            else if (lead[i] == ' ') { if (run == 0) run_start = i; if (++run == (size_t)w) { b[nb++] = run_start; run = 0; } }
+            else break;
+        }
+        for (i = 0; i < nb; i++) {
+            float gx = e->vx + (float)pad_e(e, r) + x_of(e, r, line, ls + b[i]) + (float)ex_px(r, 3);
+            ex_fill_rect(r, gx, y, (float)ex_px(r, 1), (float)lh, ex_theme_color(t, EX_COLOR_BORDER));
+        }
+    }
+}
+
 static void draw_fold_marker(ExEditor *e, ExRenderer *r, const ExTheme *t, size_t line, float y, int lh, int caret_line, const WrapLine *wl, size_t seg) {
     long k = ex_folds_find_hdr(&e->folds, line);
     int folded;
@@ -1956,7 +2031,7 @@ static void draw_fold_marker(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
         float x;
         ExFontMetrics fm;
         line_range(e, line, &st, &en, &nx);
-        x = e->vx + (float)pad_px(r) + x_of(e, r, line, en) - wl->x[seg] + (float)ex_px(r, 6);
+        x = e->vx + (float)pad_e(e, r) + x_of(e, r, line, en) - wl->x[seg] + (float)ex_px(r, 6);
         if (ex_font_metrics(e->font, line_px(e, r), &fm) == 0)
             ex_text_draw(r, e->font, e->size, x, y + (float)(lh - fm.line_height) / 2.0f, "...", 3, ex_theme_color(t, EX_COLOR_TEXT_MUTED));
     }
@@ -1973,7 +2048,7 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
     if (!e->font) return;
     lh = line_height_px(e, r);
     px = line_px(e, r);
-    pad = pad_px(r);
+    pad = pad_e(e, r);
     if (ex_font_metrics(e->font, px, &fm)) return;
     memset(&wl, 0, sizeof wl);
     ex_set_clip(r, (int)e->vx, (int)e->vy, (int)e->vw, (int)e->vh);
@@ -1995,7 +2070,7 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
         line = line_of_vrow(e, row, &seg);
         if (line != cached_line) { wl_free(&wl); wrap_line(e, r, line, &wl); cached_line = line; }
         if (seg >= wl.n) seg = wl.n - 1;
-        if (e->mode != EX_EDITOR_PLAIN) { draw_layout_line(e, r, t, line, nl, y, lh, &fm, focused, blink_on, sel_c, cur_c, comp_c, &wl, seg); draw_fold_marker(e, r, t, line, y, lh, line == caret_line, &wl, seg); continue; }
+        if (e->mode != EX_EDITOR_PLAIN) { draw_layout_line(e, r, t, line, nl, y, lh, &fm, focused, blink_on, sel_c, cur_c, comp_c, &wl, seg); draw_fold_marker(e, r, t, line, y, lh, line == caret_line, &wl, seg); draw_extras(e, r, t, line, y, lh, line == caret_line, seg); continue; }
         txt = line_text(e, line, &len);
         if (!txt) continue;
         line_range(e, line, &st, &en, &nx);
