@@ -28,6 +28,8 @@ ExIndex *ex_index_open(const char *path, int writer, char *err, size_t errcap);
 /* For the compatibility test: a writer that stops at an earlier schema version. */
 ExIndex *ex_index_open_at_version(const char *path, int version, char *err, size_t errcap);
 void ex_index_close(ExIndex *ix);
+/* How many times this connection found the database locked and had to wait for it (for the tests: the interface thread's reader must never). */
+unsigned long ex_index_busy_waits(const ExIndex *ix);
 int ex_index_schema_version(const ExIndex *ix);
 int ex_index_was_rebuilt(const ExIndex *ix);
 /* Deletes the index file (and its WAL files). The index must be closed. */

@@ -1071,7 +1071,7 @@ static void draw_message(View *v, ExWidget *w, const char *msg, ExColor c) {
 
 void ex_canvasview_draw(ExUi *ui, ExWidget *w) {
     View *v = view_of(w);
-    double t_start = (double)SDL_GetPerformanceCounter() * 1000.0 / (double)SDL_GetPerformanceFrequency();
+    double t_start = ex_platform_work_ms();                       /* CPU time of this thread: what our own code costs, not what a busy machine adds */
     const ExTheme *t;
     ExRenderer *r;
     ExColor c_bg, c_grid, c_text, c_muted, c_surface, c_border, c_accent, c_link;
@@ -1305,7 +1305,7 @@ void ex_canvasview_draw(ExUi *ui, ExWidget *w) {
         v->stats.geom_grows = gs.grows;
     }
     v->stats.selected_cards = selected_nodes(v); v->stats.selected_edges = selected_edges(v);
-    v->stats.own_ms = (double)SDL_GetPerformanceCounter() * 1000.0 / (double)SDL_GetPerformanceFrequency() - t_start;
+    v->stats.own_ms = ex_platform_work_ms() - t_start;
     (void)c_link;
     if (!v->c->n && !v->edit) {
         ExFont *f = ex_ui_font(ui, EX_FONT_TOKEN_INTERFACE, 0);

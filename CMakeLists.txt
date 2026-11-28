@@ -223,7 +223,7 @@ add_library(exhaust_vault STATIC src/vault/vault.c src/vault/registry.c src/vaul
 target_include_directories(exhaust_vault PUBLIC include)
 target_link_libraries(exhaust_vault PUBLIC exhaust_platform exhaust_buffer exhaust_ini)
 
-add_library(exhaust_platform STATIC src/platform/paths.c src/platform/input.c src/platform/files.c src/platform/integration.c src/platform/watch_native.c)
+add_library(exhaust_platform STATIC src/platform/paths.c src/platform/input.c src/platform/files.c src/platform/cputime.c src/platform/integration.c src/platform/watch_native.c)
 target_include_directories(exhaust_platform PUBLIC include)
 target_link_libraries(exhaust_platform PUBLIC SDL3::SDL3-static)
 if(APPLE)
@@ -755,6 +755,7 @@ foreach(m cold rebuild compat size)
   add_test(NAME index_${m} COMMAND test_index $<TARGET_FILE:gen_vault> ${m})
 endforeach()
 add_test(NAME ui_not_blocked COMMAND test_index $<TARGET_FILE:gen_vault> ui)
+add_test(NAME index_busy_counted COMMAND test_index $<TARGET_FILE:gen_vault> busy)
 
 add_executable(test_links tests/test_links.c)
 target_link_libraries(test_links PRIVATE exhaust_index exhaust_platform)

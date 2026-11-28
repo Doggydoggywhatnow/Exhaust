@@ -113,6 +113,10 @@ void ex_append_close(ExAppendFile *f);
 
 /* Monotonic milliseconds, for timers. */
 uint64_t ex_platform_now_ms(void);
+/* Milliseconds of CPU the calling thread has used (user and system), or -1 if the system does not say. The tests that limit the work of our own code
+ * use it: it does not count the time a thread waited to run on a busy machine. ex_platform_work_ms falls back to wall-clock time. */
+double ex_platform_thread_cpu_ms(void);
+double ex_platform_work_ms(void);
 /* Seconds since the Unix epoch. */
 int64_t ex_platform_unix_time(void);
 int ex_platform_tz_offset_minutes(void);                  /* minutes east of UTC now (for the dates Bases show) */

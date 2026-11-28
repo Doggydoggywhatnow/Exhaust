@@ -317,7 +317,8 @@ static void test_ui(const char *tool) {
     SearchLoad load;
     SDL_Thread *searcher;
     char *root, err[200];
-    double worst = 0, t, t1, t2, t3, w_queue = 0, w_count = 0, w_lookup = 0;
+    double worst = 0, t, t1, t2, t3, w_queue = 0, w_count = 0, w_lookup = 0, cpu_worst = 0, c0, c;
+    unsigned long waits0;
     int done = 0;
     long frames = 0, slow4 = 0, slow8 = 0, w_frame = 0;
     make_vault(tool);
@@ -338,9 +339,11 @@ static void test_ui(const char *tool) {
     searcher = SDL_CreateThread(search_load_main, "search-load", &load);
     CHECK(searcher != NULL);
     ex_indexer_sync(ixr);
+    waits0 = ex_index_busy_waits(r);
     while (!done) {
         ExMessage m;
         t = seconds();
+        c0 = ex_platform_work_ms();
         while (ex_queue_pop(q, &m)) { if (m.type == EX_MSG_INDEX_DONE) { done = 1; CHECK(((ExIndexDoneMsg *)m.payload)->ok); } if (m.free_payload) m.free_payload(m.payload); }
         t1 = seconds();
         (void)ex_index_file_count(r, -1);                               /* what a frame reads from the index: counts and single-row lookups */
@@ -348,6 +351,8 @@ static void test_ui(const char *tool) {
         { char *path = ex_index_file_path(r, 1 + frames % 50); int64_t id = path ? ex_index_file_id(r, path) : 0; (void)id; free(path); }
         t3 = seconds();
         t = t3 - t;
+        c = ex_platform_work_ms() - c0;
+        if (c > cpu_worst) cpu_worst = c;
         if (t > 0.004) slow4++;
         if (t > 0.008) slow8++;
         if (t > worst) { worst = t; w_queue = t1 - t; w_count = t2 - t1; w_lookup = t3 - t2; w_frame = frames; }
@@ -362,10 +367,50 @@ static void test_ui(const char *tool) {
     printf("worst frame was number %ld: queue %.2f ms, count %.2f ms, lookup %.2f ms; frames over 4 ms: %ld, over 8 ms: %ld\n", w_frame, w_queue * 1000.0, w_count * 1000.0, w_lookup * 1000.0, slow4, slow8);
     CHECK(frames > 10);
     CHECK(SDL_GetAtomicInt(&load.runs) > 0);
-    CHECK(worst < 0.016 * TIME_SCALE);
+    /* What is limited (ISSUES 39): the interface thread's reads never wait for a lock (the reader counts every wait), and the CPU time of its reads in a
+     * frame stays inside the 16 ms budget. The wall-clock time of a frame is printed and has only a loose guard: on a loaded runner a thread that is not
+     * scheduled for 40 ms looks like a block, which it is not. */
+    printf("the reader waited for a lock %lu times; the most CPU time one frame's reads used: %.2f ms\n", ex_index_busy_waits(r) - waits0, cpu_worst);
+    CHECK(ex_index_busy_waits(r) == waits0);
+    CHECK(cpu_worst < 16.0 * TIME_SCALE);
+    CHECK(worst < 0.25 * TIME_SCALE);
     ex_indexer_stop(ixr);
     ex_queue_destroy(q);
     ex_index_close(r);
+    free(root);
+}
+
+/* The counter the "ui" test relies on can see a real wait: another connection holds the write lock for a while, a writer that needs it waits, and the wait is
+ * counted. (A counter that never counted would let ui_not_blocked pass for the wrong reason.) */
+typedef struct SyncJob { ExIndex *w; char *root; int rc; unsigned long waits; } SyncJob;
+static int sync_job_main(void *arg) { SyncJob *j = arg; j->rc = ex_index_sync(j->w, j->root, NULL, 0, NULL, NULL, NULL); j->waits = ex_index_busy_waits(j->w); return 0; }
+
+static void test_busy(const char *tool) {
+    ExIndex *w;
+    sqlite3 *other = NULL;
+    SDL_Thread *th;
+    SyncJob job;
+    char *root, err[200];
+    make_vault(tool);
+    ex_platform_remove_tree(DBDIR);
+    root = abs_vault();
+    w = ex_index_open(dbpath("busy"), 1, err, sizeof err);
+    CHECK(w != NULL);
+    if (!w) { free(root); return; }
+    CHECK(sqlite3_open(dbpath("busy"), &other) == SQLITE_OK);
+    CHECK(sqlite3_exec(other, "BEGIN IMMEDIATE", NULL, NULL, NULL) == SQLITE_OK);               /* the write lock is held */
+    memset(&job, 0, sizeof job);
+    job.w = w; job.root = root; job.rc = -99;
+    th = SDL_CreateThread(sync_job_main, "busy-sync", &job);
+    CHECK(th != NULL);
+    SDL_Delay(300);                                                                              /* the writer is waiting now */
+    CHECK(sqlite3_exec(other, "COMMIT", NULL, NULL, NULL) == SQLITE_OK);
+    if (th) SDL_WaitThread(th, NULL);
+    printf("a writer that had to wait for a lock: %lu waits counted, sync returned %d\n", job.waits, job.rc);
+    CHECK(job.waits > 0);                                                                        /* the wait was counted */
+    CHECK(job.rc == 0);                                                                          /* and ended when the lock was let go */
+    sqlite3_close(other);
+    ex_index_close(w);
     free(root);
 }
 
@@ -378,6 +423,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(mode, "compat")) test_compat(tool);
     else if (!strcmp(mode, "size")) test_size(tool);
     else if (!strcmp(mode, "ui")) test_ui(tool);
+    else if (!strcmp(mode, "busy")) test_busy(tool);
     else { fprintf(stderr, "unknown mode %s\n", mode); return 2; }
     if (failures) { fprintf(stderr, "%d check(s) failed\n", failures); return 1; }
     printf("ok\n");

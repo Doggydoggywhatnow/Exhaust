@@ -633,7 +633,7 @@ void ex_baseview_draw(ExUi *ui, ExWidget *w) {
     float sc, tb_h, x;
     char label[400];
     if (!v) return;
-    t0 = (double)SDL_GetPerformanceCounter() * 1000.0 / (double)SDL_GetPerformanceFrequency();
+    t0 = ex_platform_work_ms();                                  /* CPU time of this thread */
     t = ex_ui_theme(ui); r = ex_ui_renderer(ui);
     if (ex_doc_version(v->doc) != v->seen) reload(v);
     clear_hits(v);
@@ -737,7 +737,7 @@ void ex_baseview_draw(ExUi *ui, ExWidget *w) {
     }
     ex_ui_clip_restore(ui);
     if (v->source) { w->pad_y = tb_h / ((float)ex_theme_size(t, EX_SIZE_SPACING) * sc); }
-    v->own_ms = (double)SDL_GetPerformanceCounter() * 1000.0 / (double)SDL_GetPerformanceFrequency() - t0;
+    v->own_ms = ex_platform_work_ms() - t0;
 }
 
 /* ---- menus and actions ---- */

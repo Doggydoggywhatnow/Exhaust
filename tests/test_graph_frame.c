@@ -13,6 +13,7 @@
 #include <SDL3/SDL.h>
 
 #include "exhaust_graphview.h"
+#include "exhaust_platform.h"
 #include "exhaust_ui.h"
 
 #if defined(__SANITIZE_ADDRESS__)
@@ -85,15 +86,16 @@ static void on_context(void *u, const char *path, int kind, float x, float y) { 
  * code and the user's renderer is a GPU, so it is printed, not limited; the limit on it is the number of triangles (a work count). */
 static double raster_total;
 static double frame(ExUi *ui, ExRenderer *r, ExWidget *root) {
-    double t0 = now_ms(), t1, t2;
+    double c0 = ex_platform_work_ms(), c1, w1, w2;                 /* our code is limited in CPU time of this thread: a busy runner does not stretch it (ISSUES 55) */
     ex_ui_layout(ui, root, W, H);
     ex_renderer_clear(r, (ExColor){0, 0, 0, 255});
     ex_ui_draw(ui, root, 1);
-    t1 = now_ms();
+    c1 = ex_platform_work_ms();
+    w1 = now_ms();
     finish_frame(r);
-    t2 = now_ms();
-    raster_total += t2 - t1;
-    return t1 - t0;
+    w2 = now_ms();
+    raster_total += w2 - w1;                                         /* the rasterizer is printed in wall-clock time, not limited */
+    return c1 - c0;
 }
 
 int main(void) {
@@ -215,10 +217,10 @@ int main(void) {
         frame(ui, r, root);
         ex_graphview_node_screen(gw, node, &sx, &sy);
         {
-            double t0 = now_ms();
+            double t0 = ex_platform_work_ms();
             ex_ui_mouse(ui, root, EX_MOUSE_DOWN, sx, sy, 0, 1);
             ex_ui_mouse(ui, root, EX_MOUSE_UP, sx, sy, 0, 1);
-            handlers[nh++] = now_ms() - t0;
+            handlers[nh++] = ex_platform_work_ms() - t0;
         }
         CHECK(got.opened == 1 && strcmp(got.path, g->nodes[ex_graphview_node_at(gw, sx, sy)].path) == 0);
         got.opened = 0;
@@ -321,14 +323,14 @@ int main(void) {
     for (i = 0; i < 16; i++) {
         double t0;
         ex_graphmodel_update(m);
-        t0 = now_ms();
+        t0 = ex_platform_work_ms();
         ex_graphview_wheel(gw, (i % 2) ? 1.0f : -1.0f, 400, 300);
         ex_ui_mouse(ui, root, EX_MOUSE_DOWN, 300, 300, 0, 1);
         ex_ui_mouse(ui, root, EX_MOUSE_DRAG, 320 + (float)i, 310, 0, 1);
         ex_ui_mouse(ui, root, EX_MOUSE_UP, 320 + (float)i, 310, 0, 1);
         ex_ui_pointer_moved(ui, root, 500 + (float)i, 350);
         ex_ui_key(ui, EX_KEY_LEFT, 0);
-        if (nh < 200) handlers[nh++] = now_ms() - t0;
+        if (nh < 200) handlers[nh++] = ex_platform_work_ms() - t0;
         frame(ui, r, root);
     }
     {

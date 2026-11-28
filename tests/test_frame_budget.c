@@ -13,6 +13,7 @@
 #include "exhaust_canvasview.h"
 #include "exhaust_baseview.h"
 #include "exhaust_panes.h"
+#include "exhaust_platform.h"
 #include "exhaust_popwin.h"
 #include "exhaust_ui.h"
 
@@ -36,7 +37,8 @@ static int failures;
  * every frame for its own drawing, as a real frame is. */
 static void finish_frame(ExRenderer *r) { SDL_FlushRenderer(SDL_GetRenderer(ex_renderer_window(r))); }
 
-static double now_ms(void) { return (double)SDL_GetPerformanceCounter() * 1000.0 / (double)SDL_GetPerformanceFrequency(); }
+/* The work of our own code is measured in CPU time of this thread (a busy runner stretches wall-clock time, ISSUES 55; the software rasterizer runs on this thread and is counted). */
+static double now_ms(void) { return ex_platform_work_ms(); }
 static int cmp_d(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
 static double p95(double *v, size_t n) { qsort(v, n, sizeof *v, cmp_d); return v[(n * 95) / 100 >= n ? n - 1 : (n * 95) / 100]; }
 
@@ -86,6 +88,20 @@ int main(void) {
         case 3: len += (size_t)snprintf(text + len, cap - len, "- [ ] a task #tag%zu\n", i % 40); break;
         case 4: len += (size_t)snprintf(text + len, cap - len, "> a quotation that is long enough to be a real line of text, with some words in it\n"); break;
         default: len += (size_t)snprintf(text + len, cap - len, "\n"); break;
+        }
+    }
+    {   /* the clock the limits use: CPU time of this thread. Waiting does not move it, work does (on a system that cannot say, it is wall-clock time and the check is skipped) */
+        double c0 = ex_platform_thread_cpu_ms(), c1, c2;
+        if (c0 >= 0.0) {
+            volatile double x = 0;
+            Uint64 w0;
+            SDL_Delay(60);
+            c1 = ex_platform_thread_cpu_ms();
+            CHECK(c1 - c0 < 20.0);                                       /* a 60 ms wait is not 60 ms of work */
+            w0 = SDL_GetTicks();
+            while (SDL_GetTicks() - w0 < 60) { size_t k; for (k = 0; k < 100000; k++) x += (double)k; }
+            c2 = ex_platform_thread_cpu_ms();
+            CHECK(c2 - c1 > 30.0);                                       /* 60 ms of work is */
         }
     }
     CHECK(ex_theme_init_builtin(&theme, EX_THEME_DARK) == 0);

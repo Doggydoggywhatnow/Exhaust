@@ -71,9 +71,11 @@ static int has_label(ExWidget *w, const char *needle) {
     return 0;
 }
 /* Run the runtime and the page until the state is what a test wants (the plugin thread is separate). */
+/* Waits for a state, not for a speed: the deadline is in time (30 s), not in turns of this loop (400 turns ended the wait after a few seconds on a slow
+ * sanitizer runner, where each turn draws a whole settings page: ISSUES 92). A state that never comes still fails, after the deadline. */
 static int until(int (*ok)(void)) {
-    int i;
-    for (i = 0; i < 400; i++) {
+    Uint64 t0 = SDL_GetTicks();
+    while (SDL_GetTicks() - t0 < 30000) {
         ex_plugins_update(P);
         ex_settingsview_tick(SV);
         frame();

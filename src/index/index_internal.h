@@ -18,6 +18,8 @@ struct ExIndex {
     int writer;
     int rebuilt;
     int version;
+    unsigned long busy_waits;     /* times SQLite found the database locked and this connection had to wait (see busy_cb in db.c) */
+    long busy_ms;                 /* the time waited in the call that is waiting now */
 };
 
 /* db.c */

@@ -103,6 +103,22 @@ static void set_err(char *err, size_t cap, const char *what, sqlite3 *db) {
     if (err && cap) snprintf(err, cap, "%s%s%s", what, db ? ": " : "", db ? sqlite3_errmsg(db) : "");
 }
 
+/* SQLite's own busy timeout, written out so the waits can be counted: it sleeps a little longer each time the database is found locked and gives up after
+ * ten seconds. A reader of the UI thread that has to wait is a block; the tests ask ex_index_busy_waits (a wait is told apart from a thread that was merely
+ * not scheduled on a busy machine, which the clock cannot do). */
+static int busy_cb(void *p, int n) {
+    static const int delay[] = {1, 2, 5, 10, 15, 20, 25, 25, 25, 50, 50, 100};
+    ExIndex *ix = p;
+    int d = delay[n < 12 ? n : 11];
+    if (n == 0) ix->busy_ms = 0;
+    if (ix->busy_ms >= 10000) return 0;
+    ix->busy_ms += d;
+    ix->busy_waits++;
+    sqlite3_sleep(d);
+    return 1;
+}
+unsigned long ex_index_busy_waits(const ExIndex *ix) { return ix ? ix->busy_waits : 0; }
+
 static ExIndex *open_one(const char *path, int writer, int stop_at, int *was_rebuilt, char *err, size_t errcap) {
     ExIndex *ix = calloc(1, sizeof *ix);
     int flags = writer ? SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE : SQLITE_OPEN_READONLY, v;
@@ -113,7 +129,7 @@ static ExIndex *open_one(const char *path, int writer, int stop_at, int *was_reb
         set_err(err, errcap, "cannot open the index", ix->db);
         goto fail;
     }
-    sqlite3_busy_timeout(ix->db, 10000);
+    sqlite3_busy_handler(ix->db, busy_cb, ix);                     /* waits up to ten seconds for a lock, counting each wait */
     if (writer) {
         sqlite3_stmt *st = NULL;
         int ok = 0;
