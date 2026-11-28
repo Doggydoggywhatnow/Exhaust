@@ -196,7 +196,7 @@ Two kinds of work: the plan was changed (the owner and I went through the screen
 
 | Id | Slice | Status | Commit | Honest gaps |
 | --- | --- | --- | --- | --- |
-| T1 | The Bases `groupOrder` overflow (ISSUES 93) | done locally: `base_core` (five new cases, seen to fail on the old code with CI's ASan report), `base_expr`, `base_layouts`, `base_index` and `base_random` (a new seed) pass under ASan and UBSan with leak checking; a million mutated inputs clean; CI result not yet read | the commit named by `git log` ("T1") | The crash input of CI's `fuzz_base` run was not downloaded (the cause was reproduced from the ASan report and the code instead). `fuzz_base` itself (libFuzzer) was not run here: clang has no fuzzer runtime; CI's fuzz job is the check. |
+| T1 | The Bases `groupOrder` overflow (ISSUES 93) | **done**: `base_core` (five new cases, seen to fail on the old code with CI's ASan report), `base_expr`, `base_layouts`, `base_index` and `base_random` (a new seed) pass under ASan and UBSan with leak checking; a million mutated inputs clean; **CI green on all ten jobs, run 46119575559** (the fuzz job's *Bases files* step and the sanitizers job included; the sanitizers job built in 4 minutes this time and finished the run in 42) | `825af18` | The crash input of CI's `fuzz_base` run was not downloaded (the cause was reproduced from the ASan report and the code instead). `fuzz_base` itself (libFuzzer) was not run here: clang has no fuzzer runtime; CI's fuzz job is the check. |
 
 ## Bug-hunting tests (not a numbered sub-slice)
 
