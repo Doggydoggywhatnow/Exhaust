@@ -638,7 +638,8 @@ int ex_base_run(const ExBase *b, size_t view, const ExBaseData *data, const char
         if (forder && forder->kind == EXY_SEQ) {                                                         /* groupOrder: only these groups, in this order (an empty one still shown) */
             ExBaseGroup *shown = ex_arena_alloc(c.arena, (forder->n + 1) * sizeof *shown);
             size_t ns = 0, *ordered = malloc((nrows ? nrows : 1) * sizeof *ordered), at = 0;
-            if (!shown || !ordered) { free(gk); free(order_rows); free(ordered); goto fail; }
+            unsigned char *used = calloc(ng ? ng : 1, 1);                                                /* a group is shown once, where groupOrder names it first (ISSUES 93: a repeated entry copied its rows again and ran past `ordered`) */
+            if (!shown || !ordered || !used) { free(gk); free(order_rows); free(ordered); free(used); goto fail; }
             for (j = 0; j < forder->n; j++) {
                 const ExYNode *want = forder->kids[j];
                 int is_null = ex_y_is_null(want);
@@ -648,15 +649,25 @@ int ex_base_run(const ExBase *b, size_t view, const ExBaseData *data, const char
                     int match = is_null ? groups[k].key.t == EXV_NULL : (groups[k].key.t != EXV_NULL && wt && !strcmp(groups[k].label, wt));
                     if (match) {
                         size_t q;
+                        found = 1;
+                        if (used[k]) continue;                                                           /* named again: already shown */
+                        used[k] = 1;
                         shown[ns] = groups[k]; shown[ns].first = at;
                         for (q = 0; q < groups[k].count; q++) ordered[at++] = order_rows[groups[k].first + q];
-                        ns++; found = 1;
+                        ns++;
                     }
                 }
-                if (!found) { shown[ns].key = is_null ? ex_v_null() : ex_v_str(c.arena, wt ? wt : ""); shown[ns].label = is_null ? "" : ex_arena_strdup(c.arena, wt ? wt : ""); shown[ns].first = at; shown[ns].count = 0; ns++; }
+                if (!found) {
+                    const char *label = is_null ? "" : wt ? wt : "";
+                    size_t s;
+                    int again = 0;
+                    for (s = 0; s < ns && !again; s++) again = !shown[s].count && (shown[s].key.t == EXV_NULL) == (is_null != 0) && !strcmp(shown[s].label, label);    /* an empty group named twice is shown once as well */
+                    if (again) continue;
+                    shown[ns].key = is_null ? ex_v_null() : ex_v_str(c.arena, label); shown[ns].label = is_null ? "" : ex_arena_strdup(c.arena, label); shown[ns].first = at; shown[ns].count = 0; ns++;
+                }
             }
             memcpy(order_rows, ordered, at * sizeof *ordered);
-            free(ordered);
+            free(ordered); free(used);
             groups = shown; ng = ns; nrows = at;
         }
         { size_t *nr = ex_arena_alloc(c.arena, (nrows ? nrows : 1) * sizeof *nr); if (nr) { for (i = 0; i < nrows; i++) nr[i] = rows[order_rows[i]]; memcpy(rows, nr, nrows * sizeof *rows); } }

@@ -258,6 +258,19 @@ int main(void) {
     ex_base_result_free(&r);
     CHECK(run("filters: 'file.hasTag(\"book\")'\nviews:\n  - type: table\n    groupBy:\n      property: status\n    groupOrder: []\n", 0, d, NULL, &r) == 0 && r.ngroups == 0 && r.nrows == 0);
     ex_base_result_free(&r);
+    /* ISSUES 93: a group named twice in groupOrder is shown once (the rows were copied twice and ran past the array: fuzz_base, CI run 46106714545) */
+    CHECK(run("filters: 'file.hasTag(\"book\")'\nviews:\n  - type: table\n    groupBy:\n      property: status\n    groupOrder:\n      - todo\n      - todo\n      - done\n", 0, d, NULL, &r) == 0);
+    CHECK(r.ngroups == 2 && !strcmp(r.groups[0].label, "todo") && r.groups[0].count == 2 && r.groups[0].first == 0 && !strcmp(r.groups[1].label, "done") && r.groups[1].first == 2 && r.nrows == 3);
+    ex_base_result_free(&r);
+    CHECK(run("filters: 'file.hasTag(\"book\")'\nviews:\n  - type: table\n    groupBy:\n      property: status\n    groupOrder: [todo, todo, todo, todo, todo, todo, todo, todo]\n", 0, d, NULL, &r) == 0);
+    CHECK(r.ngroups == 1 && r.groups[0].count == 2 && r.nrows == 2);                                              /* more entries than rows */
+    ex_base_result_free(&r);
+    CHECK(run("filters: 'file.hasTag(\"book\")'\nviews:\n  - type: table\n    groupBy:\n      property: status\n    groupOrder:\n      - waiting\n      - waiting\n      - done\n", 0, d, NULL, &r) == 0);
+    CHECK(r.ngroups == 2 && !strcmp(r.groups[0].label, "waiting") && r.groups[0].count == 0 && !strcmp(r.groups[1].label, "done") && r.nrows == 1);   /* an empty group named twice too */
+    ex_base_result_free(&r);
+    CHECK(run("filters: 'file.hasTag(\"book\")'\nviews:\n  - type: table\n    groupBy:\n      property: age\n    groupOrder:\n      - null\n      - null\n      - 50\n      - '50'\n", 0, d, NULL, &r) == 0);
+    CHECK(r.ngroups == 2 && r.groups[0].key.t == EXV_NULL && r.groups[0].count == 1 && !strcmp(r.groups[1].label, "50") && r.nrows == 2);      /* null twice, and 50 written two ways */
+    ex_base_result_free(&r);
     CHECK(run("filters: 'file.hasTag(\"book\")'\nviews:\n  - type: table\n    groupBy:\n      property: file.folder\n", 0, d, NULL, &r) == 0 && r.ngroups == 1 && !strcmp(r.groups[0].label, "Books"));
     ex_base_result_free(&r);
     CHECK(run("filters: 'file.hasTag(\"book\")'\nviews:\n  - type: table\n    groupBy:\n      property: author\n", 0, d, NULL, &r) == 0 && r.ngroups >= 2);                       /* links group by what they show */

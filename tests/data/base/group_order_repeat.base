@@ -1,0 +1,12 @@
+filters: file.name != ""
+views:
+  - type: table
+    order: [file.name, status]
+    groupBy:
+      property: status
+    groupOrder:
+      - todo
+      - todo
+      - done
+      - null
+      - null

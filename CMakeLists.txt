@@ -838,7 +838,7 @@ add_executable(test_frontmatter_random tests/fuzz/fuzz_frontmatter.c tests/fuzz/
 target_link_libraries(test_frontmatter_random PRIVATE exhaust_index)
 add_executable(test_base_random tests/fuzz/fuzz_base.c tests/fuzz/mutate_driver.c)
 target_link_libraries(test_base_random PRIVATE exhaust_base)
-add_test(NAME base_random COMMAND test_base_random 20000 ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/base/sample.base ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/base/kanban.base)
+add_test(NAME base_random COMMAND test_base_random 20000 ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/base/sample.base ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/base/kanban.base ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/base/group_order_repeat.base)
 add_executable(test_base_expr_random tests/fuzz/fuzz_base_expr.c tests/fuzz/mutate_driver.c)
 target_link_libraries(test_base_expr_random PRIVATE exhaust_base)
 add_test(NAME base_expr_random COMMAND test_base_expr_random 20000 ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/base/seed1.expr ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/base/seed2.expr ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/base/seed3.expr ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/base/seed4.expr ${CMAKE_CURRENT_SOURCE_DIR}/tests/data/base/seed5.expr)
