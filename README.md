@@ -327,12 +327,18 @@ Each sub-slice is finished, tested and committed before the next. The detailed s
 
 Exhaust must run on Windows, Linux (Wayland and X11) and macOS, with no display-server-specific code.
 
+## Future goals
+
+Not part of 0.1.0, and nothing in 0.1.0 depends on them, but the design keeps them possible.
+
+- **An Android port.** Exhaust on Android phones and tablets, from the same C code: SDL3 supports Android, so the core can build there. It needs an Android platform layer in `src/platform/` (files, the file watcher, the trash, clipboard, packaging) and a touch-first interface (a phone layout, an on-screen keyboard and text input, touch selection, scrolling and zoom), with the same vault format, privacy rules and accessibility as the desktop program. Until it starts, new platform code goes behind `src/platform/` so the port stays possible.
+
 ## Non-goals
 
 These Obsidian features are deliberately not part of Exhaust:
 
 - A web viewer and embedded web pages (links open in the system browser).
-- Mobile apps in 0.1.0 (iOS is not planned). **An Android port is planned for after 0.1.0**, with a touch-first interface (a phone layout, an on-screen keyboard, touch selection and scrolling) and an Android platform layer in `src/platform/`: SDL3 supports Android, so the C core can build there, but nothing of the port exists yet and no 0.1.0 work depends on it. Keep new platform code behind `src/platform/` so the port stays possible.
+- Mobile apps other than the Android port in *Future goals*.
 - Accounts, licenses, payments, credits and the Teams offering.
 - A hosted Sync or Publish server. Their settings and interface are stubs; any file-sync tool already syncs a vault.
 - Annotating PDFs. Obsidian does not support it either.
