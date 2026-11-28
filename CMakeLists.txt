@@ -1169,3 +1169,9 @@ endif()
 add_library(exhaust_plugins STATIC src/plugins/manifest.c src/plugins/plugins.c)
 target_include_directories(exhaust_plugins PUBLIC include)
 target_link_libraries(exhaust_plugins PUBLIC lua_static exhaust_settings exhaust_ini exhaust_buffer exhaust_platform exhaust_core)
+
+# Bug-hunting tests (tests/hunt): written to find bugs, not to stay green, so they are not built, run or required by CI unless asked for.
+option(EXHAUST_HUNT_TESTS "Build the bug-hunting tests in tests/hunt (see tests/hunt/README.md)" OFF)
+if(EXHAUST_HUNT_TESTS)
+  add_subdirectory(tests/hunt)
+endif()

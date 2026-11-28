@@ -4,3 +4,6 @@ install/
 target/
 go_db/
 go_vault/
+
+# scratch folders of the bug-hunting tests (tests/hunt)
+hunt_work/

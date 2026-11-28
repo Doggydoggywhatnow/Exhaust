@@ -177,6 +177,10 @@ Two kinds of work: the plan was changed (the owner and I went through the screen
 
 **Honest gaps of this stretch.** The Plugins page, the drop and the paste were checked by scripted runs and by screenshots of the Release build in the headless window, never with a real mouse and a real clipboard; the paste has never run against a Windows or macOS clipboard. A plugin pane is not saved with the session (ISSUES 78). The editor does not draw pictures (ISSUES 83); the user's words "embedding images/files doesn't work" are about that, since reading mode draws them (a screenshot of a note with `![[pic.png]]`, a sized picture, a PDF and a Markdown image showed all four). The user was asked whether to build pictures in the editor; no answer yet.
 
+## Bug-hunting tests (not a numbered sub-slice)
+
+`tests/hunt/` holds 17 test programs and a grep audit that were **written to find bugs and have not been run**: the build was checked (every one compiles and links, `-DEXHAUST_HUNT_TESTS=ON`, off by default, not in CI), nothing more. A fresh session should run them (`tests/hunt/README.md`: how to build, run, read the output and file what it finds in `ISSUES.md`). They are random and hostile input, models that are slower and simpler than the code, the promises of `docs/formats.md` held up one by one, and the hard rules of `AGENTS.md` (nothing written outside the vault, nothing replaced, no lost typing, no network) tried from the outside. Some will fail; each failure is a bug, a wrong expectation in the test, or the code and the documentation disagreeing. Findings go to `ISSUES.md` with what noticed them (`tests/hunt/<test>`, the seed). *TODO-verify:* every SUSPECT line is a question, not a verdict.
+
 ## Backlog and ideas
 
 Ideas that are not yet part of a sub-slice. Each links to its issue; decide the release before building.
