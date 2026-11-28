@@ -345,6 +345,24 @@ EXHAUST_SCRIPT="$work/table_slash.script" $lim "$exe" "$vault" >"$work/table_sla
 unset EXHAUST_OPEN
 if grep -qF '|      |    X |' "$vault/Table.md" && grep -qF '| bb   | 22  |' "$vault/Table.md" && grep -q '^after$' "$vault/Table.md" && ! grep -q '/table' "$vault/Table.md"; then echo "ok: the slash menu's Table: Add row below added a row and the typing went into it"; else echo "FAILED: table command from the slash menu"; cat "$vault/Table.md"; fail=1; fi
 
+# a new note (Ctrl+N): "Untitled" is selected in the title, so the first words typed are its name; Enter makes the file and goes on to the text; a second note
+# started the same way does not collide
+vault="$work/new_note"; rm -rf "$vault"; mkdir -p "$vault/.exhaust"
+printf '# x\n' > "$vault/Existing.md"
+printf '%s\n' 'wait 1200
+key mod+n
+wait 800
+text My Note
+key enter
+wait 600
+text Body text here
+wait 2500
+quit' > "$work/new_note.script"
+export EXHAUST_OPEN=Existing.md
+EXHAUST_SCRIPT="$work/new_note.script" $lim "$exe" "$vault" >"$work/new_note.log" 2>&1
+unset EXHAUST_OPEN
+if [ -f "$vault/My Note.md" ] && [ "$(cat "$vault/My Note.md")" = "Body text here" ] && [ ! -e "$vault/Untitled.md" ] && [ ! -e "$vault/UntitledMy Note.md" ]; then echo "ok: a new note took its name from the first words typed and its text after Enter"; else echo "FAILED: new note ($(ls "$vault"); $(cat "$vault/My Note.md" 2>/dev/null))"; fail=1; fi
+
 # a table drawn in live preview (the blocks): a click on it opens its source with the caret at its first line, and typing goes there; nothing else of the note changes
 vault="$work/table_block"; rm -rf "$vault"; mkdir -p "$vault/.exhaust"
 printf '# Tbl\n\n| Name | Qty |\n| :--- | --: |\n| a    | 1   |\n| bb   | 22  |\n\nafter\n' > "$vault/Table.md"

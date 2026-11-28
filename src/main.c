@@ -109,6 +109,7 @@ typedef struct App {
     ExGraphModel *gm_local;        /* the local graph's (5c), while a local graph tab exists */
     char pdf_goto_path[700]; int pdf_goto_page, pdf_goto_s, pdf_goto_e, pdf_goto_set;   /* a link to a PDF page or selection, while the tab opens (6c-v) */
     char audio_embed_path[700];    /* an audio embed that was pressed: plays when its file is loaded */
+    int body_focus_next;           /* a new note was just named in its title: the note that opens under the name takes the keyboard in its text */
     char pending_url[600];         /* a web address a PDF link asked to open, while the user is asked (6c-iv) */
     ExMpv *mpv;                    /* the libmpv player, one at a time (6c-iii) */
     char mpv_path[600];
@@ -3171,6 +3172,7 @@ static void title_commit(Title *t, int keep_focus) {
             snprintf(abs, sizeof abs, "%s/%s", ex_vault_path(a->vault), to);
             if (ex_platform_path_info(abs, &info) == 0) { set_status(a, "A note with that name already exists."); title_revert(t); free(typed); return; }
             ex_ws_close_tab(a->ws, t->tab);                                      /* t is freed with the tab's content: nothing of it is used below */
+            a->body_focus_next = 1;                                              /* the note that opens under its new name takes the text, not the title again */
             host_open_note(a, to, (size_t)-1, 0);
             free(typed);
             return;
@@ -3262,7 +3264,13 @@ static void sync_title(App *a) {
         if (strcmp(t->path, tab->path) || t->path[0] == 0) {
             snprintf(t->path, sizeof t->path, "%s", tab->path);
             title_revert(t);
-            if (!ex_note_exists_on_disk(note) && tid == active) ex_ui_set_focus(a->ui, t->w);   /* a new note: the first thing typed is its name */
+            if (!ex_note_exists_on_disk(note) && tid == active) {
+                if (a->body_focus_next) { a->body_focus_next = 0; ex_ui_set_focus(a->ui, c); }      /* it was just named: Enter in the title goes on to the text */
+                else {                                                                               /* a new note: the first thing typed is its name, in place of "Untitled" */
+                    ex_ui_set_focus(a->ui, t->w);
+                    ex_editor_select(t->w->editor, a->r, 0, ex_buffer_size(ex_doc_buffer(t->doc)));
+                }
+            }
         }
     }
 }
