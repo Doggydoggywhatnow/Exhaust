@@ -6,6 +6,8 @@
 #include <hb.h>
 
 #include "editor_fold.h"
+#include "exhaust_reading.h"
+#include "reading_view.h"
 #include "editor_layout.h"
 #include "exhaust_editor.h"
 #include "exhaust_find.h"
@@ -26,6 +28,14 @@ typedef struct CachedLine {
     unsigned long used;
     int valid;
 } CachedLine;
+
+/* Rendered blocks of live preview: a table, an equation, a Mermaid diagram, a picture on a line of its own and the properties are drawn as the reading view draws
+ * them while the caret is outside, and show their source while it is inside. A block is its lines [first, last]: the lines after the first are hidden (as in a fold) and
+ * the first takes as many rows as the picture is high. */
+enum { BK_TABLE = 1, BK_MATH, BK_MERMAID, BK_IMAGE, BK_PROPS };
+typedef struct Blk { size_t first, last; int kind; uint32_t hash; int shown; } Blk;
+#define BVIEWS 24
+typedef struct BView { uint32_t hash; int kind; ExReadingView *v; float h; unsigned long used; } BView;
 
 struct ExEditor {
     char *(*html_fn)(void *user);           /* paste_html_as_markdown: the clipboard's formatted text as Markdown, or NULL */
@@ -61,6 +71,11 @@ struct ExEditor {
     int fold_headings, fold_lists;
     ExFolds folds;
     int line_numbers, indent_guides;   /* the settings of the same names (editor.line_numbers, editor.indent_guides) */
+    int blocks_on, props_mode;                  /* draw blocks (live preview with wrap only); properties: 0 visible, 1 hidden, 2 source */
+    Blk *blk; size_t nblk, capblk;
+    unsigned long blk_version; int blk_valid; unsigned long blk_sig;
+    BView bv[BVIEWS]; unsigned long btick;
+    ExReadingMedia bmedia; int have_media;
     ExSmartOptions smart;       /* smart lists and auto-pairing (all off until the application turns them on) */
     unsigned long folds_version;
     int folds_valid;
@@ -123,6 +138,9 @@ static void clear_cache(ExEditor *e) {
         if (e->cache[i].valid) { free(e->cache[i].text); ex_shaped_free(&e->cache[i].sh); e->cache[i].valid = 0; }
 }
 
+static void blocks_free(ExEditor *e);
+static int blocks_sync(ExEditor *e);
+static size_t blocks_hidden(const ExEditor *e, size_t (*tmp)[2], size_t n);
 void ex_editor_free(ExEditor *e) {
     if (!e) return;
     ex_md_free(e->md);
@@ -130,6 +148,7 @@ void ex_editor_free(ExEditor *e) {
     ex_folds_free(&e->folds);
     free(e->folded);
     free(e->hid);
+    blocks_free(e);
     free(e->nseg); free(e->vpre);
     free(e->hl);
     free(e->goal);
@@ -141,6 +160,7 @@ void ex_editor_set_readonly(ExEditor *e, int readonly) { e->readonly = readonly 
 int ex_editor_readonly(const ExEditor *e) { return e->readonly; }
 void ex_editor_set_doc(ExEditor *e, ExDoc *doc) {
     e->md_valid = 0;
+    e->blk_valid = 0; e->nblk = 0; e->blk_sig = 0;
     e->folds_valid = 0;
     e->nfolded = 0;
     e->nhid = 0;
@@ -345,7 +365,7 @@ static int cmp_hid(const void *x, const void *y) {
 static void rebuild_hidden(ExEditor *e) {
     size_t i, n = 0;
     e->vpre_ok = 0;
-    size_t (*tmp)[2] = malloc((e->nfolded ? e->nfolded : 1) * sizeof *tmp);
+    size_t (*tmp)[2] = malloc((e->nfolded + e->nblk + 1) * sizeof *tmp);
     free(e->hid);
     e->hid = NULL;
     e->nhid = 0;
@@ -357,6 +377,7 @@ static void rebuild_hidden(ExEditor *e) {
         tmp[n][1] = e->folds.r[k].last;
         n++;
     }
+    n = blocks_hidden(e, tmp, n);                                           /* the lines of the blocks that are drawn */
     qsort(tmp, n, sizeof *tmp, cmp_hid);
     e->hid = malloc((n ? n : 1) * sizeof *e->hid);
     if (e->hid) {
@@ -413,14 +434,15 @@ static size_t row_count(const ExEditor *e) {
 static void fold_sync(ExEditor *e) {
     unsigned long version;
     size_t i;
-    int changed = 0;
+    int changed = 0, blk_changed;
+    blk_changed = blocks_sync(e);
     if (e->mode == EX_EDITOR_PLAIN || (!e->fold_headings && !e->fold_lists)) {
-        if (e->nfolded || e->nhid || e->folds.n) { e->nfolded = 0; rebuild_hidden(e); e->folds.n = 0; e->folds_valid = 0; }
+        if (e->nfolded || e->folds.n || blk_changed || (e->nhid && !e->nblk)) { e->nfolded = 0; rebuild_hidden(e); e->folds.n = 0; e->folds_valid = 0; }
         return;
     }
     ensure_md(e);
     version = ex_doc_version(e->doc);
-    if (e->folds_valid && e->folds_version == version && e->md_valid) goto reveal;
+    if (e->folds_valid && e->folds_version == version && e->md_valid) { changed = blk_changed; goto reveal; }
     if (e->nfolded && e->folded_version != version) {                      /* move the folded offsets along with the edits */
         ExDocEdit edits[EX_DOC_EDIT_LOG];
         int n = ex_doc_edits_since(e->doc, e->folded_version, edits, EX_DOC_EDIT_LOG);
@@ -849,6 +871,328 @@ static size_t line_of_vrow(ExEditor *e, size_t vrow, size_t *seg) {
     return lo;
 }
 
+static int is_mermaid_word(const char *p) {
+    static const char w[] = "mermaid";
+    size_t k;
+    for (k = 0; w[k]; k++) if ((p[k] | 0x20) != w[k]) return 0;
+    return p[k] == 0 || p[k] == ' ' || p[k] == '\t' || p[k] == '\r' || p[k] == '\n';
+}
+/* ---- rendered blocks (live preview) ---- */
+
+static uint32_t fnv(uint32_t h, const char *p, size_t n) { size_t i; for (i = 0; i < n; i++) { h ^= (unsigned char)p[i]; h *= 16777619u; } return h; }
+
+static void blocks_free(ExEditor *e) {
+    size_t i;
+    for (i = 0; i < BVIEWS; i++) if (e->bv[i].v) { ex_readingview_free(e->bv[i].v); e->bv[i].v = NULL; }
+    free(e->blk); e->blk = NULL; e->nblk = e->capblk = 0;
+}
+
+/* The text of a block's lines, without the line break after the last. malloc'ed. */
+static char *blk_slice(const ExEditor *e, const Blk *b, size_t *len) {
+    size_t s = ex_buffer_line_start(buf(e), b->first), en = b->last + 1 < line_count(e) ? ex_buffer_line_start(buf(e), b->last + 1) : ex_buffer_size(buf(e)), n;
+    char *t;
+    if (en > s && b->last + 1 < line_count(e)) en--;
+    n = en > s ? en - s : 0;
+    t = malloc(n + 1);
+    if (!t) return NULL;
+    n = ex_buffer_read(buf(e), s, t, n);
+    while (n > 0 && t[n - 1] == '\r') n--;
+    t[n] = 0;
+    if (len) *len = n;
+    return t;
+}
+
+typedef struct BCol { ExEditor *e; } BCol;
+static int blk_push(ExEditor *e, size_t first, size_t last, int kind) {
+    Blk *b;
+    if (e->nblk && first <= e->blk[e->nblk - 1].last) return 0;               /* inside the one before */
+    if (e->nblk == e->capblk) {
+        size_t nc = e->capblk ? e->capblk * 2 : 16;
+        Blk *nb = realloc(e->blk, nc * sizeof *nb);
+        if (!nb) return -1;
+        e->blk = nb; e->capblk = nc;
+    }
+    b = &e->blk[e->nblk++];
+    b->first = first; b->last = last; b->kind = kind; b->hash = 0; b->shown = 1;
+    return 0;
+}
+
+static int blk_cb(const ExMdSpan *sp, void *user) {
+    ExEditor *e = user;
+    int kind = 0;
+    size_t first, last, end;
+    switch (sp->kind) {
+    case EX_MD_TABLE: kind = BK_TABLE; break;
+    case EX_MD_MATH_BLOCK: kind = BK_MATH; break;
+    case EX_MD_CODE_BLOCK: kind = BK_MERMAID; break;
+    case EX_MD_FRONTMATTER: if (e->props_mode != 2) kind = BK_PROPS; break;     /* source: the YAML as text */
+    case EX_MD_EMBED: case EX_MD_IMAGE: if (sp->parent_kind == EX_MD_PARAGRAPH) kind = BK_IMAGE; break;
+    default: return 0;
+    }
+    if (!kind) return 0;
+    end = sp->end > sp->start ? sp->end - 1 : sp->end;
+    first = ex_buffer_line_of_offset(buf(e), sp->start);
+    last = ex_buffer_line_of_offset(buf(e), end);
+    if (kind == BK_IMAGE) {                                                  /* the picture is the whole line */
+        size_t ls = ex_buffer_line_start(buf(e), first), le = first + 1 < line_count(e) ? ex_buffer_line_start(buf(e), first + 1) - 1 : ex_buffer_size(buf(e)), a, z;
+        char c;
+        if (last != first) return 0;
+        a = ls; z = le;
+        while (a < sp->start && ex_buffer_read(buf(e), a, &c, 1) == 1 && (c == ' ' || c == '\t')) a++;
+        while (z > sp->end && ex_buffer_read(buf(e), z - 1, &c, 1) == 1 && (c == ' ' || c == '\t' || c == '\r')) z--;
+        if (a != sp->start || z != sp->end) return 0;
+    }
+    if (kind == BK_MERMAID) {                                                /* only a fence whose language is mermaid, with its closing fence */
+        char ln[96];
+        size_t n, i = 0, ls = ex_buffer_line_start(buf(e), first);
+        n = ex_buffer_read(buf(e), ls, ln, sizeof ln - 1);
+        ln[n] = 0;
+        while (ln[i] == ' ') i++;
+        while (ln[i] == '`' || ln[i] == '~') i++;
+        while (ln[i] == ' ') i++;
+        if (last <= first || !is_mermaid_word(ln + i)) return 0;
+    }
+    return blk_push(e, first, last, kind) < 0 ? 1 : 0;
+}
+
+static void blocks_collect(ExEditor *e) {
+    size_t i;
+    e->nblk = 0;
+    ex_md_visit(e->md, 0, ex_buffer_size(buf(e)), blk_cb, e);
+    for (i = 0; i < e->nblk; i++) {                                           /* what each block says, to find its picture again */
+        size_t n = 0;
+        char *t = blk_slice(e, &e->blk[i], &n);
+        uint32_t h = 2166136261u;
+        if (t) { h = fnv(h, t, n); free(t); }
+        e->blk[i].hash = h ^ (uint32_t)e->blk[i].kind * 2654435761u;
+    }
+}
+
+static size_t line_of_off(const ExEditor *e, size_t off) { return ex_buffer_line_of_offset(buf(e), off); }
+
+/* A block shows its source while a caret or the end of a selection is in it. The first line of the properties does not count (a note opens with the caret there), unless the properties are hidden. */
+static int blk_revealed(const ExEditor *e, const Blk *b) {
+    size_t k, ns = ex_doc_sel_count(e->doc), from = b->first + ((b->kind == BK_PROPS && e->props_mode == 0) ? 1 : 0);
+    for (k = 0; k < ns; k++) {
+        ExSel s = ex_doc_sel(e->doc, k);
+        size_t a = line_of_off(e, lo(s)), z = line_of_off(e, hi(s));
+        if ((a >= from && a <= b->last) || (z >= from && z <= b->last)) return 1;
+    }
+    return 0;
+}
+
+/* Brings the blocks up to date with the text and the carets. Returns 1 when the set of hidden lines is not what it was. */
+static int blocks_sync(ExEditor *e) {
+    int changed = 0;
+    size_t i;
+    unsigned long sig = 2166136261u;
+    unsigned long version;
+    if (!(e->blocks_on && e->mode == EX_EDITOR_LIVE && wrap_active(e))) {
+        if (e->nblk) { e->nblk = 0; e->blk_valid = 0; e->blk_sig = 0; return 1; }
+        return 0;
+    }
+    ensure_md(e);
+    if (!e->md || !e->md_valid) return 0;
+    version = ex_doc_version(e->doc);
+    int rebuilt = 0;
+    if (!e->blk_valid || e->blk_version != version) { blocks_collect(e); e->blk_version = version; e->blk_valid = 1; changed = 1; rebuilt = 1; }
+    for (i = 0; i < e->nblk; i++) {
+        int now = !blk_revealed(e, &e->blk[i]);
+        if (!rebuilt && e->blk[i].shown && !now && e->nseg && e->blk[i].first < e->wn) { e->nseg[e->blk[i].first] = 0; e->vpre_ok = 0; }   /* the caret came in: its own rows again */
+        e->blk[i].shown = now;
+        sig = (sig ^ (unsigned long)(e->blk[i].shown + 2 * (int)(e->blk[i].first + 1))) * 16777619ul;
+    }
+    sig ^= (unsigned long)e->props_mode << 7 ^ e->nblk;
+    if (sig != e->blk_sig) { e->blk_sig = sig; changed = 1; }
+    return changed;
+}
+
+/* The line ranges the drawn blocks hide: everything after the first line, and all of hidden properties. */
+static size_t blocks_hidden(const ExEditor *e, size_t (*tmp)[2], size_t n) {
+    size_t i;
+    for (i = 0; i < e->nblk; i++) {
+        const Blk *b = &e->blk[i];
+        size_t from;
+        if (!b->shown) continue;
+        from = (b->kind == BK_PROPS && e->props_mode == 1) ? b->first : b->first + 1;
+        if (from > b->last) continue;
+        tmp[n][0] = from; tmp[n][1] = b->last; n++;
+    }
+    return n;
+}
+
+static int blk_index_of_first(const ExEditor *e, size_t line) {
+    size_t lo_i = 0, hi_i = e->nblk;
+    while (lo_i < hi_i) {
+        size_t mid = (lo_i + hi_i) / 2;
+        if (e->blk[mid].first < line) lo_i = mid + 1; else hi_i = mid;
+    }
+    return lo_i < e->nblk && e->blk[lo_i].first == line ? (int)lo_i : -1;
+}
+/* A drawn block that starts on this line, or -1. */
+static int blk_drawn_at(const ExEditor *e, size_t line) {
+    int i;
+    if (!e->nblk) return -1;
+    i = blk_index_of_first(e, line);
+    if (i < 0 || !e->blk[i].shown) return -1;
+    if (e->blk[i].kind == BK_PROPS && e->props_mode == 1) return -1;           /* hidden properties take no row at all */
+    return i;
+}
+
+/* The properties as a table of the reading view's kind: the first level keys and their values (a list's items joined with commas). */
+static char *props_markdown(const char *y, size_t n, size_t *out_len) {
+    size_t cap = n * 2 + 128, w = 0, i = 0;
+    char *o = malloc(cap);
+    int any = 0;
+    if (!o) return NULL;
+    w += (size_t)snprintf(o + w, cap - w, "| Property | Value |\n| --- | --- |\n");
+    while (i < n && y[i] != '\n') i++;                                         /* the first --- */
+    if (i < n) i++;
+    while (i < n) {
+        size_t ls = i, le = i, ke, vs, ve;
+        char val[1024];
+        size_t vw = 0;
+        while (le < n && y[le] != '\n') le++;
+        i = le < n ? le + 1 : n;
+        if (le - ls >= 3 && (!strncmp(y + ls, "---", 3) || !strncmp(y + ls, "...", 3))) break;
+        if (le == ls || y[ls] == ' ' || y[ls] == '\t' || y[ls] == '-' || y[ls] == '#') continue;
+        for (ke = ls; ke < le && y[ke] != ':'; ke++) {}
+        if (ke >= le) continue;
+        vs = ke + 1; ve = le;
+        while (vs < ve && (y[vs] == ' ' || y[vs] == '\t')) vs++;
+        while (ve > vs && (y[ve - 1] == ' ' || y[ve - 1] == '\r' || y[ve - 1] == '\t')) ve--;
+        for (; vs < ve && vw + 2 < sizeof val; vs++) {                         /* the value on the key's own line: quotes and the brackets of a flow list are dropped */
+            char c = y[vs];
+            if (c == '"' || c == '[' || c == ']') continue;
+            if (c == '|') val[vw++] = '\\';
+            val[vw++] = c;
+        }
+        if (vw == 0) {                                                         /* a block list under the key */
+            size_t j = i;
+            while (j < n) {
+                size_t a = j, b2 = j, k2;
+                while (b2 < n && y[b2] != '\n') b2++;
+                k2 = a;
+                while (k2 < b2 && (y[k2] == ' ' || y[k2] == '\t')) k2++;
+                if (k2 + 1 < b2 && y[k2] == '-' && y[k2 + 1] == ' ') {
+                    size_t t = k2 + 2;
+                    if (vw && vw + 3 < sizeof val) { val[vw++] = ','; val[vw++] = ' '; }
+                    while (t < b2 && vw + 2 < sizeof val) { char c = y[t++]; if (c == '"' || c == '\r') continue; if (c == '|') val[vw++] = '\\'; val[vw++] = c; }
+                    j = b2 < n ? b2 + 1 : n;
+                } else break;
+            }
+            i = j;
+        }
+        val[vw] = 0;
+        if (w + (ke - ls) * 2 + vw + 16 > cap) break;
+        w += (size_t)snprintf(o + w, cap - w, "| %.*s | %s |\n", (int)(ke - ls), y + ls, val);
+        any = 1;
+    }
+    (void)any;
+    if (out_len) *out_len = w;
+    return o;
+}
+
+/* The picture of a block: found by what the block says, made when it is needed (at most BVIEWS are kept). */
+static BView *bview_get(ExEditor *e, size_t i) {
+    const Blk *b = &e->blk[i];
+    size_t k, oldest = 0, n = 0;
+    char *t, *conv = NULL;
+    BView *bv;
+    for (k = 0; k < BVIEWS; k++) if (e->bv[k].v && e->bv[k].hash == b->hash && e->bv[k].kind == b->kind) { e->bv[k].used = ++e->btick; return &e->bv[k]; }
+    for (k = 0; k < BVIEWS; k++) {
+        if (!e->bv[k].v) { oldest = k; break; }
+        if (e->bv[k].used < e->bv[oldest].used) oldest = k;
+    }
+    bv = &e->bv[oldest];
+    if (bv->v) { ex_readingview_free(bv->v); bv->v = NULL; }
+    t = blk_slice(e, b, &n);
+    if (!t) return NULL;
+    if (b->kind == BK_PROPS) { conv = props_markdown(t, n, &n); free(t); t = conv; if (!t) return NULL; }
+    bv->v = ex_readingview_create(t, n);
+    free(t);
+    if (!bv->v) return NULL;
+    ex_readingview_set_inline(bv->v);
+    if (e->have_media) ex_readingview_set_media(bv->v, &e->bmedia);
+    bv->hash = b->hash; bv->kind = b->kind; bv->h = 0; bv->used = ++e->btick;
+    return bv;
+}
+
+/* Rows a drawn block takes: its height and a little air, or, until it is measured, a guess from the lines it has. */
+static uint32_t blk_rows(const ExEditor *e, const BView *bv, size_t i, int lh) {
+    const Blk *b = &e->blk[i];
+    if (bv && bv->h > 0) return (uint32_t)ceilf((bv->h + (float)lh * 0.4f) / (float)lh);
+    return (uint32_t)(b->last - b->first + 1 > 12 ? 12 : b->last - b->first + 1);
+}
+
+/* Sets the rows of every drawn block, and measures (a few a pass) the ones near the window [l0, l1]. Returns how many rows changed. */
+static size_t blocks_rows(ExEditor *e, ExRenderer *r, size_t l0, size_t l1, int lh) {
+    size_t i, changed = 0, measured = 0;
+    float avail = wrap_avail(e, r);
+    for (i = 0; i < e->nblk; i++) {
+        const Blk *b = &e->blk[i];
+        BView *bv = NULL;
+        uint32_t rows;
+        if (b->first >= e->wn || blk_drawn_at(e, b->first) != (int)i) continue;
+        if (b->last >= l0 && b->first <= l1 && measured < 4) {
+            bv = bview_get(e, i);
+            if (bv) {
+                float h = ex_readingview_measure(bv->v, r, avail, e->size);
+                if (h != bv->h) { bv->h = h; measured++; }
+            }
+        } else {
+            size_t k;
+            for (k = 0; k < BVIEWS; k++) if (e->bv[k].v && e->bv[k].hash == b->hash && e->bv[k].kind == b->kind) { bv = &e->bv[k]; break; }
+        }
+        rows = blk_rows(e, bv, i, lh);
+        if (e->nseg[b->first] != rows) { e->nseg[b->first] = rows; changed++; }
+    }
+    if (changed) e->vpre_ok = 0;
+    return changed;
+}
+
+/* Draws the block whose first row is at y (the top of its first row, perhaps above the window). */
+static void blocks_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, size_t i, float y, int lh) {
+    BView *bv = bview_get(e, i);
+    float x, w, top, bottom, y0, y1;
+    if (!bv) return;
+    x = e->vx + (float)pad_e(e, r);
+    w = wrap_avail(e, r);
+    if (bv->h <= 0) bv->h = ex_readingview_measure(bv->v, r, w, e->size);
+    top = y; bottom = y + bv->h;
+    y0 = top > e->vy ? top : e->vy;
+    y1 = bottom < e->vy + e->vh ? bottom : e->vy + e->vh;
+    (void)lh;
+    if (y1 <= y0) return;
+    ex_readingview_set_viewport(bv->v, x, y0, w, y1 - y0);
+    ex_readingview_set_scroll(bv->v, y0 - top);
+    ex_readingview_draw(bv->v, r, t, e->size);
+    if (ex_readingview_math_pending(bv->v) || ex_readingview_diagram_pending(bv->v)) ex_ui_request_frame();   /* the rest of its equations and diagrams come with the next frame */
+    ex_set_clip(r, (int)e->vx, (int)e->vy, (int)e->vw, (int)e->vh);
+}
+
+void ex_editor_set_blocks(ExEditor *e, int on, int properties) {
+    on = on != 0; properties = properties < 0 || properties > 2 ? 0 : properties;
+    if (e->blocks_on == on && e->props_mode == properties) return;
+    e->blocks_on = on; e->props_mode = properties;
+    e->blk_valid = 0; e->blk_sig = 0;
+    wrap_free_all(e);                                                       /* the rows the blocks gave are gone with them */
+}
+void ex_editor_set_block_media(ExEditor *e, const ExReadingMedia *m) {
+    size_t i;
+    if (!m) { e->have_media = 0; return; }
+    if (e->have_media && memcmp(&e->bmedia, m, sizeof *m) == 0) return;
+    e->bmedia = *m; e->have_media = 1;
+    for (i = 0; i < BVIEWS; i++) if (e->bv[i].v) { ex_readingview_set_media(e->bv[i].v, m); e->bv[i].h = 0; }
+}
+size_t ex_editor_block_count(ExEditor *e) { fold_sync(e); return e->nblk; }
+size_t ex_editor_blocks_drawn(ExEditor *e) {
+    size_t i, n = 0;
+    fold_sync(e);
+    for (i = 0; i < e->nblk; i++) if (blk_drawn_at(e, e->blk[i].first) == (int)i) n++;
+    return n;
+}
+
 /* Measures what the screen needs, and keeps the place the view is at when the measures change the rows above it. */
 static void wrap_sync(ExEditor *e, ExRenderer *r) {
     size_t n, i, pass;
@@ -891,6 +1235,7 @@ static void wrap_sync(ExEditor *e, ExRenderer *r) {
             size_t caret = e->wrap_caret;
             if (caret < e->wn && e->nseg[caret] == 0) { WrapLine w; wrap_line(e, r, caret, &w); e->nseg[caret] = (uint32_t)w.n; wl_free(&w); changed++; }
         }
+        if (e->nblk) changed += blocks_rows(e, r, l0, l1, lh);
         for (i = l0; i <= l1 && i < e->wn; i++) {
             WrapLine w;
             if (e->nseg[i] || line_hidden(e, i)) continue;
@@ -1483,6 +1828,10 @@ static size_t point_to_offset(ExEditor *e, ExRenderer *r, float x, float y) {
     if (row < 0) row = 0;
     if ((size_t)row >= rows) row = (long)rows - 1;
     line = line_of_vrow(e, (size_t)row, &seg);
+    if (e->nblk) {                                                      /* a click on a drawn block goes into its source: the properties at their first property, the others at the first line */
+        int bi = blk_drawn_at(e, line);
+        if (bi >= 0) return ex_buffer_line_start(buf(e), e->blk[bi].kind == BK_PROPS && e->blk[bi].first + 1 <= e->blk[bi].last ? e->blk[bi].first + 1 : e->blk[bi].first);
+    }
     wrap_line(e, r, line, &w);
     if (seg >= w.n) seg = w.n - 1;
     off = offset_in_row(e, r, line, &w, seg, x - e->vx - (float)pad_e(e, r));
@@ -1703,7 +2052,7 @@ float ex_editor_content_height(ExEditor *e, ExRenderer *r) {
     return (float)(vrow_total(e) ? vrow_total(e) : 1) * (float)lh;
 }
 
-void ex_editor_set_mode(ExEditor *e, ExEditorMode mode) { e->mode = mode; e->md_valid = 0; clear_cache(e); }
+void ex_editor_set_mode(ExEditor *e, ExEditorMode mode) { e->mode = mode; e->md_valid = 0; e->blk_valid = 0; clear_cache(e); }
 ExEditorMode ex_editor_mode(const ExEditor *e) { return e->mode; }
 
 size_t ex_editor_line_display(ExEditor *e, ExRenderer *r, size_t line, char *out, size_t cap) {
@@ -2041,6 +2390,7 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
     int lh, px, pad;
     size_t nl = line_count(e), first, last, line, row, rows, caret_line, nsel = ex_doc_sel_count(e->doc), si;
     size_t cached_line = (size_t)-1;
+    int bi, last_block = -1;
     WrapLine wl;
     ExFontMetrics fm;
     ExColor text = ex_theme_color(t, EX_COLOR_TEXT), sel_c = ex_theme_color(t, EX_COLOR_SELECTION);
@@ -2069,6 +2419,10 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
         float ty = y + (float)(lh - fm.line_height) / 2.0f, segx, x0pad;
         line = line_of_vrow(e, row, &seg);
         if (line != cached_line) { wl_free(&wl); wrap_line(e, r, line, &wl); cached_line = line; }
+        if (e->nblk && (bi = blk_drawn_at(e, line)) >= 0) {              /* a block drawn as the reading view draws it: once, from the top of its first row */
+            if (bi != last_block) { last_block = bi; blocks_draw(e, r, t, (size_t)bi, y - (float)seg * (float)lh, lh); draw_extras(e, r, t, line, y - (float)seg * (float)lh, lh, 0, 0); }
+            continue;
+        }
         if (seg >= wl.n) seg = wl.n - 1;
         if (e->mode != EX_EDITOR_PLAIN) { draw_layout_line(e, r, t, line, nl, y, lh, &fm, focused, blink_on, sel_c, cur_c, comp_c, &wl, seg); draw_fold_marker(e, r, t, line, y, lh, line == caret_line, &wl, seg); draw_extras(e, r, t, line, y, lh, line == caret_line, seg); continue; }
         txt = line_text(e, line, &len);

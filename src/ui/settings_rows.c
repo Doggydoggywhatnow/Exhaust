@@ -63,6 +63,7 @@ static const ExSettingsRow rows[] = {
     T("editor", "Display", "editor", "inline_title", "Inline title", "Show the note's name as a title you can edit above its text."),
     T("editor", "Display", "editor", "readable_line_length", "Readable line length", "Keep lines of text to a width that is easy to read, even in a wide pane."),
     T("editor", "Display", "editor", "strict_line_breaks", "Strict line breaks", "Join lines that follow each other in reading view, as Markdown does. Off shows every line break."),
+    T("editor", "Display", "editor", "live_preview_blocks", "Draw blocks in live preview", "Show tables, equations, diagrams, pictures and the properties as they look in reading mode while you are not in them. Off shows their text."),
     S("editor", "Display", "editor", "properties_in_document", "Properties in a note", "How the properties at the top of a note are shown. Source shows the YAML text.", "Visible|Hidden|Source"),
     T("editor", "Display", "editor", "fold_heading", "Fold headings", "Let a heading hide the lines under it."),
     T("editor", "Display", "editor", "fold_indent", "Fold lists", "Let a list item hide the items inside it."),

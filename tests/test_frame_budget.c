@@ -131,6 +131,68 @@ int main(void) {
     }
     report("an input handler (typing, Enter, Page Down)", keys, nk, key_limit);
     report("a frame (layout and drawing)", frames, nf, frame_limit);
+    {   /* rendered blocks (live preview): a note of 6000 lines with a table every 8 lines, an equation every 40 and properties: about 750 blocks. Typing between blocks,
+         * paging and resizing must cost what the plain note cost: the blocks are collected once for each edit, measured near the window only, and drawn from views kept by what they say */
+        ExDoc *bdoc;
+        ExWidget *bed, *broot;
+        char *bt = malloc(900000);
+        size_t bl = 0, j, bk = 0, bfr = 0;
+        double bkeys[200], bframes[200];
+        bl += (size_t)snprintf(bt + bl, 900000 - bl, "---\ntags: [a, b]\n---\n");
+        for (j = 0; j < 6000; j++) {
+            switch (j % 8) {
+            case 0: bl += (size_t)snprintf(bt + bl, 900000 - bl, "| a | b |\n"); break;
+            case 1: bl += (size_t)snprintf(bt + bl, 900000 - bl, "|---|---|\n"); break;
+            case 2: bl += (size_t)snprintf(bt + bl, 900000 - bl, "| %zu | two |\n", j); break;
+            case 3: bl += (size_t)snprintf(bt + bl, 900000 - bl, "\n"); break;
+            case 4: bl += (size_t)snprintf(bt + bl, 900000 - bl, "A paragraph with **bold** and a [[Link %zu]] in it, long enough to need some room.\n", j); break;
+            case 5: bl += (size_t)snprintf(bt + bl, 900000 - bl, j % 40 == 5 ? "$$\nx^2 + %zu\n$$\n" : "text %zu\n", j); break;
+            default: bl += (size_t)snprintf(bt + bl, 900000 - bl, "\n"); break;
+            }
+        }
+        bdoc = ex_doc_create(bt, bl);
+        broot = ex_widget_box(ui, 1, "broot");
+        broot->width = ex_size_grow(); broot->height = ex_size_grow();
+        bed = ex_widget_editor(ui, bdoc, "bnote");
+        bed->width = ex_size_grow(); bed->height = ex_size_grow();
+        ex_editor_set_mode(bed->editor, EX_EDITOR_LIVE);
+        ex_editor_set_wrap(bed->editor, 1);
+        ex_editor_set_blocks(bed->editor, 1, 0);
+        ex_widget_add(broot, bed);
+        ex_ui_set_focus(ui, bed);
+        ex_ui_layout(ui, broot, 1000, 700);
+        ex_ui_draw(ui, broot, 1);
+        ex_doc_set_caret(bdoc, bl / 2);
+        CHECK(ex_editor_block_count(bed->editor) > 700);
+        for (j = 0; j < 60; j++) {
+            double t0 = now_ms(), t1;
+            ex_ui_text_input(ui, "x", 1);
+            t1 = now_ms();
+            if (bk < 200) bkeys[bk++] = t1 - t0;
+            ex_ui_layout(ui, broot, 1000, 700); ex_ui_draw(ui, broot, 1); finish_frame(r);
+            if (bfr < 200) bframes[bfr++] = now_ms() - t1;
+        }
+        for (j = 0; j < 20; j++) {
+            double t0 = now_ms(), t1;
+            ex_ui_key(ui, EX_KEY_PAGE_DOWN, 0);
+            t1 = now_ms();
+            if (bk < 200) bkeys[bk++] = t1 - t0;
+            ex_ui_layout(ui, broot, 1000, 700); ex_ui_draw(ui, broot, 1); finish_frame(r);
+            if (bfr < 200) bframes[bfr++] = now_ms() - t1;
+        }
+        for (j = 0; j < 20; j++) {
+            double t0 = now_ms();
+            ex_ui_layout(ui, broot, 700.0f + (float)((j * 37) % 300), 450.0f + (float)((j * 53) % 250)); ex_ui_draw(ui, broot, 1); finish_frame(r);
+            if (bfr < 200) bframes[bfr++] = now_ms() - t0;
+        }
+        CHECK(ex_editor_blocks_drawn(bed->editor) > 100);
+        report("an input handler in a note of 750 drawn blocks", bkeys, bk, key_limit);
+        report("a frame of a note of 750 drawn blocks", bframes, bfr, frame_limit);
+        ex_ui_set_focus(ui, ed);
+        ex_widget_free(broot);
+        ex_doc_free(bdoc);
+        free(bt);
+    }
     {   /* the pane headers (5d): four panes with six tabs each and a history, brought up to date, laid out and drawn every frame */
         ExWorkspace *ws = ex_ws_create();
         ExPanesHooks hooks;

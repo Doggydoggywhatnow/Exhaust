@@ -9,6 +9,7 @@
 #include "exhaust_theme.h"
 
 typedef struct ExReadingView ExReadingView;
+void ex_ui_request_frame(void);   /* exhaust_ui.h: more to draw next frame */
 typedef void (*ExReadingLinkFn)(ExRSpanKind kind, const char *target, void *user);
 
 /* Embedded media (6c-v). A paragraph that is only `![[photo.png|640x480]]`, `![[song.flac]]`, `![[clip.mp4]]`, `![[f.pdf#page=3&height=400]]` or `![[x.canvas]]` (or a
@@ -27,6 +28,8 @@ void ex_readingview_column(const ExReadingView *v, float *x, float *w);   /* lef
 void ex_readingview_set_head(ExReadingView *v, float px);   /* room above the first block for a header widget that scrolls with the page */
 void ex_readingview_scroll(ExReadingView *v, float dy);
 void ex_readingview_set_options(ExReadingView *v, int strict_line_breaks, int readable_line_length);   /* the settings of the same names */
+void ex_readingview_set_inline(ExReadingView *v);      /* a block of an editor's live preview: no margin, no column */
+float ex_readingview_measure(ExReadingView *v, ExRenderer *r, float width, float base_size);   /* lays out for the width, returns the height */
 void ex_readingview_set_page_scale(ExReadingView *v, float f);   /* the readable width of the page grows with the text (slides); the text size itself comes with draw's base_size */
 float ex_readingview_scroll_y(const ExReadingView *v);
 void ex_readingview_set_scroll(ExReadingView *v, float y);

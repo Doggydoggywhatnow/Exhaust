@@ -53,6 +53,7 @@ struct ExReadingView {
     int press_link, press_toggle;
     float base_size;
     char *src; size_t src_len;         /* the text last given, kept to build the page again when the line-break setting changes */
+    int inline_mode;                   /* drawn inside an editor, in the room of one block: no margin, no column, its height is its content (ex_readingview_set_inline) */
     int strict, unlimited;             /* strict_line_breaks; readable_line_length off (the page is as wide as the pane) */
     float page_scale;                  /* 1, or the factor of the slides' larger text: the page gets wider with it */
     ExReadingMedia media;
@@ -164,6 +165,18 @@ void ex_readingview_set_options(ExReadingView *v, int strict_line_breaks, int re
         if (v->src) ex_readingview_set_text(v, v->src, v->src_len);
         else v->dirty = 1;
     }
+}
+/* A view that is one block of an editor's live preview (a table, an equation, a diagram, a picture): no margin and no column, as wide as the room it is given. */
+static void layout(ExReadingView *v, ExRenderer *r, float avail_w);
+void ex_readingview_set_inline(ExReadingView *v) { if (v && !v->inline_mode) { v->inline_mode = 1; v->dirty = 1; } }
+/* Lays the page out for a width (if that is not done) and returns its height; the equations and diagrams it still has to make (a layout makes a few each time) can change it. */
+float ex_readingview_measure(ExReadingView *v, ExRenderer *r, float width, float base_size) {
+    if (!v || !v->model || width <= 0) return 0;
+    v->vw = width;
+    v->base_size = base_size > 0 ? base_size : 16.0f;
+    if (v->media.images && ex_imagecache_version(v->media.images) != v->img_version) { v->img_version = ex_imagecache_version(v->media.images); v->dirty = 1; }
+    if (v->dirty || fabsf(v->laid_w - v->vw) > 0.5f || v->laid_scale != ex_renderer_scale(r)) layout(v, r, v->vw);
+    return v->content_h;
 }
 void ex_readingview_set_page_scale(ExReadingView *v, float f) { if (v && f > 0 && f != v->page_scale) { v->page_scale = f; v->dirty = 1; } }
 void ex_readingview_scroll(ExReadingView *v, float dy) { v->scroll += dy; clamp_scroll(v); }
@@ -456,11 +469,13 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
     memset(&L, 0, sizeof L);
     L.v = v; L.r = r; L.base = v->base_size; L.lh_mul = 1.35f;
     em = L.base * scale;
+    if (v->inline_mode) { pad = 0; readable = 1e9f; }
     col_w = avail_w - 2 * pad;
     if (col_w > readable) col_w = readable;
     if (col_w < 120) col_w = 120;
     x0 = pad + (avail_w - 2 * pad - col_w) / 2.0f;
-    if (x0 < (float)ex_editor_text_inset(r)) x0 = (float)ex_editor_text_inset(r);
+    if (v->inline_mode) x0 = 0;
+    else if (x0 < (float)ex_editor_text_inset(r)) x0 = (float)ex_editor_text_inset(r);
     v->col_x = x0 - (float)ex_editor_text_inset(r); v->col_w = col_w + 2.0f * (float)ex_editor_text_inset(r);
     L.y = pad + v->head;
     for (i = 0; i < nb; i++) {
@@ -679,7 +694,8 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
     v->content_h = L.y + pad;
     v->laid_w = avail_w;
     v->laid_scale = scale;
-    v->dirty = v->math_pending || v->dg_pending;     /* equations and diagrams left for the next frame: lay out again then */
+    v->dirty = v->math_pending || v->dg_pending;
+    if (v->dirty) ex_ui_request_frame();     /* equations and diagrams left for the next frame: lay out again then */
     clamp_scroll(v);
 }
 

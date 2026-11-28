@@ -3317,16 +3317,20 @@ static void sync_ui(App *a) {
         int fh = ex_settings_get_bool(a->settings, "editor", "fold_heading"), fi = ex_settings_get_bool(a->settings, "editor", "fold_indent");
         int slash_on = ex_features_enabled(a->features, "slash_commands"), spell_on = ex_settings_get_bool(a->settings, "editor", "spellcheck");
         ExSmartOptions smart;
+        ExReadingMedia block_media;
+        const char *pd = ex_settings_get(a->settings, "editor", "properties_in_document");
+        int blocks_on = ex_settings_get_bool(a->settings, "editor", "live_preview_blocks"), props_mode = !strcmp(pd, "hidden") ? 1 : !strcmp(pd, "source") ? 2 : 0;
         int readable = ex_settings_get_bool(a->settings, "editor", "readable_line_length"), strict_breaks = ex_settings_get_bool(a->settings, "editor", "strict_line_breaks");
         int html_paste = ex_settings_get_bool(a->settings, "editor", "paste_html_as_markdown"), line_nums = ex_settings_get_bool(a->settings, "editor", "line_numbers"), guides = ex_settings_get_bool(a->settings, "editor", "indent_guides");
         size_t i;
+        memset(&block_media, 0, sizeof block_media); block_media.user = a; block_media.images = a->icache; block_media.resolve = embed_resolve; block_media.audio_state = embed_audio_state;
         smart.lists = ex_settings_get_bool(a->settings, "editor", "smart_lists");
         smart.brackets = ex_settings_get_bool(a->settings, "editor", "auto_pair_brackets");
         smart.markdown = ex_settings_get_bool(a->settings, "editor", "auto_pair_markdown");
         for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
             ExWidget *w = ex_panes_content(a->panes, ex_ws_tab_at(a->ws, i));
             if (w && w->type == EX_WIDGET_READING) ex_reading_set_options(w, strict_breaks, readable);
-            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { w->text_max = readable ? 720.0f : 0.0f; ex_editor_set_display(w->editor, line_nums, guides); ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_smart(w->editor, &smart); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); ex_editor_set_spell(w->editor, spell_on ? a->spell : NULL); if (a->panels) ex_editor_set_link_suggest(w->editor, ex_panels_suggest_links, a->panels); ex_editor_set_link_click(w->editor, on_editor_link_click, a); ex_editor_set_paste_hook(w->editor, paste_picture, a); ex_editor_set_html_paste(w->editor, html_paste ? paste_html_markdown : NULL, a); }
+            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { ex_editor_set_blocks(w->editor, blocks_on, props_mode); ex_editor_set_block_media(w->editor, &block_media); w->text_max = readable ? 720.0f : 0.0f; ex_editor_set_display(w->editor, line_nums, guides); ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_smart(w->editor, &smart); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); ex_editor_set_spell(w->editor, spell_on ? a->spell : NULL); if (a->panels) ex_editor_set_link_suggest(w->editor, ex_panels_suggest_links, a->panels); ex_editor_set_link_click(w->editor, on_editor_link_click, a); ex_editor_set_paste_hook(w->editor, paste_picture, a); ex_editor_set_html_paste(w->editor, html_paste ? paste_html_markdown : NULL, a); }
         }
     }
     a->note = t ? note_for_tab(a, t) : NULL;
@@ -4372,7 +4376,7 @@ int main(int argc, char **argv) {
         ExKey key;
         int mods;
         script_step(&app);
-        int animating = (app.gm && ex_graphmodel_animating(app.gm)) || (app.gm_local && ex_graphmodel_animating(app.gm_local)) || ex_graphview_animations_running() > 0 || ex_imagecache_busy(app.icache) || (app.player && ex_player_state(app.player) == EX_PLAYER_PLAYING) || (app.mpv && ex_mpv_state(app.mpv) == EX_MPV_PLAYING);        /* the graph's layout is still moving the nodes: a frame every 16 ms */
+        int animating = (app.gm && ex_graphmodel_animating(app.gm)) || (app.gm_local && ex_graphmodel_animating(app.gm_local)) || ex_graphview_animations_running() > 0 || ex_imagecache_busy(app.icache) || (app.player && ex_player_state(app.player) == EX_PLAYER_PLAYING) || (app.mpv && ex_mpv_state(app.mpv) == EX_MPV_PLAYING) || ex_ui_take_frame_request();        /* the graph's layout is still moving the nodes: a frame every 16 ms */
         int timed_out = !SDL_WaitEventTimeout(&e, animating ? 16 : 100); /* wakes ten times a second for autosave and the watcher */
         static int idle_ticks;
         if (g_signal) running = 0;

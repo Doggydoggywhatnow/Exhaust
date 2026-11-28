@@ -72,6 +72,7 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 | `readable_line_length` | bool | `true` | 0.1.0 |
 | `strict_line_breaks` | bool | `false` | 0.1.0 |
 | `properties_in_document` | enum(visible\|hidden\|source) | `visible` | 0.1.0 |
+| `live_preview_blocks` | bool | `true` | 0.1.0 (the settings pass; live preview draws tables, equations, diagrams, pictures and the properties) |
 | `fold_heading` | bool | `true` | 0.1.0 |
 | `fold_indent` | bool | `true` | 0.1.0 |
 | `line_numbers` | bool | `false` | 0.1.0 |
@@ -1146,6 +1147,18 @@ Three settings of `[editor]` (all on by default, since 0.1.0) change what a type
 *New note location* (`[files] new_note_location`: `vault`, `folder`, `same_folder`, `subfolder`; `new_note_folder`). The command *Create new note* makes the note in the top folder, in the folder `new_note_folder`, in the folder of the open note (the top folder when none is open), or in a subfolder called `new_note_folder` of that folder (the folder of the open note when the name is empty or unsafe: no `..`, no leading `/`, no `:` or `\`). The folder is made when it is not there; the note is written when something is typed in it. A new note made from the explorer's menu is made in the folder it was asked in.
 
 *Stubs (settings pass after 8c).* These keys are stored but the program does not read them, so their rows show a disabled *Not in this version* button: `language`, `startup_notice`, `hardware_acceleration` (General), `font_interface`, `font_text`, `font_mono`, `quick_font_size`, `translucent_window` (Appearance), `native_menus`, `window_frame`, `settings_in_new_window` (Interface), `rtl`, `spellcheck_languages` (Editor), `always_focus_new_tabs`, `link_format`, `use_wikilinks`, `delete_attachments`, `config_folder` (Files and links). The fonts of a theme (`fonts.interface`, `fonts.text`, `fonts.mono`) are read and kept but not used for drawing either.
+
+## Rendered blocks in live preview
+
+*`[editor] live_preview_blocks`* (default on; needs live preview and soft wrap, so not in source mode and not in a pane that does not wrap). While no caret and no end of a selection is in it, each of these blocks is drawn as the reading view draws it, in the width of the text, and takes the height of the picture (in whole rows):
+
+- a **table** (any Markdown table), a **`$$` block** of two or more lines (an equation), a fenced **`mermaid` block** with its closing fence, a **picture or embed on a line of its own** (`![[a.png|200]]`, `![[Note]]`, `![alt](a.png)`; the same cards and quotations as the reading view: audio, video, PDF and canvas are cards), and the **properties** (front matter) as a two-column table of the first-level keys (a list's items joined with commas; nested maps are shown as the text on their key's line).
+
+A caret or either end of a selection that is on one of its lines shows its source (all of its lines) as live preview does anywhere; a click on a drawn block puts the caret in its source (in the first property line for the properties), and keys that move the caret past it land on its first line. A selection that spans a block from before it to after it keeps it drawn. Nothing about the text changes: a block is only a way of drawing its lines, the lines after the first are hidden as a fold hides them, and find, spell check and line numbers act on the text as ever. A block that is unfolded into source is never changed by being drawn.
+
+*`properties_in_document`* (`visible`, `hidden`, `source`): `visible` draws the properties as above, `hidden` draws nothing for them (a caret on them, or on the first line of the note when they start the note, shows the text), and `source` shows the YAML as text. Reading mode does not show the properties in any of the three (not built).
+
+Not built: editing inside a drawn table, equations and diagrams drawn inline in a paragraph, a drawn block's links and embeds being clickable (a click opens its source), highlight of a selection or a find match inside a drawn block, and the properties' types (icons, date pickers). A block's height is measured when it first comes near the window and estimated (one row for each of its lines, at most twelve) until then, so a long note may shift a little as blocks are measured.
 
 ## Table editing
 

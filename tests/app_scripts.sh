@@ -325,7 +325,7 @@ if [ "${changed:--1}" -gt 30 ] 2>/dev/null; then echo "ok: the reading view show
 
 # a table command from the slash menu (5f): with the caret in the last cell, "Table: Add row below" adds an empty row under it, and the typed text lands in it
 vault="$work/table_slash"; rm -rf "$vault"; mkdir -p "$vault/.exhaust"
-printf '[features]\nslash_commands = true\n' > "$vault/.exhaust/settings.ini"
+printf '[features]\nslash_commands = true\n[editor]\nlive_preview_blocks = false\n' > "$vault/.exhaust/settings.ini"   # a table is drawn as a picture in live preview since the blocks; this case is about the table commands in the text, which the unit test live_blocks covers for the drawn form
 printf '# Tbl\n\n| Name | Qty |\n| :--- | --: |\n| a    | 1   |\n| bb   | 22  |\n\nafter\n' > "$vault/Table.md"
 printf '%s\n' 'wait 1000
 move 404 311

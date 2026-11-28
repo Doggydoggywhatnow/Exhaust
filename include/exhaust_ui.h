@@ -163,6 +163,9 @@ void ex_reading_scroll(ExWidget *w, float dy);
 float ex_reading_scroll_y(const ExWidget *w);
 void ex_reading_set_scroll(ExWidget *w, float y);
 /* The text and the width of the page grow by this factor (1 = as usual): the slides use it (6e-iii). */
+/* A widget that has more to make (the equations and diagrams of a page, a layout that is not finished) asks for another frame; the main loop takes the request once a loop and draws without waiting for an event. */
+void ex_ui_request_frame(void);
+int ex_ui_take_frame_request(void);
 void ex_reading_set_options(ExWidget *w, int strict_line_breaks, int readable_line_length);   /* the settings editor.strict_line_breaks and editor.readable_line_length */
 void ex_reading_set_page_scale(ExWidget *w, float f);
 /* The file explorer's tree: shows ex_vault_row() rows with chevrons, keeps a selection,

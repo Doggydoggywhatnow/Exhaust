@@ -158,6 +158,14 @@ void ex_editor_set_head(ExEditor *e, float px);
 /* Pixels from an editor's left edge to its text. */
 int ex_editor_text_inset(ExRenderer *r);
 void ex_editor_set_mode(ExEditor *e, ExEditorMode mode);
+/* Rendered blocks in live preview (needs soft wrap): a table, a $$ equation, a Mermaid diagram, a picture or embed on a line of its own and the properties are drawn as the
+ * reading view draws them while no caret or selection end is in them, and show their source while one is. properties: 0 draws the front matter as a table of its properties, 1 hides it, 2 leaves it as text (the setting
+ * properties_in_document: visible, hidden, source). The media is what the reading view needs to draw pictures (the application's own, as for the reading views). */
+struct ExReadingMedia;
+void ex_editor_set_blocks(ExEditor *e, int on, int properties);
+void ex_editor_set_block_media(ExEditor *e, const struct ExReadingMedia *m);
+size_t ex_editor_block_count(ExEditor *e);       /* blocks the text has (tests) */
+size_t ex_editor_blocks_drawn(ExEditor *e);      /* of them, drawn as a picture now */
 /* The settings line_numbers (numbers left of the text) and indent_guides (a thin line for each level of indentation). Off by default; plain fields never show them. */
 void ex_editor_set_display(ExEditor *e, int line_numbers, int indent_guides);
 /* Soft wrap: a long line continues on the next row at the width of the viewport (default off; the note editors turn it on). */

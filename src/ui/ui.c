@@ -193,6 +193,9 @@ int ex_reading_internal_link_at(ExWidget *w, float x, float y, char *target, siz
 
 void ex_reading_scroll(ExWidget *w, float dy) { if (w->reading) ex_readingview_scroll(w->reading, dy); }
 float ex_reading_scroll_y(const ExWidget *w) { return w->reading ? ex_readingview_scroll_y(w->reading) : 0; }
+static volatile int g_frame_requested;
+void ex_ui_request_frame(void) { g_frame_requested = 1; }
+int ex_ui_take_frame_request(void) { int r = g_frame_requested; g_frame_requested = 0; return r; }
 void ex_reading_set_options(ExWidget *w, int strict_line_breaks, int readable_line_length) { if (w && w->reading) ex_readingview_set_options(w->reading, strict_line_breaks, readable_line_length); }
 void ex_reading_set_page_scale(ExWidget *w, float f) { if (w && w->reading && f > 0) { w->text_scale = f; ex_readingview_set_page_scale(w->reading, f); } }
 void ex_reading_set_scroll(ExWidget *w, float y) { if (w->reading) ex_readingview_set_scroll(w->reading, y); }
