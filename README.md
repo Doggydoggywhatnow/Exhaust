@@ -332,7 +332,7 @@ Exhaust must run on Windows, Linux (Wayland and X11) and macOS, with no display-
 These Obsidian features are deliberately not part of Exhaust:
 
 - A web viewer and embedded web pages (links open in the system browser).
-- Mobile apps.
+- Mobile apps in 0.1.0 (iOS is not planned). **An Android port is planned for after 0.1.0**, with a touch-first interface (a phone layout, an on-screen keyboard, touch selection and scrolling) and an Android platform layer in `src/platform/`: SDL3 supports Android, so the C core can build there, but nothing of the port exists yet and no 0.1.0 work depends on it. Keep new platform code behind `src/platform/` so the port stays possible.
 - Accounts, licenses, payments, credits and the Teams offering.
 - A hosted Sync or Publish server. Their settings and interface are stubs; any file-sync tool already syncs a vault.
 - Annotating PDFs. Obsidian does not support it either.
