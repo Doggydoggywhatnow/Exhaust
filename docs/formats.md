@@ -28,7 +28,7 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 | `language` | string | `en` | 0.1.0 |
 | `startup_notice` | bool | `false` | 0.1.0 |
 | `command_line` | bool | `false` (stub) | 0.1.0 |
-| `hardware_acceleration` | bool | `true` | 0.1.0 |
+| `hardware_acceleration` | bool | `false` (stub; `true` once it is built) | 0.1.0 |
 
 ### [appearance]
 
@@ -42,7 +42,7 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 | `font_text` | string | `Atkinson Hyperlegible` | 0.1.0 |
 | `font_mono` | string | `Atkinson Hyperlegible Mono` | 0.1.0 |
 | `font_size` | int | `16` | 0.1.0 |
-| `quick_font_size` | bool | `true` | 0.1.0 |
+| `quick_font_size` | bool | `false` (stub; `true` once it is built) | 0.1.0 |
 | `app_icon` | path | empty (stub) | 0.1.0 |
 | `translucent_window` | bool | `false` (macOS only) | 0.1.0 |
 | `high_contrast` | enum(off\|on\|system) | `off` | 0.1.0 (7f). See *Shell: status bar, ribbon, zoom, high contrast and window size (7f)*. |
@@ -93,7 +93,7 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 | --- | --- | --- | --- |
 | `default_file` | enum(last_opened\|empty\|note\|daily_note) | `last_opened` | 0.1.0. Decided in 7a: what is open when a vault is opened and nothing was asked for (an `EXHAUST_OPEN` or a note given on the command line wins): `last_opened` the tabs of the last session, `empty` one empty tab, `note` the note named by `default_file_note` (an empty tab if it does not exist), `daily_note` today's daily note (Daily notes is slice 6e-i, not built: until then it behaves as `last_opened`). |
 | `default_file_note` | path | empty | 0.1.0 (7a). The note `default_file = note` opens. |
-| `always_focus_new_tabs` | bool | `true` | 0.1.0 |
+| `always_focus_new_tabs` | bool | `false` (stub; `true` once it is built) | 0.1.0 |
 | `sort_by` | enum(name\|modified\|created) | `name` | 0.1.0 |
 | `sort_descending` | bool | `false` | 0.1.0 |
 | `new_note_location` | enum(vault\|folder\|same_folder\|subfolder) | `vault` | 0.1.0 |
@@ -104,7 +104,7 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 | `link_format` | enum(shortest\|relative\|absolute) | `shortest` | 0.1.0 |
 | `auto_update_links` | bool | `true` | 0.1.0 |
 | `link_update` | enum(ask\|automatic\|off) | `ask` | 0.1.0 (4c) |
-| `use_wikilinks` | bool | `true` | 0.1.0 |
+| `use_wikilinks` | bool | `false` (stub; `true` once it is built) | 0.1.0 |
 | `show_all_file_types` | bool | `false` | 0.1.0 |
 | `confirm_delete` | bool | `true` | 0.1.0 |
 | `rename_folder_on_double_click` | bool | `true` | 0.1.0 (4d): double-clicking the name of a folder in the file explorer edits it in place; never for notes. The switch is on the *Files and links* page of the settings screens (7a) |
