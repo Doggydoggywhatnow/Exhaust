@@ -188,12 +188,13 @@ static ExUi *ui_of(App *a, const ExWidget *w);
 static const char *host_active_path(void *u);
 
 static void set_cursor_shape(int shape) {
-    static SDL_Cursor *arrow, *resize;
+    static SDL_Cursor *arrow, *resize, *text;
     static int current = -1;
     if (shape == current) return;
     if (!arrow) arrow = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT);
     if (!resize) resize = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_EW_RESIZE);
-    if (shape == 1 && resize) SDL_SetCursor(resize); else if (arrow) SDL_SetCursor(arrow);
+    if (!text) text = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT);
+    if (shape == 1 && resize) SDL_SetCursor(resize); else if (shape == 2 && text) SDL_SetCursor(text); else if (arrow) SDL_SetCursor(arrow);
     current = shape;
 }
 
@@ -3328,10 +3329,11 @@ static void sync_ui(App *a) {
         smart.lists = ex_settings_get_bool(a->settings, "editor", "smart_lists");
         smart.brackets = ex_settings_get_bool(a->settings, "editor", "auto_pair_brackets");
         smart.markdown = ex_settings_get_bool(a->settings, "editor", "auto_pair_markdown");
+        smart.links = ex_settings_get_bool(a->settings, "editor", "paste_url_on_selection");
         for (i = 0; i < ex_ws_tab_count(a->ws); i++) {
             ExWidget *w = ex_panes_content(a->panes, ex_ws_tab_at(a->ws, i));
             if (w && w->type == EX_WIDGET_READING) ex_reading_set_options(w, strict_breaks, readable);
-            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { ex_editor_set_blocks(w->editor, blocks_on, props_mode); ex_editor_set_block_media(w->editor, &block_media); ex_editor_set_block_link(w->editor, block_link, a); w->text_max = readable ? 720.0f : 0.0f; ex_editor_set_display(w->editor, line_nums, guides); ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_smart(w->editor, &smart); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); ex_editor_set_spell(w->editor, spell_on ? a->spell : NULL); if (a->panels) ex_editor_set_link_suggest(w->editor, ex_panels_suggest_links, a->panels); ex_editor_set_link_click(w->editor, on_editor_link_click, a); ex_editor_set_paste_hook(w->editor, paste_picture, a); ex_editor_set_html_paste(w->editor, html_paste ? paste_html_markdown : NULL, a); }
+            if (w && w->type == EX_WIDGET_EDITOR && w->editor) { ex_editor_set_blocks(w->editor, blocks_on, props_mode); ex_editor_set_block_media(w->editor, &block_media); ex_editor_set_block_link(w->editor, block_link, a); ex_editor_set_placeholder(w->editor, "Start writing\xE2\x80\xA6"); w->text_max = readable ? 720.0f : 0.0f; ex_editor_set_display(w->editor, line_nums, guides); ex_editor_set_folding(w->editor, fh, fi); ex_editor_set_indent(w->editor, tabs, width); ex_editor_set_smart(w->editor, &smart); ex_editor_set_slash(w->editor, slash_on ? a->slash : NULL); ex_editor_set_spell(w->editor, spell_on ? a->spell : NULL); if (a->panels) ex_editor_set_link_suggest(w->editor, ex_panels_suggest_links, a->panels); ex_editor_set_link_click(w->editor, on_editor_link_click, a); ex_editor_set_paste_hook(w->editor, paste_picture, a); ex_editor_set_html_paste(w->editor, html_paste ? paste_html_markdown : NULL, a); }
         }
     }
     a->note = t ? note_for_tab(a, t) : NULL;
@@ -4410,19 +4412,19 @@ int main(int argc, char **argv) {
         } else if (e.type == SDL_EVENT_KEY_DOWN && app.cap_cb && capture_key(&app, &e.key)) {
             redraw = 1;
         } else if (e.type == SDL_EVENT_KEY_DOWN && !(app.panels && ex_panels_modal(app.panels)) && run_shortcut(&app, &e.key)) {
-            app.blink_on = 1;
+            app.blink_on = 1; idle_ticks = 0;                      /* the caret stays solid while keys are pressed and blinks again after half a second */
         } else if (e.type == SDL_EVENT_TEXT_INPUT && SDL_GetTicks() < app.swallow_text_until) {
             /* the text a captured key press made: not typed anywhere */
         } else if (ex_text_event_decode(&e, &te)) {
-            app.blink_on = 1;
+            app.blink_on = 1; idle_ticks = 0;                      /* the caret stays solid while keys are pressed and blinks again after half a second */
             if (te.kind == EX_TEXT_COMMIT) ex_ui_text_input(app.ui, te.text, strlen(te.text));
             else if (app.editor && app.editor->editor) ex_editor_set_composition(app.editor->editor, te.text);
         } else if (ex_key_from_sdl(&e, &key, &mods)) {
-            app.blink_on = 1;
+            app.blink_on = 1; idle_ticks = 0;                      /* the caret stays solid while keys are pressed and blinks again after half a second */
             if (tw) enter_pop(&app, tw);
             ex_ui_key(app.ui, key, mods);
         } else {
-            app.blink_on = 1;
+            app.blink_on = 1; idle_ticks = 0;                      /* the caret stays solid while keys are pressed and blinks again after half a second */
             switch (e.type) {
             case SDL_EVENT_QUIT: running = 0; break;
             case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
@@ -4490,8 +4492,8 @@ int main(int argc, char **argv) {
                 else if (under && under->type == EX_WIDGET_BASE) ex_baseview_wheel(under, e.wheel.x, e.wheel.y, e.wheel.mouse_x * density, e.wheel.mouse_y * density);
                 else if (under && under->type == EX_WIDGET_TREE) ex_tree_scroll(app.ui, under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 else if (under && under->type == EX_WIDGET_LIST) ex_list_scroll(under, -e.wheel.y * 3.0f * ex_list_row_height(under));
-                else if (under && under->type == EX_WIDGET_READING) ex_reading_scroll(under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
-                else if (under && under->editor) ex_editor_scroll(under->editor, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
+                else if (under && under->type == EX_WIDGET_READING) ex_reading_scroll_smooth(under, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
+                else if (under && under->editor) ex_editor_scroll_smooth(under->editor, -e.wheel.y * 3.0f * (float)ex_px(app.r, 24));
                 break;
             }
             default: break;

@@ -6,7 +6,7 @@ static const char *const NAMES[EX_ACT_COUNT] = {
     "delete-to-line-start", "delete-to-line-end", "delete-line",
     "left", "right", "word-left", "word-right", "line-start", "line-end",
     "up", "down", "doc-start", "doc-end", "page-up", "page-down",
-    "select-all", "simplify", "newline", "tab",
+    "select-all", "simplify", "newline", "tab", "backtab",
     "bold", "italic", "add-cursor-above", "add-cursor-below"
 };
 
@@ -53,7 +53,7 @@ int ex_edit_action_for(ExKey key, int mods, int mac, ExEditAction *action, int *
         else a = (prim || alt) ? EX_ACT_DELETE_WORD_FORWARD : EX_ACT_DELETE_FORWARD;
         break;
     case EX_KEY_ENTER: a = EX_ACT_NEWLINE; break;
-    case EX_KEY_TAB: a = EX_ACT_TAB; break;
+    case EX_KEY_TAB: a = shift ? EX_ACT_BACKTAB : EX_ACT_TAB; break;
     case EX_KEY_ESCAPE: a = EX_ACT_SIMPLIFY; break;
     case EX_KEY_SPACE: break;                                  /* typed through text input */
     case EX_KEY_A: if (prim) a = EX_ACT_SELECT_ALL; break;

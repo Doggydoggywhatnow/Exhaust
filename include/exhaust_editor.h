@@ -39,7 +39,7 @@ typedef enum ExEditAction {
     EX_ACT_DELETE_TO_LINE_START, EX_ACT_DELETE_TO_LINE_END, EX_ACT_DELETE_LINE,
     EX_ACT_LEFT, EX_ACT_RIGHT, EX_ACT_WORD_LEFT, EX_ACT_WORD_RIGHT, EX_ACT_LINE_START, EX_ACT_LINE_END,
     EX_ACT_UP, EX_ACT_DOWN, EX_ACT_DOC_START, EX_ACT_DOC_END, EX_ACT_PAGE_UP, EX_ACT_PAGE_DOWN,
-    EX_ACT_SELECT_ALL, EX_ACT_SIMPLIFY, EX_ACT_NEWLINE, EX_ACT_TAB,
+    EX_ACT_SELECT_ALL, EX_ACT_SIMPLIFY, EX_ACT_NEWLINE, EX_ACT_TAB, EX_ACT_BACKTAB,
     EX_ACT_BOLD, EX_ACT_ITALIC, EX_ACT_ADD_CURSOR_ABOVE, EX_ACT_ADD_CURSOR_BELOW,
     EX_ACT_COUNT
 } ExEditAction;
@@ -99,6 +99,12 @@ void ex_editor_key(ExEditor *e, ExRenderer *r, ExKey key, int mods);
 /* clicks counts rapid presses at the same place: 1, 2 (word), 3 (line). */
 void ex_editor_mouse(ExEditor *e, ExRenderer *r, ExMouse kind, float x, float y, int mods, int clicks);
 void ex_editor_scroll(ExEditor *e, float dy_pixels);
+/* Faint text shown while the note is empty (not in plain fields); "" for none. */
+/* The widget's whole horizontal extent (the viewport may be a narrower column inside it): where the scroll bar stands, and the strip at its right edge that takes it. */
+void ex_editor_set_frame(ExEditor *e, float x, float w);
+void ex_editor_set_placeholder(ExEditor *e, const char *text);
+int ex_editor_placeholder_visible(const ExEditor *e);
+void ex_editor_scroll_smooth(ExEditor *e, float dy_pixels);   /* the wheel: eases towards the place over a few frames (asks for them with ex_ui_request_frame) */
 
 /* Rectangular selection: one selection on every line from the line at (ax, ay) to the line at (x, y) (window pixels),
  * each covering the same horizontal span (shorter lines get a caret at their end). Mouse: drag with Alt+Shift held. */
@@ -205,7 +211,8 @@ void ex_editor_set_indent(ExEditor *e, int use_tabs, int indent_width);
 /* Typing helpers (docs/formats.md, "Typing helpers: smart lists and auto-pairing"). Each works on the one selection of a document and returns 1 if it
  * changed the text or the caret, 0 if the key should type as usual. in_literal: the caret is in front matter, fenced code, math, a comment or an
  * HTML block, where Markdown has no meaning. */
-typedef struct ExSmartOptions { int lists; int brackets; int markdown; } ExSmartOptions;   /* the settings smart_lists, auto_pair_brackets, auto_pair_markdown */
+typedef struct ExSmartOptions { int lists; int brackets; int markdown; int links; } ExSmartOptions;   /* the settings smart_lists, auto_pair_brackets, auto_pair_markdown, paste_url_on_selection */
+size_t ex_line_hang_prefix(const char *line, size_t len);   /* the column where a quote's or list item's text starts, 0 for other lines */
 int ex_doc_smart_enter(ExDoc *d, int in_literal);
 int ex_doc_smart_type(ExDoc *d, const char *text, size_t len, const ExSmartOptions *o, int in_literal);
 int ex_doc_smart_backspace(ExDoc *d, const ExSmartOptions *o, int in_literal);

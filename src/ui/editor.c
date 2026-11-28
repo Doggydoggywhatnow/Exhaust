@@ -48,6 +48,10 @@ struct ExEditor {
     int line_pct;
     float vx, vy, vw, vh;       /* viewport, pixels */
     float scroll_y;
+    float frame_x, frame_w;     /* the widget's whole width: the scroll bar stands at its right edge, not at the edge of a narrower column */
+    int sb_drag; float sb_grab;  /* the scroll bar thumb is being dragged, and where in it the pointer took it */
+    char placeholder[96];       /* faint text shown in an empty note */
+    float scroll_pend;          /* pixels of a wheel turn still to scroll: the view eases towards them, a frame at a time */
     float head;                 /* height of a header widget (the inline title) above the first row: it scrolls with the text */
     char composition[512];
     float *goal;                 /* per selection: x to keep while moving vertically; <0 none */
@@ -142,6 +146,7 @@ static void clear_cache(ExEditor *e) {
 
 static void blocks_free(ExEditor *e);
 static void geometry(ExEditor *e, ExRenderer *r);
+static int sb_geom(ExEditor *e, ExRenderer *r, float *x, float *y, float *w, float *h, float *range_px, float *track);
 static int blocks_sync(ExEditor *e);
 static size_t blocks_hidden(const ExEditor *e, size_t (*tmp)[2], size_t n);
 void ex_editor_free(ExEditor *e) {
@@ -221,7 +226,8 @@ static char *line_text(const ExEditor *e, size_t line, size_t *len) {
 
 static int line_px(const ExEditor *e, ExRenderer *r) { return ex_px(r, e->size); }
 static int gutter_px(ExRenderer *r) { return ex_px(r, 14); }                  /* room for the fold marker */
-static int pad_px(ExRenderer *r) { return gutter_px(r) + ex_px(r, 8); }       /* from the left edge to the text */
+static int pad_px(ExRenderer *r) { return gutter_px(r) + ex_px(r, 14); }      /* from the left edge to the text */
+static int pad_right_px(ExRenderer *r) { return ex_px(r, 24); }              /* from the text to the right edge: a line never runs into the edge of the pane */
 
 int ex_editor_text_inset(ExRenderer *r) { return pad_px(r); }
 /* The room left of the text: the fold marker, the line numbers when they are on (as wide as the biggest number needs), and a margin. */
@@ -243,7 +249,7 @@ static int line_height_px(const ExEditor *e, ExRenderer *r) {
     ExFontMetrics m;
     int lh;
     if (ex_font_metrics(e->font, line_px(e, r), &m)) return 20;
-    lh = (m.line_height * e->line_pct + 50) / 100;
+    lh = (line_px(e, r) * e->line_pct + 50) / 100;                 /* a percent of the text size (150: one and a half times), as in a style sheet; never less than the font's own line */
     return lh < m.line_height ? m.line_height : lh;
 }
 
@@ -714,7 +720,7 @@ typedef struct WrapLine { size_t *start; float *x; size_t n, cap; } WrapLine;   
 static int wrap_active(const ExEditor *e) { return e->wrap && e->vw > 0.0f && e->font != NULL; }
 
 static float wrap_avail(const ExEditor *e, ExRenderer *r) {
-    float a = e->vw - (float)pad_e(e, r) - (float)ex_px(r, 8), lo = 1.0f;       /* down to one character a row: a segment always takes at least one cluster (wrap_line) */
+    float a = e->vw - (float)pad_e(e, r) - (float)pad_right_px(r), lo = 1.0f;       /* down to one character a row: a segment always takes at least one cluster (wrap_line) */
     return a < lo ? lo : a;
 }
 
@@ -759,15 +765,20 @@ static int wl_push(WrapLine *w, size_t s, float x) {
 /* The segments of one line. Always at least one (the whole line when wrapping is off). */
 static void wrap_line(ExEditor *e, ExRenderer *r, size_t line, WrapLine *w) {
     Geom g;
-    float avail, x0 = 0.0f;
+    float avail, x0 = 0.0f, hang = 0.0f;
     size_t cur, guard;
     memset(w, 0, sizeof *w);
     if (!wrap_active(e) || geom_open(e, r, line, &g) != 0) { size_t st, en, nx; line_range(e, line, &st, &en, &nx); wl_push(w, st, 0.0f); return; }
     avail = wrap_avail(e, r);
     cur = g.s;
+    {   /* the rows after the first of a quote or a list item hang under its text */
+        size_t pl = ex_line_hang_prefix(g.t, g.len);
+        hang = pl ? geom_x(&g, g.s + pl) : 0.0f;
+        if (hang > avail * 0.5f) hang = 0.0f;
+    }
     wl_push(w, cur, 0.0f);
     for (guard = 0; guard < 200000; guard++) {
-        float limit = x0 + avail;
+        float row_avail = cur > g.s ? avail - hang : avail, limit = x0 + row_avail;
         size_t o, b, k;
         if (geom_x(&g, g.en) <= limit + 0.5f) break;
         o = geom_off(&g, limit);
@@ -775,11 +786,11 @@ static void wrap_line(ExEditor *e, ExRenderer *r, size_t line, WrapLine *w) {
         k = b;
         while (k > cur && g.t[k - 1 - g.s] != ' ' && g.t[k - 1 - g.s] != '\t') k--;
         if (k > cur) b = k;                                           /* after the last blank that fits */
-        else while (b > cur + 1 && geom_x(&g, b) - x0 > avail + 0.5f) b = g.s + ex_grapheme_prev(g.t, g.len, b - g.s);   /* no blank: the last cluster that fits */
+        else while (b > cur + 1 && geom_x(&g, b) - x0 > row_avail + 0.5f) b = g.s + ex_grapheme_prev(g.t, g.len, b - g.s);   /* no blank: the last cluster that fits */
         if (b >= g.en) b = g.s + ex_grapheme_prev(g.t, g.len, g.en - g.s);
         if (b <= cur) b = g.s + ex_grapheme_next(g.t, g.len, cur - g.s);
         if (b >= g.en || b <= cur) break;
-        if (wl_push(w, b, geom_x(&g, b)) != 0) break;
+        if (wl_push(w, b, geom_x(&g, b) - hang) != 0) break;                    /* the row is drawn hang to the right of the edge */
         cur = b;
         x0 = geom_x(&g, b);
     }
@@ -1049,7 +1060,7 @@ static char *props_markdown(const char *y, size_t n, size_t *out_len) {
     char *o = malloc(cap);
     int any = 0;
     if (!o) return NULL;
-    w += (size_t)snprintf(o + w, cap - w, "| Property | Value |\n| --- | --- |\n");
+    w += (size_t)snprintf(o + w, cap - w, "|  |  |\n| --- | --- |\n");                     /* a table with no header row drawn: the reading model leaves out a header with nothing in it */
     while (i < n && y[i] != '\n') i++;                                         /* the first --- */
     if (i < n) i++;
     while (i < n) {
@@ -1128,7 +1139,7 @@ static BView *bview_get(ExEditor *e, size_t i) {
 /* Rows a drawn block takes: its height and a little air, or, until it is measured, a guess from the lines it has. */
 static uint32_t blk_rows(const ExEditor *e, const BView *bv, size_t i, int lh) {
     const Blk *b = &e->blk[i];
-    if (bv && bv->h > 0) return (uint32_t)ceilf((bv->h + (float)lh * 0.15f) / (float)lh);
+    if (bv && bv->h > 0) return (uint32_t)ceilf((bv->h + (float)lh * (b->kind == BK_PROPS ? 0.7f : 0.3f)) / (float)lh);
     return (uint32_t)(b->last - b->first + 1 > 12 ? 12 : b->last - b->first + 1);
 }
 
@@ -1576,6 +1587,7 @@ static void slash_accept(ExEditor *e, ExRenderer *r) {
 
 void ex_editor_text_input(ExEditor *e, const char *text, size_t len) {
     if (len == 0 || e->readonly) return;
+    e->scroll_pend = 0.0f;
     e->composition[0] = 0;
     if (len == 1 && smart_on(e) && strchr("([{\")]}*_~=$`", text[0]) && ex_doc_smart_type(e->doc, text, len, &e->smart, caret_in_literal(e))) { /* paired, wrapped or typed over */ }
     else ex_doc_replace_selections(e->doc, text, len, 1);
@@ -1635,6 +1647,34 @@ static void paste(ExEditor *e, int plain) {
     size_t n = ex_doc_sel_count(e->doc), lines = 1, i, len;
     if (!text) { if (e->paste_hook) e->paste_hook(e->paste_user); return; }
     len = strlen(text);
+    if (!plain && e->smart.links && e->mode != EX_EDITOR_PLAIN && ex_doc_sel_count(e->doc) == 1) {      /* a web address pasted over selected words makes them its link */
+        ExSel s = ex_doc_sel(e->doc, 0);
+        size_t a = lo(s), z = hi(s), tl = len;
+        while (tl > 0 && (text[tl - 1] == '\n' || text[tl - 1] == '\r' || text[tl - 1] == ' ')) tl--;
+        if (z > a && z - a < 2000 && tl > 8 && !memchr(text, ' ', tl) && !memchr(text, '\n', tl) &&
+            (!strncmp(text, "http://", 7) || !strncmp(text, "https://", 8) || !strncmp(text, "mailto:", 7))) {
+            char sel[2001], *md;
+            size_t n = ex_buffer_read(buf(e), a, sel, z - a);
+            if (!memchr(sel, '\n', n) && sel[0] != '[') {
+                md = malloc(n + tl + 8);
+                if (md) {
+                    size_t w = 0;
+                    ExChange c;
+                    ExSel after;
+                    md[w++] = '[';
+                    memcpy(md + w, sel, n); w += n;
+                    md[w++] = ']'; md[w++] = '(';
+                    memcpy(md + w, text, tl); w += tl;
+                    md[w++] = ')';
+                    c.offset = a; c.remove_len = z - a; c.text = md; c.text_len = w;
+                    after.anchor = after.head = a + w;
+                    ex_doc_apply(e->doc, &c, 1, 0, &after, 1);
+                    free(md); free(text);
+                    return;
+                }
+            }
+        }
+    }
     for (i = 0; i < len; i++) if (text[i] == '\n') lines++;
     if (lines == n && n > 1 && text[len - 1] != '\n') { /* one line for each cursor */
         ExChange *ch = malloc(n * sizeof *ch);
@@ -1796,7 +1836,12 @@ void ex_editor_perform(ExEditor *e, ExRenderer *r, ExEditAction act, int extend)
     case EX_ACT_NEWLINE:
         if (e->smart.lists && !e->readonly && e->mode != EX_EDITOR_PLAIN && ex_doc_smart_enter(e->doc, caret_in_literal(e))) { e->last_vertical = 0; ensure_visible(e, r); break; }
         ex_editor_text_input(e, "\n", 1); ensure_visible(e, r); break;
-    case EX_ACT_TAB: ex_editor_text_input(e, "\t", 1); break;
+    case EX_ACT_TAB:                                                                   /* a list item moves in one level; anywhere else Tab types a tab */
+        if (e->smart.lists && e->mode != EX_EDITOR_PLAIN && !e->readonly && ex_doc_format(e->doc, EX_FMT_INDENT, &e->fmt)) { ensure_visible(e, r); break; }
+        ex_editor_text_input(e, "\t", 1); break;
+    case EX_ACT_BACKTAB:                                                               /* Shift+Tab: a list item moves out one level; elsewhere it does nothing */
+        if (e->mode != EX_EDITOR_PLAIN && !e->readonly && ex_doc_format(e->doc, EX_FMT_UNINDENT, &e->fmt)) ensure_visible(e, r);
+        break;
     case EX_ACT_SIMPLIFY: {
         ExSel s = ex_doc_sel(e->doc, ex_doc_primary(e->doc));
         s.anchor = s.head;
@@ -1818,6 +1863,7 @@ void ex_editor_perform(ExEditor *e, ExRenderer *r, ExEditAction act, int extend)
 }
 
 void ex_editor_key(ExEditor *e, ExRenderer *r, ExKey key, int mods) {
+    e->scroll_pend = 0.0f;
     ExEditAction act;
     int extend;
     if (!e->font) return;
@@ -1918,6 +1964,25 @@ void ex_editor_rect_select(ExEditor *e, ExRenderer *r, float ax, float ay, float
 
 void ex_editor_mouse(ExEditor *e, ExRenderer *r, ExMouse kind, float x, float y, int mods, int clicks) {
     size_t off;
+    if (kind == EX_MOUSE_DOWN) e->scroll_pend = 0.0f;
+    {   /* the scroll bar: press on its thumb to drag it, press beside it in the strip to jump there */
+        float bx, by, bw, bh, range, track;
+        if (kind == EX_MOUSE_DOWN && e->frame_w > 0 && x >= e->frame_x + e->frame_w - (float)ex_px(r, 16) && sb_geom(e, r, &bx, &by, &bw, &bh, &range, &track)) {
+            e->sb_drag = 1;
+            e->sb_grab = y >= by && y < by + bh ? y - by : bh / 2.0f;
+            if (!(y >= by && y < by + bh) && track > 0) { e->scroll_y = (y - e->sb_grab - e->vy) / track * range; if (e->scroll_y < 0) e->scroll_y = 0; }
+            return;
+        }
+        if (e->sb_drag) {
+            if (kind == EX_MOUSE_UP) e->sb_drag = 0;
+            else if (kind == EX_MOUSE_DRAG && sb_geom(e, r, &bx, &by, &bw, &bh, &range, &track) && track > 0) {
+                e->scroll_y = (y - e->sb_grab - e->vy) / track * range;
+                if (e->scroll_y < 0) e->scroll_y = 0;
+                if (e->scroll_y > range) e->scroll_y = range;
+            }
+            return;
+        }
+    }
     if (!e->font) return;
     if (e->link_fn && e->link_open) {
         if (kind == EX_MOUSE_DOWN && e->link_n && x >= e->sp_x && x < e->sp_x + e->sp_w && y >= e->sp_y && e->sp_rowh > 0 && y < e->sp_y + e->sp_rowh * (float)e->link_n) {
@@ -2055,6 +2120,35 @@ void ex_editor_drop_text(ExEditor *e, ExRenderer *r, float x, float y, const cha
 void ex_editor_scroll(ExEditor *e, float dy) {
     e->scroll_y += dy;
     if (e->scroll_y < 0) e->scroll_y = 0;
+}
+/* A turn of the wheel: the text glides to its place in a few frames (each takes a third of what is left) and does not jump. Typing, a key or a click ends it. */
+void ex_editor_set_frame(ExEditor *e, float x, float w) { e->frame_x = x; e->frame_w = w; }
+
+/* The scroll bar: a thin thumb at the right edge of the widget while the text is taller than the window. Returns 0 when there is none. */
+static int sb_geom(ExEditor *e, ExRenderer *r, float *x, float *y, float *w, float *h, float *range_px, float *track) {
+    int lh = line_height_px(e, r);
+    float total, thumb, scrolled;
+    if (e->vh <= 0 || e->frame_w <= 0 || !e->font) return 0;
+    geometry(e, r);
+    total = (float)vrow_total(e) * (float)lh + e->head;
+    if (total <= e->vh + 1.0f) return 0;
+    thumb = e->vh * e->vh / total;
+    if (thumb < (float)ex_px(r, 28)) thumb = (float)ex_px(r, 28);
+    if (thumb > e->vh) thumb = e->vh;
+    scrolled = e->scroll_y < 0 ? 0 : e->scroll_y > total - e->vh ? total - e->vh : e->scroll_y;
+    *w = (float)ex_px(r, 6);
+    *x = e->frame_x + e->frame_w - *w - (float)ex_px(r, 3);
+    *h = thumb;
+    *y = e->vy + (total > e->vh ? scrolled / (total - e->vh) : 0.0f) * (e->vh - thumb);
+    if (range_px) *range_px = total - e->vh;
+    if (track) *track = e->vh - thumb;
+    return 1;
+}
+void ex_editor_set_placeholder(ExEditor *e, const char *text) { snprintf(e->placeholder, sizeof e->placeholder, "%s", text ? text : ""); }
+int ex_editor_placeholder_visible(const ExEditor *e) { return e->placeholder[0] && ex_buffer_size(buf(e)) == 0 && !e->composition[0] && e->mode != EX_EDITOR_PLAIN; }
+void ex_editor_scroll_smooth(ExEditor *e, float dy) {
+    e->scroll_pend += dy;
+    ex_ui_request_frame();
 }
 
 /* ---- drawing ---- */
@@ -2217,7 +2311,7 @@ static void draw_layout_line(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
             if (run->flags & LF_UNDERLINE) ex_fill_rect(r, x, y + (float)(lh + fm->line_height) / 2.0f - (float)ex_px(r, 1), rw, (float)ex_px(r, 1), col);
             if (run->flags & LF_STRIKE) ex_fill_rect(r, x, y + (float)lh / 2.0f, rw, (float)ex_px(r, 1), col);
         } else if (run->kind == LRUN_BAR) {
-            ex_fill_rect(r, x + run->w * 0.3f, y, (float)ex_px(r, 2), (float)lh, ex_theme_color(t, (ExColorToken)run->fg));
+            ex_fill_rect(r, x + run->w * 0.3f, y, (float)ex_px(r, 3), (float)lh, ex_theme_color(t, (ExColorToken)run->fg));
         } else if (run->kind == LRUN_CHECKBOX) {
             float side = (float)fm->line_height * 0.7f, bx = x + (run->w - side) / 2.0f, by = y + ((float)lh - side) / 2.0f, th = (float)ex_px(r, 1.5f);
             ExColor col = ex_theme_color(t, (ExColorToken)run->fg);
@@ -2425,6 +2519,14 @@ static void draw_fold_marker(ExEditor *e, ExRenderer *r, const ExTheme *t, size_
 
 void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, int blink_on) {
     int lh, px, pad;
+    if (e->scroll_pend != 0.0f) {                                          /* the glide of the wheel */
+        float step = fabsf(e->scroll_pend) < 2.0f ? e->scroll_pend : e->scroll_pend * 0.3f, before = e->scroll_y;
+        e->scroll_y += step;
+        if (e->scroll_y < 0) e->scroll_y = 0;
+        e->scroll_pend -= step;
+        if (e->scroll_y == before) e->scroll_pend = 0.0f;                  /* at the top: nothing is left to do */
+        if (e->scroll_pend != 0.0f) ex_ui_request_frame();
+    }
     size_t nl = line_count(e), first, last, line, row, rows, caret_line, nsel = ex_doc_sel_count(e->doc), si;
     size_t cached_line = (size_t)-1;
     int bi, last_block = -1;
@@ -2508,6 +2610,20 @@ void ex_editor_draw(ExEditor *e, ExRenderer *r, const ExTheme *t, int focused, i
     }
     wl_free(&wl);
     ex_set_clip(r, (int)e->vx, (int)e->vy, (int)e->vw, (int)e->vh);
+    if (ex_editor_placeholder_visible(e)) {                              /* an empty note says where to start */
+        float ty = e->vy - ts(e) + (float)(lh - fm.line_height) / 2.0f;
+        ex_text_draw(r, e->font, e->size, e->vx + (float)pad_e(e, r), ty, e->placeholder, strlen(e->placeholder), ex_theme_color(t, EX_COLOR_TEXT_FAINT));
+    }
+    if (e->mode != EX_EDITOR_PLAIN) {                                      /* the scroll bar */
+        float bx, by, bw, bh;
+        if (sb_geom(e, r, &bx, &by, &bw, &bh, NULL, NULL)) {
+            ExColor c = ex_theme_color(t, EX_COLOR_TEXT_FAINT);
+            c.a = e->sb_drag ? 200 : 120;
+            ex_set_clip(r, (int)e->frame_x, (int)e->vy, (int)e->frame_w, (int)e->vh);
+            ex_fill_round_rect(r, bx, by, bw, bh, bw / 2.0f, c);
+            ex_set_clip(r, (int)e->vx, (int)e->vy, (int)e->vw, (int)e->vh);
+        }
+    }
     if (e->link_fn && e->link_open) {                                   /* the link suggestions under the caret */
         size_t count = e->link_n, k;
         float rowh = (float)lh, w = (float)ex_px(r, 360) * (e->size / 16.0f), h = rowh * (float)(count ? count : 1) + (float)ex_px(r, 8), cx, cy, py, pxl;

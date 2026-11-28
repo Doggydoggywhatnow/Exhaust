@@ -149,6 +149,105 @@ int main(void) {
         ex_editor_free(pe); ex_doc_free(pd);
     }
 
+    /* the scroll bar: a thumb at the right edge of the widget, dragged with the pointer, and a press beside it jumps there */
+    {
+        ExDoc *tall;
+        ExWidget *tw;
+        ExEditor *te;
+        char *s = malloc(300 * 8 + 1);
+        size_t i;
+        float y0, y1, before, mid;
+        for (i = 0; i < 300; i++) memcpy(s + i * 8, "line xx\n", 8);
+        s[300 * 8] = 0;
+        tall = ex_doc_create(s, 300 * 8);
+        tw = ex_widget_editor(ui, tall, "tall");
+        te = tw->editor;
+        ex_editor_set_mode(te, EX_EDITOR_LIVE);
+        ex_editor_set_wrap(te, 1);
+        tw->text_max = 720.0f;                                              /* a column in the middle of a wider widget */
+        ex_ui_layout(ui, tw, 1400, 600);
+        ex_renderer_clear(r, ex_theme_color(&th, EX_COLOR_BACKGROUND));
+        ex_editor_draw(te, r, &th, 1, 1);
+        y0 = ex_editor_scroll_y(te);
+        CHECK(y0 == 0.0f);
+        before = y0;
+        ex_editor_mouse(te, r, EX_MOUSE_DOWN, tw->x + tw->w - 6.0f, tw->y + 8.0f, 0, 1);         /* on the thumb at the top: it is taken, the caret does not move */
+        ex_editor_mouse(te, r, EX_MOUSE_DRAG, tw->x + tw->w - 6.0f, tw->y + 108.0f, 0, 1);
+        ex_editor_mouse(te, r, EX_MOUSE_UP, tw->x + tw->w - 6.0f, tw->y + 108.0f, 0, 1);
+        y1 = ex_editor_scroll_y(te);
+        CHECK(y1 > before + 200.0f);                                         /* 100 px of thumb is a lot of text */
+        CHECK(ex_doc_sel(tall, 0).head == 0);
+        mid = tw->y + tw->h - 10.0f;                                         /* beside the thumb, low in the strip: jump there */
+        ex_editor_mouse(te, r, EX_MOUSE_DOWN, tw->x + tw->w - 6.0f, mid, 0, 1);
+        ex_editor_mouse(te, r, EX_MOUSE_UP, tw->x + tw->w - 6.0f, mid, 0, 1);
+        CHECK(ex_editor_scroll_y(te) > y1);
+        CHECK(ex_doc_sel(tall, 0).head == 0);
+        /* a short note has no bar: the strip is text */
+        ex_ui_layout(ui, root, 1400, 600);
+        ex_editor_mouse(e, r, EX_MOUSE_DOWN, ed->x + ed->w - 6.0f, ed->y + 40.0f, 0, 1);
+        ex_editor_mouse(e, r, EX_MOUSE_UP, ed->x + ed->w - 6.0f, ed->y + 40.0f, 0, 1);
+        CHECK(ex_editor_scroll_y(e) == 0.0f);
+        ex_widget_free(tw);
+        ex_doc_free(tall);
+        free(s);
+    }
+
+    /* the wheel glides: a smooth scroll moves the text a part of the way each frame and ends where it was asked to */
+    {
+        ExDoc *tall;
+        ExWidget *tw;
+        char *s = malloc(300 * 8 + 1);
+        size_t i;
+        float a, b, c;
+        int k;
+        for (i = 0; i < 300; i++) memcpy(s + i * 8, "line xx\n", 8);
+        s[300 * 8] = 0;
+        tall = ex_doc_create(s, 300 * 8);
+        tw = ex_widget_editor(ui, tall, "tall2");
+        ex_editor_set_mode(tw->editor, EX_EDITOR_LIVE);
+        ex_editor_set_wrap(tw->editor, 1);
+        ex_ui_layout(ui, tw, 1000, 600);
+        ex_editor_scroll_smooth(tw->editor, 480.0f);
+        CHECK(ex_editor_scroll_y(tw->editor) == 0.0f);                      /* nothing moves until a frame is drawn */
+        ex_renderer_clear(r, ex_theme_color(&th, EX_COLOR_BACKGROUND));
+        ex_editor_draw(tw->editor, r, &th, 1, 1);
+        a = ex_editor_scroll_y(tw->editor);
+        ex_editor_draw(tw->editor, r, &th, 1, 1);
+        b = ex_editor_scroll_y(tw->editor);
+        CHECK(a > 100.0f && a < 480.0f && b > a && b < 480.0f);              /* a part of the way, and then more */
+        for (k = 0; k < 60; k++) ex_editor_draw(tw->editor, r, &th, 1, 1);
+        c = ex_editor_scroll_y(tw->editor);
+        CHECK(c > 479.0f && c < 481.0f);                                     /* and it ends where it was asked to */
+        ex_editor_scroll_smooth(tw->editor, 480.0f);
+        ex_editor_key(tw->editor, r, EX_KEY_RIGHT, 0);                       /* a key ends the glide */
+        ex_editor_draw(tw->editor, r, &th, 1, 1);
+        CHECK(ex_editor_scroll_y(tw->editor) < 481.0f);
+        ex_widget_free(tw);
+        ex_doc_free(tall);
+        free(s);
+    }
+
+    /* the reading view has the same bar: a drag on the thumb scrolls the page */
+    {
+        char *big = malloc(400 * 12 + 1);
+        ExWidget *rw;
+        size_t i;
+        float before;
+        for (i = 0; i < 400; i++) memcpy(big + i * 12, "paragraph\n\n ", 12);
+        big[400 * 12] = 0;
+        rw = ex_widget_reading(ui, big, 400 * 12, "long reading");
+        ex_ui_layout(ui, rw, 1000, 500);
+        ex_renderer_clear(r, ex_theme_color(&th, EX_COLOR_BACKGROUND));
+        ex_ui_draw(ui, rw, 1);
+        before = ex_reading_scroll_y(rw);
+        ex_ui_mouse(ui, rw, EX_MOUSE_DOWN, rw->x + rw->w - 6.0f, rw->y + 8.0f, 0, 1);
+        ex_ui_mouse(ui, rw, EX_MOUSE_DRAG, rw->x + rw->w - 6.0f, rw->y + 90.0f, 0, 1);
+        ex_ui_mouse(ui, rw, EX_MOUSE_UP, rw->x + rw->w - 6.0f, rw->y + 90.0f, 0, 1);
+        CHECK(ex_reading_scroll_y(rw) > before + 300.0f);
+        ex_widget_free(rw);
+        free(big);
+    }
+
     /* strict line breaks, in the reading model */
     m = ex_reading_build_ex("one\ntwo\n\nthree  \nfour", 21, 0);
     t = ex_reading_plain_text(m);

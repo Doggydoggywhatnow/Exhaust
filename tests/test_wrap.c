@@ -77,9 +77,9 @@ static void run_mode(ExEditorMode mode) {
     }
     /* a click on the second row of the long line lands inside the long line, past its first row */
     {
-        float x = ed->x + 100.0f, y;
-        ex_editor_caret_rect(ed->editor, r, &cx0, &cy0, NULL, NULL);
-        y = cy0 + 3.0f * 20.0f;
+        float x = ed->x + 100.0f, y, rowh;
+        ex_editor_caret_rect(ed->editor, r, &cx0, &cy0, NULL, &rowh);
+        y = cy0 + 1.5f * rowh;                                                /* the middle of the next row, whatever the row height is */
         ex_editor_mouse(ed->editor, r, EX_MOUSE_DOWN, x, y, 0, 1);
         ex_editor_mouse(ed->editor, r, EX_MOUSE_UP, x, y, 0, 1);
         CHECK(ex_doc_sel(doc, 0).head > 17 && ex_doc_sel(doc, 0).head < 17 + 280);

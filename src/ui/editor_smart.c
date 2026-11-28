@@ -71,6 +71,14 @@ static void prefix_parse(const char *ln, size_t n, Prefix *p) {
     if (j >= n) { size_t m = (p->task ? p->box + 3 : p->mend) + 1; p->min_col = m < n ? m : n; }
 }
 
+/* Where the text of a line starts after its quote marks, list marker and task box (0 for any other line): the wrapped rows of a quote or a list item hang under it. */
+size_t ex_line_hang_prefix(const char *ln, size_t n) {
+    Prefix p;
+    prefix_parse(ln, n, &p);
+    if (!p.list && !p.quote_end) return 0;
+    return p.content < n ? p.content : 0;
+}
+
 int ex_doc_smart_enter(ExDoc *d, int in_literal) {
     const ExBuffer *b = ex_doc_buffer(d);
     ExSel s, after;

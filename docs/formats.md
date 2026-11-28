@@ -86,6 +86,7 @@ A plain text INI file in the vault's `.exhaust` folder (and a global copy in the
 | `indent_with_tabs` | bool | `true` | 0.1.0 |
 | `indent_width` | int | `4` | 0.1.0 |
 | `paste_html_as_markdown` | bool | `true` | 0.1.0 |
+| `paste_url_on_selection` | bool | `true` | 0.1.0 (the look-and-feel pass) |
 | `vim_mode` | bool | `false` (stub) | 0.1.0 |
 
 ### [files]
@@ -776,7 +777,7 @@ In Dark, `background_alt`, `surface` and `code_background` share the darker `#18
 | `sizes.border_width` | int | `1` | 0.1.0 |
 | `sizes.ribbon_width` | int | `44` | 0.1.0 |
 | `sizes.tab_height` | int | `36` | 0.1.0 |
-| `sizes.line_height` | percent | `150` | 0.1.0 |
+| `sizes.line_height` | percent | `150` (of the text size) | 0.1.0 |
 
 ### Loading themes and snippets (7d)
 
@@ -1124,6 +1125,8 @@ The Interface page of the settings has a button *Choose ribbon items*: a list of
 
 ## Typing helpers: smart lists and auto-pairing
 
+**Tab and Shift+Tab** (with `smart_lists`; the shortcuts of the editing table are unchanged): in a list item Tab moves the item, with the lines under it that the selection touches, in by one level (a tab, or `indent_width` blanks as `indent_with_tabs` says) and Shift+Tab moves it out; on any other line Tab types a tab and Shift+Tab does nothing. With `smart_lists` off Tab always types a tab.
+
 Three settings of `[editor]` (all on by default, since 0.1.0) change what a typed key does in source mode and live preview. They never apply in plain fields (the title, the find bar, dialogs), in a read-only editor, to pasted or dropped text, or to IME text (only a key that types exactly one character). With more than one cursor they are off and the key types as usual. Each is one undo step of its own.
 
 **`smart_lists`: Enter.** On a line that starts (after blanks) with `>` quote marks, a list marker (`-`, `*`, `+`, or a number of up to nine digits followed by `.` or `)`; at least one blank after it) and an optional task box (`[ ]`, `[x]`), Enter with the caret at or after the end of that prefix starts the next line with the same prefix: the same blanks, quote marks and bullet; a number is raised by one; a task box starts empty (`[ ]`); the text after the caret moves to the new line. A selection is replaced. If the line holds nothing after its prefix, Enter does not add a line: a nested item (blanks before the marker) moves out one level (one tab, or up to four spaces, are taken off), a top-level item loses its marker and box, and a quote line loses its `>` marks, so a second Enter leaves a list or a quote. Enter with the caret inside the prefix, on a line with none, or in front matter, a fenced code block, a math block, a comment block or an HTML block is a plain line break. Numbers after the new line are not renumbered (not built).
@@ -1142,6 +1145,8 @@ Three settings of `[editor]` (all on by default, since 0.1.0) change what a type
 
 *Strict line breaks* (`strict_line_breaks`, default off). Reading mode, slides and export: off shows a single line break inside a paragraph as a line break (as the Markdown of notes is usually written); on follows CommonMark, where it is a blank. Two blanks at the end of a line, or a backslash, are always a break. The files are not changed.
 
+*Paste a link over selected words* (`paste_url_on_selection`, default on). A paste (not *Paste without formatting*) of one web address (`http://`, `https://` or `mailto:`, no blanks) while words on one line are selected, in source mode or live preview, writes them as `[the words](the address)` and puts the caret after it; the words are kept as the link's text and the paste is one undo step. With nothing selected, or with a selection over more than one line, or one that is a link already (it starts with `[`), the address is pasted as it is.
+
 *Paste HTML as Markdown* (`paste_html_as_markdown`, default on). A paste (Ctrl+V; not *Paste without formatting*) whose clipboard also holds `text/html`, in source mode or live preview, pastes that HTML as Markdown (the importer's converter, `ex_html_to_markdown`: headings, emphasis, links, lists, tables, code, pictures as links) instead of the plain text. Formatted text of more than 512 KB is pasted as its plain text. A paste with no HTML is as before. Headings are not renumbered and nothing is fetched from the network.
 
 *New note location* (`[files] new_note_location`: `vault`, `folder`, `same_folder`, `subfolder`; `new_note_folder`). The command *Create new note* makes the note in the top folder, in the folder `new_note_folder`, in the folder of the open note (the top folder when none is open), or in a subfolder called `new_note_folder` of that folder (the folder of the open note when the name is empty or unsafe: no `..`, no leading `/`, no `:` or `\`). The folder is made when it is not there; the note is written when something is typed in it. A new note made from the explorer's menu is made in the folder it was asked in.
@@ -1159,6 +1164,21 @@ A caret or either end of a selection that is on one of its lines shows its sourc
 *`properties_in_document`* (`visible`, `hidden`, `source`): `visible` draws the properties as above, `hidden` draws nothing for them (a caret on them, or on the first line of the note when they start the note, shows the text), and `source` shows the YAML as text. Reading mode does not show the properties in any of the three (not built).
 
 Not built: editing inside a drawn table, equations and diagrams drawn inline in a paragraph, highlight of a selection or a find match inside a drawn block, and the properties' types (icons, date pickers). A block's height is measured when it first comes near the window and estimated (one row for each of its lines, at most twelve) until then, so a long note may shift a little as blocks are measured.
+
+## The writing area: look and feel
+
+What the page you write on does, apart from the text itself. The explorer's buttons stay left-justified; none of this changes them.
+
+- **Line height.** `sizes.line_height` (default `150`) is a percent of the *text size*, as a style sheet's `line-height` is: 150 at 16 px is 24 px a row, never less than the font's own line. (Before the look-and-feel pass it was a percent of the font's own line, which made a row 32 px and the text look double-spaced.)
+- **Room at the sides.** The text starts 28 px from the left edge of its column (a 14 px margin for the fold marker and 14 px of air) and wraps 24 px before the right edge, so a line never runs into the pane's edge.
+- **Hanging rows.** The rows after the first of a wrapped list item or quote start under the item's text, not under its marker: in live preview and in source mode.
+- **Quote bar.** A quote's bar is 3 px in the accent color (a callout's is its own color), in the editor and in reading mode.
+- **Focus.** A focused editor or reading view shows a 2 px accent bar along its left edge (it also tells which pane is the active one); the caret is the rest of the focus mark. Every other widget keeps the 2 px focus ring. The caret stays solid while keys are pressed or the pointer is used and blinks again after half a second.
+- **Pointer.** The pointer is the text pointer over an editor.
+- **Scroll bar.** A thin thumb at the right edge of the editor and of the reading view (not of the narrower column) while the text is taller than the window. Drag the thumb, or press in the strip (the last 16 px) beside it to jump there. The strip is not text: a click there never moves the caret.
+- **The wheel glides.** A turn of the wheel scrolls over a few frames (a third of what is left each frame) and ends exactly where the turn asked; typing, a key or a click ends the glide at once. The main loop draws without waiting for an event while a glide runs (`ex_ui_request_frame`).
+- **Placeholder.** An empty note shows *Start writing…* in the faint text color in the first row (not in the title).
+- **Properties** drawn in live preview are a table without a header row: a table whose header cells are all empty draws no header row (in every view that draws tables).
 
 ## Table editing
 

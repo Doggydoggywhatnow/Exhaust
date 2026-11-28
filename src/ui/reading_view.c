@@ -39,6 +39,8 @@ struct ExReadingView {
     ExReading *model;
     char *plain;
     float vx, vy, vw, vh, scroll;
+    float scroll_pend;                 /* pixels of a wheel turn still to scroll */
+    int sb_drag; float sb_grab;        /* the scroll bar thumb is being dragged */
     float col_x, col_w;          /* where a header widget goes so that its text lines up with the page's (set by layout) */
     float head;                  /* height of a header widget (the inline title) above the first block: it scrolls with the page */
     float laid_w, laid_scale, content_h;
@@ -180,6 +182,7 @@ float ex_readingview_measure(ExReadingView *v, ExRenderer *r, float width, float
 }
 void ex_readingview_set_page_scale(ExReadingView *v, float f) { if (v && f > 0 && f != v->page_scale) { v->page_scale = f; v->dirty = 1; } }
 void ex_readingview_scroll(ExReadingView *v, float dy) { v->scroll += dy; clamp_scroll(v); }
+void ex_readingview_scroll_smooth(ExReadingView *v, float dy) { v->scroll_pend += dy; ex_ui_request_frame(); }
 void ex_readingview_set_scroll(ExReadingView *v, float y) { v->scroll = y; clamp_scroll(v); }
 
 void ex_readingview_key(ExReadingView *v, ExKey key) {
@@ -687,7 +690,7 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
                 push_op(&v->back, &v->nback, &v->capback, &d);
             }
             d.kind = OP_RECT; d.x = fx; d.y = top - gap / 2.0f; d.w = bar_w; d.h = L.y - top + gap; d.alpha = 0;
-            d.bg = b->frame_callout[f] >= 0 ? EX_COLOR_CALLOUT_NOTE + (b->frame_callout[f] % 13) : EX_COLOR_BORDER;
+            d.bg = b->frame_callout[f] >= 0 ? EX_COLOR_CALLOUT_NOTE + (b->frame_callout[f] % 13) : EX_COLOR_ACCENT;
             push_op(&v->back, &v->nback, &v->capback, &d);
         }
         L.y += gap;
@@ -703,13 +706,32 @@ static void layout(ExReadingView *v, ExRenderer *r, float avail_w) {
 
 /* ---- drawing and mouse ---- */
 
+static void draw_page(ExReadingView *v, ExRenderer *r, const ExTheme *t, float base_size);
+static int sb_geom(const ExReadingView *v, float scale, float *x, float *y, float *w, float *h, float *range, float *track);
 void ex_readingview_draw(ExReadingView *v, ExRenderer *r, const ExTheme *t, float base_size) {
+    float bx, by, bw, bh, range, track;
+    draw_page(v, r, t, base_size);
+    if (v->model && v->vw > 0 && !v->inline_mode && sb_geom(v, ex_renderer_scale(r), &bx, &by, &bw, &bh, &range, &track)) {
+        ExColor c = ex_theme_color(t, EX_COLOR_TEXT_FAINT);
+        c.a = v->sb_drag ? 200 : 120;
+        ex_set_clip(r, (int)v->vx, (int)v->vy, (int)v->vw, (int)v->vh);
+        ex_fill_round_rect(r, bx, by, bw, bh, bw / 2.0f, c);
+    }
+}
+static void draw_page(ExReadingView *v, ExRenderer *r, const ExTheme *t, float base_size) {
     size_t i;
     float top, bottom;
     if (!v->model || v->vw <= 0) return;
     v->base_size = base_size > 0 ? base_size : 16.0f;
     if (v->media.images && ex_imagecache_version(v->media.images) != v->img_version) { v->img_version = ex_imagecache_version(v->media.images); v->dirty = 1; }
     if (v->dirty || fabsf(v->laid_w - v->vw) > 0.5f || v->laid_scale != ex_renderer_scale(r)) layout(v, r, v->vw);
+    if (v->scroll_pend != 0.0f) {                                          /* the glide of the wheel */
+        float step = fabsf(v->scroll_pend) < 2.0f ? v->scroll_pend : v->scroll_pend * 0.3f, before = v->scroll;
+        v->scroll += step; clamp_scroll(v);
+        v->scroll_pend -= step;
+        if (v->scroll == before) v->scroll_pend = 0.0f;
+        if (v->scroll_pend != 0.0f) ex_ui_request_frame();
+    }
     top = v->scroll - 100.0f; bottom = v->scroll + v->vh + 100.0f;
     ex_set_clip(r, (int)v->vx, (int)v->vy, (int)v->vw, (int)v->vh);
     for (i = 0; i < v->nback; i++) {
@@ -810,8 +832,38 @@ int ex_readingview_internal_link_at(ExReadingView *v, float x, float y, char *ta
     return 1;
 }
 
+/* The scroll bar: a thin thumb at the right edge while the page is taller than the window. Returns 0 when there is none. */
+static int sb_geom(const ExReadingView *v, float scale, float *x, float *y, float *w, float *h, float *range, float *track) {
+    float total = v->content_h, thumb;
+    if (v->vh <= 0 || total <= v->vh + 1.0f) return 0;
+    thumb = v->vh * v->vh / total;
+    if (thumb < 28.0f * scale) thumb = 28.0f * scale;
+    if (thumb > v->vh) thumb = v->vh;
+    *w = 6.0f * scale;
+    *x = v->vx + v->vw - *w - 3.0f * scale;
+    *h = thumb;
+    *y = v->vy + (v->scroll / (total - v->vh)) * (v->vh - thumb);
+    *range = total - v->vh; *track = v->vh - thumb;
+    return 1;
+}
+
 int ex_readingview_mouse(ExReadingView *v, ExMouse kind, float x, float y) {
-    const Op *o = hit(v, x, y);
+    const Op *o;
+    {   /* the scroll bar takes a press in the strip at the right edge, and the drag that follows */
+        float bx, by, bw, bh, range, track, scale = v->laid_scale > 0 ? v->laid_scale : 1.0f;
+        if (kind == EX_MOUSE_DOWN && x >= v->vx + v->vw - 16.0f * scale && sb_geom(v, scale, &bx, &by, &bw, &bh, &range, &track)) {
+            v->sb_drag = 1;
+            v->sb_grab = y >= by && y < by + bh ? y - by : bh / 2.0f;
+            if (!(y >= by && y < by + bh) && track > 0) { v->scroll = (y - v->sb_grab - v->vy) / track * range; clamp_scroll(v); }
+            return 1;
+        }
+        if (v->sb_drag) {
+            if (kind == EX_MOUSE_UP) v->sb_drag = 0;
+            else if (kind == EX_MOUSE_DRAG && sb_geom(v, scale, &bx, &by, &bw, &bh, &range, &track) && track > 0) { v->scroll = (y - v->sb_grab - v->vy) / track * range; clamp_scroll(v); }
+            return 1;
+        }
+    }
+    o = hit(v, x, y);
     if (kind == EX_MOUSE_DOWN) {
         v->press_link = o ? o->link : -1;
         v->press_toggle = o ? o->toggle : -1;

@@ -165,6 +165,7 @@ ExWidget *ex_widget_editor(ExUi *ui, ExDoc *doc, const char *name) {
     w->font_token = EX_FONT_TOKEN_TEXT;
     w->focusable = 1;
     w->clip = 1;
+    w->cursor = 2;                              /* the text pointer */
     return w;
 }
 
@@ -192,6 +193,7 @@ void ex_reading_set_link_handler(ExWidget *w, void (*fn)(ExRSpanKind kind, const
 int ex_reading_internal_link_at(ExWidget *w, float x, float y, char *target, size_t cap) { return w->reading ? ex_readingview_internal_link_at(w->reading, x, y, target, cap) : 0; }
 
 void ex_reading_scroll(ExWidget *w, float dy) { if (w->reading) ex_readingview_scroll(w->reading, dy); }
+void ex_reading_scroll_smooth(ExWidget *w, float dy) { if (w->reading) ex_readingview_scroll_smooth(w->reading, dy); }
 float ex_reading_scroll_y(const ExWidget *w) { return w->reading ? ex_readingview_scroll_y(w->reading) : 0; }
 static volatile int g_frame_requested;
 void ex_ui_request_frame(void) { g_frame_requested = 1; }
@@ -673,6 +675,7 @@ void ex_ui_layout(ExUi *ui, ExWidget *root, float width, float height) {
                         ex_editor_scroll(e->editor, d - ex_editor_scroll_y(e->editor));
                     } else {
                         ex_editor_set_viewport(e->editor, col_x, e->y, col_w, e->h);
+                        ex_editor_set_frame(e->editor, e->x, e->w);
                         if (e->parent && (e->parent->type == EX_WIDGET_EDITOR || e->parent->type == EX_WIDGET_READING)) ex_editor_scroll(e->editor, -ex_editor_scroll_y(e->editor));
                     }
                 }
@@ -804,7 +807,9 @@ static void draw_widget(ExUi *ui, ExWidget *w, int blink_on) {
     if (w->clip && (w->type == EX_WIDGET_EDITOR || w->type == EX_WIDGET_READING) && w->first_child) clip_apply(ui);   /* the editor drew with its own clip: the child (title) is clipped to the widget */
     for (c = w->first_child; c; c = c->next) draw_widget(ui, c, blink_on);
     if (w->clip) clip_pop(ui, &saved_clip);
-    if (w->focusable && ui->focus == w) { /* the visible focus ring, drawn last so nothing covers it */
+    if (w->focusable && ui->focus == w && (w->type == EX_WIDGET_EDITOR || w->type == EX_WIDGET_READING)) {   /* a page shows that it has the focus with a bar along its left edge (the caret does the rest): a frame around the whole page was noise */
+        ex_fill_rect(r, w->x, w->y, (float)ex_px(r, 2), w->h, ex_theme_color(t_theme(ui), EX_COLOR_ACCENT));
+    } else if (w->focusable && ui->focus == w) { /* the visible focus ring, drawn last so nothing covers it */
         float t = 2.0f * (float)ex_px(r, token_px(ui, EX_SIZE_BORDER_WIDTH));
         ex_stroke_round_rect(r, w->x, w->y, w->w, w->h, rad, t, ex_theme_color(t_theme(ui), EX_COLOR_ACCENT));
     }

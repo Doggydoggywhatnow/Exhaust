@@ -203,7 +203,7 @@ static int apply(const ExMdSpan *sp, void *user) {
             }
             break;
         case EX_MD_TASK: subst(c, a, e, 3, -1); break;
-        case EX_MD_BLOCKQUOTE: subst(c, a, e, 5, EX_COLOR_BORDER); break;
+        case EX_MD_BLOCKQUOTE: subst(c, a, e, 5, EX_COLOR_ACCENT); break;
         case EX_MD_CALLOUT: {
             if (e - a == 1 && c->env->line[a - c->ls] == '>') subst(c, a, e, 6, callout_token(c->callout_level >= 0 ? (unsigned)c->callout_level : 0));
             else {

@@ -213,6 +213,7 @@ static size_t suggest(void *u, const char *q, ExLinkSuggestion *out, size_t max)
 }
 
 static char *clip_plain(void *u) { (void)u; char *s = malloc(6); strcpy(s, "plain"); return s; }
+static char *clip_url(void *u) { (void)u; char *s = malloc(40); strcpy(s, "https://example.com/a?b=1\n"); return s; }
 static void clip_set(void *u, const char *t) { (void)u; (void)t; }
 static char *html_md(void *u) { int *called = u; (*called)++; char *s = malloc(8); strcpy(s, "**web**"); return s; }
 
@@ -241,6 +242,53 @@ static void html_paste_cases(ExRenderer *r) {
     ex_editor_set_html_paste(e, html_md, &called);
     ex_editor_perform(e, r, EX_ACT_PASTE, 0);
     t = text_of(e); CHECK(strcmp(t, "plain") == 0); CHECK(called == 1); free(t);
+    free_editor(e);
+}
+
+/* paste_url_on_selection: a web address over selected words makes a link of them */
+static void url_paste_cases(ExRenderer *r) {
+    ExClipboard cb;
+    ExEditor *e;
+    ExSmartOptions o = { 0, 0, 0, 1 }, off = { 0, 0, 0, 0 };
+    char *t;
+    cb.get = clip_url; cb.set = clip_set; cb.user = NULL;
+    e = new_editor(r, "see the docs here", EX_EDITOR_LIVE, &o);
+    ex_editor_set_clipboard(e, &cb);
+    { ExSel s; s.anchor = 4; s.head = 12; ex_doc_set_selections(ex_editor_doc(e), &s, 1); }       /* "the docs" */
+    ex_editor_perform(e, r, EX_ACT_PASTE, 0);
+    t = text_of(e); CHECK(strcmp(t, "see [the docs](https://example.com/a?b=1) here") == 0); free(t);
+    CHECK(ex_doc_sel(ex_editor_doc(e), 0).head == strlen("see [the docs](https://example.com/a?b=1)"));
+    CHECK(ex_doc_undo(ex_editor_doc(e)) == 1);
+    t = text_of(e); CHECK(strcmp(t, "see the docs here") == 0); free(t);
+    { ExSel s; s.anchor = 4; s.head = 12; ex_doc_set_selections(ex_editor_doc(e), &s, 1); }
+    ex_editor_perform(e, r, EX_ACT_PASTE_PLAIN, 0);                           /* without formatting: the address replaces the words */
+    t = text_of(e); CHECK(strcmp(t, "see https://example.com/a?b=1\n here") == 0); free(t);
+    free_editor(e);
+    e = new_editor(r, "words", EX_EDITOR_LIVE, &o);                           /* nothing selected: the address as it is */
+    ex_editor_set_clipboard(e, &cb);
+    ex_editor_perform(e, r, EX_ACT_PASTE, 0);
+    t = text_of(e); CHECK(strncmp(t, "wordshttps://example.com/a?b=1", 30) == 0 && strchr(t, '[') == NULL); free(t);
+    free_editor(e);
+    e = new_editor(r, "words", EX_EDITOR_LIVE, &off);                         /* setting off */
+    ex_editor_set_clipboard(e, &cb);
+    { ExSel s; s.anchor = 0; s.head = 5; ex_doc_set_selections(ex_editor_doc(e), &s, 1); }
+    ex_editor_perform(e, r, EX_ACT_PASTE, 0);
+    t = text_of(e); CHECK(strchr(t, '[') == NULL); free(t);
+    free_editor(e);
+}
+
+/* the placeholder of an empty note */
+static void placeholder_cases(ExRenderer *r) {
+    ExEditor *e = new_editor(r, "", EX_EDITOR_LIVE, NULL);
+    CHECK(!ex_editor_placeholder_visible(e));
+    ex_editor_set_placeholder(e, "Start writing");
+    CHECK(ex_editor_placeholder_visible(e));
+    ex_editor_text_input(e, "a", 1);
+    CHECK(!ex_editor_placeholder_visible(e));
+    free_editor(e);
+    e = new_editor(r, "", EX_EDITOR_PLAIN, NULL);                              /* a plain field (the title) never shows it */
+    ex_editor_set_placeholder(e, "Start writing");
+    CHECK(!ex_editor_placeholder_visible(e));
     free_editor(e);
 }
 
@@ -346,6 +394,27 @@ static void editor_cases(ExRenderer *r) {
     t = text_of(e); CHECK(strcmp(t, "[t]()") == 0); free(t);
     free_editor(e);
 
+    /* Tab and Shift+Tab move a list item in and out; elsewhere Tab types a tab and Shift+Tab does nothing */
+    e = new_editor(r, "- a\n- b", EX_EDITOR_LIVE, &ALL);
+    ex_editor_key(e, r, EX_KEY_TAB, 0);
+    t = text_of(e); CHECK(strcmp(t, "- a\n\t- b") == 0); free(t);
+    ex_editor_key(e, r, EX_KEY_TAB, EX_MOD_SHIFT);
+    t = text_of(e); CHECK(strcmp(t, "- a\n- b") == 0); free(t);
+    ex_editor_key(e, r, EX_KEY_TAB, EX_MOD_SHIFT);                          /* already at the top: nothing */
+    t = text_of(e); CHECK(strcmp(t, "- a\n- b") == 0); free(t);
+    CHECK(ex_doc_undo(ex_editor_doc(e)) == 1);
+    free_editor(e);
+    e = new_editor(r, "plain", EX_EDITOR_LIVE, &ALL);
+    ex_editor_key(e, r, EX_KEY_TAB, 0);
+    t = text_of(e); CHECK(strcmp(t, "plain\t") == 0); free(t);
+    ex_editor_key(e, r, EX_KEY_TAB, EX_MOD_SHIFT);
+    t = text_of(e); CHECK(strcmp(t, "plain\t") == 0); free(t);
+    free_editor(e);
+    e = new_editor(r, "- a", EX_EDITOR_LIVE, &off);                         /* smart lists off: a tab is typed */
+    ex_editor_key(e, r, EX_KEY_TAB, 0);
+    t = text_of(e); CHECK(strcmp(t, "- a\t") == 0); free(t);
+    free_editor(e);
+
     /* one undo takes back one helper step */
     e = new_editor(r, "", EX_EDITOR_LIVE, &ALL);
     type(e, "- a"); ex_editor_key(e, r, EX_KEY_ENTER, 0);
@@ -365,6 +434,8 @@ int main(void) {
     undo_steps();
     editor_cases(r);
     html_paste_cases(r);
+    url_paste_cases(r);
+    placeholder_cases(r);
     if (failures) { fprintf(stderr, "%d check(s) failed\n", failures); return 1; }
     printf("smart_typing: ok\n");
     return 0;

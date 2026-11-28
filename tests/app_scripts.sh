@@ -328,9 +328,9 @@ vault="$work/table_slash"; rm -rf "$vault"; mkdir -p "$vault/.exhaust"
 printf '[features]\nslash_commands = true\n[editor]\nlive_preview_blocks = false\n' > "$vault/.exhaust/settings.ini"   # a table is drawn as a picture in live preview since the blocks; this case is about the table commands in the text, which the unit test live_blocks covers for the drawn form
 printf '# Tbl\n\n| Name | Qty |\n| :--- | --: |\n| a    | 1   |\n| bb   | 22  |\n\nafter\n' > "$vault/Table.md"
 printf '%s\n' 'wait 1000
-move 404 311
-down 404 311
-up 404 311
+move 410 268
+down 410 268
+up 410 268
 wait 300
 text /
 text tableaddrowbelow
@@ -618,11 +618,11 @@ reset_state
 mkdir -p "$work/dropsrc"
 printf 'PNGDATA-1234567890' > "$work/dropsrc/pic.png"; printf 'plain' > "$work/dropsrc/readme.txt"
 run drop_attach "wait 1000
-drop $work/dropsrc/pic.png 500 300
+drop $work/dropsrc/pic.png 780 650
 wait 1500
-drop $work/dropsrc/pic.png 500 300
+drop $work/dropsrc/pic.png 780 650
 wait 1500
-drop $work/dropsrc/readme.txt 500 300
+drop $work/dropsrc/readme.txt 780 650
 wait 3000
 quit" Home.md
 if cmp -s "$work/dropsrc/pic.png" "$work/drop_attach/pic.png" && cmp -s "$work/dropsrc/pic.png" "$work/drop_attach/pic 2.png" && [ -e "$work/drop_attach/readme.txt" ]; then echo "ok: dropped files are copied into the vault and never replace each other"; else echo "FAILED: the dropped files were not copied (see $work/drop_attach.log)"; fail=1; fi

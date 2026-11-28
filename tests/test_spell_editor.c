@@ -54,7 +54,7 @@ int main(void) {
     ex_editor_set_viewport(e, 0, 0, 600, 400);
     ex_editor_set_mode(e, EX_EDITOR_SOURCE);
     ex_font_metrics(font, ex_px(r, 16.0f), &fm);
-    lh = (fm.line_height * 150 + 50) / 100;
+    lh = (ex_px(r, 16.0f) * 150 + 50) / 100;                          /* a percent of the text size */
     if (lh < fm.line_height) lh = fm.line_height;
 
 #define DRAW(focused) do { ex_renderer_clear(r, ex_theme_color(&th, EX_COLOR_BACKGROUND)); ex_editor_draw(e, r, &th, focused, 0); } while (0)

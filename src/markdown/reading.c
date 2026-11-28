@@ -690,6 +690,13 @@ static int leave_block(MD_BLOCKTYPE type, void *detail, void *user) {
         b.kind = EX_RBK_TABLE_ROW; b.header_row = c->in_thead;
         b.cells = c->cells; b.ncells = c->ncells;
         c->cells = NULL; c->ncells = c->capcells = 0;
+        if (b.header_row) {                                            /* a header with nothing in it is not drawn (the properties of live preview are such a table) */
+            size_t k, q;
+            int blank = 1;
+            for (k = 0; k < b.ncells && blank; k++)
+                for (q = 0; q < b.cells[k].n; q++) if (b.cells[k].spans[q].text && b.cells[k].spans[q].text[0]) { blank = 0; break; }
+            if (blank) { free_block(&b); break; }
+        }
         emit(c, &b);
         break;
     }

@@ -78,6 +78,7 @@ static const ExSettingsRow rows[] = {
     T("editor", "Typing", "editor", "indent_with_tabs", "Indent with tabs", "Use a tab character to indent. Off uses spaces."),
     N("editor", "Typing", "editor", "indent_width", "Width of an indent", "How many characters wide one level of indent is.", 1, 8, 1),
     T("editor", "Typing", "editor", "paste_html_as_markdown", "Paste web text as Markdown", "Turn formatted text you paste from a web page into Markdown."),
+    T("editor", "Advanced", "editor", "paste_url_on_selection", "Paste a link over selected words", "Pasting a web address while words are selected turns them into a link to it."),
     U("editor", "Typing", "editor", "vim_mode", "Vim key bindings", "Edit with Vim's modes and keys. Not in this version."),
 
     /* ---- Files and links ---- */

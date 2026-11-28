@@ -63,7 +63,7 @@ struct ExWidget {
     float text_scale;             /* times the base text size (1.0) */
     float text_max;               /* an editor: the widest its text may be, in pixels at 100% (0: as wide as the widget); the readable line length. The text is centered. */
     int bold;
-    int cursor;                   /* the pointer shape over this widget: 0 arrow, 1 resize left and right */
+    int cursor;                   /* the pointer shape over this widget: 0 arrow, 1 resize left and right, 2 text (an editor) */
     int disabled;                 /* a button that does nothing yet: drawn faint, no focus, no click (its name says so)
  */
     int menu_item;                /* a button of a popup menu: icon and text at the left, a chevron at the right when submenu is set */
@@ -166,6 +166,7 @@ void ex_reading_set_scroll(ExWidget *w, float y);
 /* A widget that has more to make (the equations and diagrams of a page, a layout that is not finished) asks for another frame; the main loop takes the request once a loop and draws without waiting for an event. */
 void ex_ui_request_frame(void);
 int ex_ui_take_frame_request(void);
+void ex_reading_scroll_smooth(ExWidget *w, float dy);   /* the wheel: eases towards the place */
 void ex_reading_set_options(ExWidget *w, int strict_line_breaks, int readable_line_length);   /* the settings editor.strict_line_breaks and editor.readable_line_length */
 void ex_reading_set_page_scale(ExWidget *w, float f);
 /* The file explorer's tree: shows ex_vault_row() rows with chevrons, keeps a selection,
