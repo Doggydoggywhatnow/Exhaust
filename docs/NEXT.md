@@ -29,7 +29,7 @@ Written 2026-11-28 by agent v.08 from `PROGRESS.md`, `ISSUES.md`, `HANDOFF-agent
 | **M3 Good to write in** | the editor gaps a writer meets in the first hour | W1 to W9 | 15 to 20 |
 | **M4 0.1.0** | add-on package against real PDFium and libmpv, screen reader and IME passes, checks, tag | R1 to R5 | 6 to 8 |
 | **M5 0.2.0 Depth** | the README's features, made as good as their wording | D1 to D12 | many |
-| **M6 0.3.0 Reach** | the *(later)* and *(optional)* features | X1 to X9 | many |
+| **M6 0.3.0 Reach** | the *(later)* and *(optional)* features, and the Android port | X1 to X10 | many |
 
 A sitting is one agent session. Slice 9 of `0.1.0.md` becomes **I1 (9b), I2 (9a), I3 (9c)** and **R1 and R4 (9d)**; its "Done when" lines stay the contract.
 
@@ -143,6 +143,7 @@ Things the README marks *(later)* or *(optional)*. Each is a feature of its own;
 | X7 | Optional network features | manual update check, the community directory, external images, map tiles for Bases, each behind its own switch with a test that allows exactly those calls |
 | X8 | Emoji and scripts | COLR v1 color emoji (not drawn today), complex-script checks |
 | X9 | Signing and notarization | Windows code signing, macOS signing and notarization; needs the owner's certificates |
+| X10 | Android port (README, *Future goals*) | an Android platform layer in `src/platform/` (files, watcher, trash, clipboard, packaging) and a touch-first interface (phone layout, on-screen keyboard, touch selection, scroll and zoom) with the same vault format, privacy and accessibility; large, and best started after 0.2.0. Until then, new platform code goes behind `src/platform/` so it stays possible |
 
 ## 11. Decisions for the owner
 
@@ -156,7 +157,7 @@ Each has a recommendation; the plan assumes it until told otherwise.
 
 ## 12. Left out on purpose
 
-The README's **Non-goals** (web viewer, mobile, accounts and licenses, a hosted Sync or Publish server, PDF annotation, Obsidian's JavaScript plugins) and **Sync, shared vaults and publishing**, which stay labelled stubs: any file-sync tool already syncs a vault, and D4 makes that claim true. Nothing here adds a web view, a JavaScript engine in Exhaust, or a network request that is on by default.
+The README's **Non-goals** (web viewer, mobile apps other than the Android port of *Future goals* (X10), accounts and licenses, a hosted Sync or Publish server, PDF annotation, Obsidian's JavaScript plugins) and **Sync, shared vaults and publishing**, which stay labelled stubs: any file-sync tool already syncs a vault, and D4 makes that claim true. Nothing here adds a web view, a JavaScript engine in Exhaust, or a network request that is on by default.
 
 ## 13. Rules that do not change
 
